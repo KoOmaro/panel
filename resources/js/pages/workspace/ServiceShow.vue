@@ -149,7 +149,11 @@ const props = defineProps<{
         canMove: boolean;
         deployedAt: string | null;
         snapshotBefore: boolean;
-        deployOnPush: { on: boolean; branch: string } | null;
+        deployOnPush: {
+            on: boolean;
+            branch: string;
+            onlyNewest: boolean;
+        } | null;
         site: SiteSwitches;
         traffic: SiteTrafficState;
         database: {
@@ -681,6 +685,7 @@ async function saveDatabase(value: string): Promise<void> {
 
 const deployOnPush = ref(props.app?.deployOnPush?.on ?? false);
 const pushBranch = ref(props.app?.deployOnPush?.branch ?? 'main');
+const pushOnlyNewest = ref(props.app?.deployOnPush?.onlyNewest ?? true);
 const pushBranchError = ref<string | null>(null);
 watch(
     () => props.app?.deployOnPush,
@@ -688,12 +693,14 @@ watch(
         if (!setting) return;
         deployOnPush.value = setting.on;
         pushBranch.value = setting.branch;
+        pushOnlyNewest.value = setting.onlyNewest;
     },
 );
 
 async function savePushSettings(body: {
     deploy_on_push?: boolean;
     push_branch?: string;
+    push_only_newest?: boolean;
 }): Promise<boolean> {
     if (!props.app) return false;
     pushBranchError.value = null;
@@ -728,6 +735,12 @@ async function saveDeployOnPush(on: boolean): Promise<void> {
         push_branch: pushBranch.value.trim() || 'main',
     });
     if (!saved) deployOnPush.value = !on;
+}
+
+async function savePushOnlyNewest(on: boolean): Promise<void> {
+    if (!(await savePushSettings({ push_only_newest: on }))) {
+        pushOnlyNewest.value = !on;
+    }
 }
 
 async function savePushBranch(): Promise<void> {
@@ -2002,6 +2015,29 @@ const focusRing =
                                   )
                                 : $t(
                                       'Turn on to deploy every push without a workflow.',
+                                  )
+                        }}</span>
+                    </div>
+                    <div
+                        v-if="app.deployOnPush && deployOnPush"
+                        class="flex w-full flex-wrap items-center gap-2.5 text-[13px] text-(--ds-text-secondary)"
+                    >
+                        <label class="flex items-center gap-2.5">
+                            {{ ' ' + $t('Only build the newest push') }}
+                            <ToggleSwitch
+                                v-model="pushOnlyNewest"
+                                :label="$t('Only build the newest push')"
+                                :disabled="!canManage"
+                                @update:model-value="savePushOnlyNewest"
+                            />
+                        </label>
+                        <span class="text-xs text-(--ds-text-faint)">{{
+                            pushOnlyNewest
+                                ? $t(
+                                      'A push that comes in while it’s deploying waits, and a newer push replaces it.',
+                                  )
+                                : $t(
+                                      'Every push deploys as it comes in, even while another is deploying.',
                                   )
                         }}</span>
                     </div>

@@ -147,6 +147,7 @@ class AppVersionController extends Controller
             'database' => ['sometimes', 'string', Rule::in(['auto', 'none', ...$databases])],
             'deploy_on_push' => ['sometimes', 'boolean'],
             'push_branch' => ['sometimes', 'string', 'max:200', 'regex:'.DeployOnPush::BRANCH_PATTERN],
+            'push_only_newest' => ['sometimes', 'boolean'],
         ], ['database.in' => 'That database isn’t on this machine.', 'push_branch.regex' => 'That isn’t a branch name.']);
 
         if (($data['deploy_on_push'] ?? false) && DeployOnPush::repoName(self::lastDeployOf($machine, $service)?->command['job']['repo'] ?? null) === null) {
@@ -155,7 +156,7 @@ class AppVersionController extends Controller
 
         $settings = $machine->app_settings ?? [];
         $before = $settings[$service] ?? [];
-        $settings[$service] = [...$before, ...array_intersect_key($data, array_flip(['snapshot_before', 'database', 'deploy_on_push', 'push_branch']))];
+        $settings[$service] = [...$before, ...array_intersect_key($data, array_flip(['snapshot_before', 'database', 'deploy_on_push', 'push_branch', 'push_only_newest']))];
         if ($data['deploy_on_push'] ?? false) {
             $settings[$service]['push_user_id'] = $request->user()->id;
         }

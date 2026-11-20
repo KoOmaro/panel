@@ -9,6 +9,8 @@ use App\Mcp\Scopes;
 use App\Mcp\Tool;
 use App\Mcp\ToolError;
 use App\Models\DeploySource;
+use App\Models\Machine;
+use App\Support\Deploys\DeployOnPush;
 
 final class UpdateAppSettings extends Tool
 {
@@ -30,6 +32,7 @@ final class UpdateAppSettings extends Tool
     {
         return 'Changes an app’s settings (its environment variables) and deploys its live version again with them: the same code, domain, port and health check, with only the settings named here changed. set adds or replaces settings by name ({"API_URL": "https://..."}); remove takes names to drop. The rest stay as they are, and the answer only ever names settings, never their values. '
             .'The live commit is deployed again with them: an up-to-date daemon starts it beside the running container and switches over once it’s healthy, with no downtime and no rebuild (an older daemon replaces it in place, a moment of downtime); its data stays, since volumes and databases aren’t touched. Settings a frontend build bakes in (NEXT_PUBLIC_, VITE_ and the like) need a new build, so they’re refused here: change them with deploy_template. '
+            .'only_newest_push changes how deploying each push works for it (get_app’s deployOnPush.onlyNewest, on by default): on, a push that comes in while the app is deploying waits, and a newer push replaces it, so only the newest commit is built; off, every push deploys straight away. It’s saved without deploying anything. '
             .'Check with the person first: say the app, the machine and which settings change. app is the name it was deployed as (list_deploys or get_app shows it). Returns the queued job; follow it with get_job or list_deploys.';
     }
 
@@ -40,6 +43,7 @@ final class UpdateAppSettings extends Tool
             'app' => Schema::string('The app: the name it was deployed as (like shop), or app:<name>.', maxLength: 300),
             'set' => ['type' => 'object', 'description' => 'Settings to add or replace, by name, like {"API_URL": "https://api.example.com"}. Values are text.', 'additionalProperties' => ['type' => 'string']],
             'remove' => Schema::array(Schema::string('A setting’s name.', maxLength: 128), 'Names of settings to remove.', maxItems: 50),
+            'only_newest_push' => Schema::boolean('With deploying each push on: only build the newest of the pushes that wait while it deploys (on), or deploy every push straight away (off).'),
             'wait' => Deploys::waitSchema(),
         ], ['machine', 'app']);
     }
@@ -58,13 +62,15 @@ final class UpdateAppSettings extends Tool
             'set.*' => ['nullable', 'string', 'max:10000'],
             'remove' => ['sometimes', 'array', 'max:50'],
             'remove.*' => ['string', 'max:128'],
+            'only_newest_push' => ['sometimes', 'boolean'],
             'wait' => Deploys::waitRules(),
         ]);
 
         $set = array_map(fn ($value) => (string) $value, (array) ($args['set'] ?? []));
         $remove = array_values(array_unique(array_map('strval', (array) ($args['remove'] ?? []))));
-        if ($set === [] && $remove === []) {
-            throw new ToolError('Say which settings to change: set some, or remove some.');
+        $pushSetting = array_key_exists('only_newest_push', $args);
+        if ($set === [] && $remove === [] && ! $pushSetting) {
+            throw new ToolError('Say which settings to change: set some, remove some, or give only_newest_push.');
         }
         foreach ([...array_keys($set), ...$remove] as $name) {
             if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', (string) $name)) {
@@ -83,6 +89,18 @@ final class UpdateAppSettings extends Tool
         $last = Deploys::lastDeploy($machine, $app);
         if ($last === null || ! $last->isRetryable()) {
             throw new ToolError("{$app} has no successful deploy on {$machine->name} to change. list_deploys shows its deploys.");
+        }
+
+        if ($pushSetting) {
+            $this->savePushSetting($context, $machine, $app, (bool) $args['only_newest_push']);
+            if ($set === [] && $remove === []) {
+                return [
+                    'machine' => ['id' => $machine->id, 'name' => $machine->name],
+                    'app' => $app,
+                    'deployOnPush' => DeployOnPush::setting($machine, $app),
+                    'note' => 'Saved. Nothing was deployed.',
+                ];
+            }
         }
 
         $spec = $last->command['job'];
@@ -117,8 +135,21 @@ final class UpdateAppSettings extends Tool
             'removed' => $remove,
             'settings' => array_map('strval', array_keys($spec['env'])),
             'job' => Present::job($job, 20),
+            'deployOnPush' => $pushSetting ? DeployOnPush::setting($machine, $app) : null,
             'deploymentsUrl' => $context->url("/machines/{$machine->id}?job={$job->id}"),
             'next' => 'The live version is deployed again with the new settings, replacing its container in place. Follow it with get_job (id '.$job->id.').',
         ];
+    }
+
+    private function savePushSetting(McpContext $context, Machine $machine, string $app, bool $onlyNewest): void
+    {
+        $settings = $machine->app_settings ?? [];
+        $before = DeployOnPush::setting($machine, $app)['onlyNewest'];
+        $settings[$app] = [...($settings[$app] ?? []), 'push_only_newest' => $onlyNewest];
+        $machine->forceFill(['app_settings' => $settings])->save();
+
+        if ($before !== $onlyNewest) {
+            $context->record('app.settings', $app, $machine, ['push_only_newest' => $onlyNewest]);
+        }
     }
 }

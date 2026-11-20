@@ -37,6 +37,7 @@ Schedule::command('summaries:send')->weeklyOn(1, '07:41')->withoutOverlapping();
 Schedule::command('plans:expire-manual')->hourly()->withoutOverlapping();
 Schedule::command('plans:end-grace')->hourly()->withoutOverlapping();
 Schedule::command('deploy-sources:prune')->hourly()->withoutOverlapping();
+Schedule::command('deploys:release-waiting')->everyMinute()->withoutOverlapping(5);
 
 if (Edition::selfHosted()) {
     Schedule::command('daemon:sync-releases')->hourlyAt(29)->withoutOverlapping();

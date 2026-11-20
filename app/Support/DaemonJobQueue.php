@@ -62,16 +62,40 @@ class DaemonJobQueue
      *
      * @throws RuntimeException
      */
-    public function deploy(Machine $machine, User $user, array $job): DaemonJob
+    public function deploy(Machine $machine, User $user, array $job, bool $hold = false, ?string $trigger = null): DaemonJob
     {
         $job['snapshot_before'] = $machine->snapshotsBeforeDeploy((string) $job['service']);
         $database = $job['snapshot_before'] ? AppDatabase::for($machine, (string) $job['service'], (array) ($job['env'] ?? [])) : null;
         $job['snapshot_also'] = $database === null ? [] : [$database['key']];
 
-        $record = $this->queue($machine, $user, 'deploy', $job, $job['service'], self::DEPLOY_TIMEOUT_SECS);
+        $record = $this->queue($machine, $user, 'deploy', $job, $job['service'], self::DEPLOY_TIMEOUT_SECS, hold: $hold, trigger: $trigger);
         event(new DeployQueued($machine, $record, (array) ($job['domains'] ?? [])));
 
         return $record;
+    }
+
+    /**
+     * Send a job that was held in the panel (a push deploy waiting for the
+     * deploy before it) to its machine now.
+     */
+    public function release(DaemonJob $record): void
+    {
+        if (! $record->held || $record->state !== 'queued' || $record->command === null) {
+            return;
+        }
+        $record->forceFill(['held' => false, 'phase' => null, 'log' => [...($record->log ?? []), 'The deploy before it finished: starting now.']])->save();
+
+        if (($reason = self::needsPlan($record->machine, $record->kind)) !== null) {
+            $record->forceFill(['state' => 'refused', 'error' => ['phase' => 'queue', 'message' => $reason], 'finished_at' => now()])->save();
+
+            return;
+        }
+
+        try {
+            $this->send($record->machine, $record, $record->command);
+        } catch (RuntimeException) {
+            // send() has marked it refused, with why.
+        }
     }
 
     /**
@@ -81,7 +105,7 @@ class DaemonJobQueue
      *
      * @throws RuntimeException
      */
-    public function queue(Machine $machine, User $user, string $kind, array $job, ?string $service, int $timeoutSecs = 300, ?array $then = null, array $meta = []): DaemonJob
+    public function queue(Machine $machine, User $user, string $kind, array $job, ?string $service, int $timeoutSecs = 300, ?array $then = null, array $meta = [], bool $hold = false, ?string $trigger = null): DaemonJob
     {
         if (($reason = self::needsPlan($machine, $kind)) !== null) {
             throw new RuntimeException($reason);
@@ -104,12 +128,17 @@ class DaemonJobQueue
             'command' => $command,
             'service' => $service,
             'state' => 'queued',
-            'log' => [],
+            'phase' => $hold ? 'waiting' : null,
+            'log' => $hold ? ['Waiting for the deploy before it to finish.'] : [],
             'mcp_call_id' => self::callId(),
             'then' => $then,
+            'trigger' => $trigger,
+            'held' => $hold,
         ]);
 
-        $this->send($machine, $record, $command);
+        if (! $hold) {
+            $this->send($machine, $record, $command);
+        }
         $this->recordActivity($machine, $user, $kind, $job, $service, $meta);
 
         return $record;

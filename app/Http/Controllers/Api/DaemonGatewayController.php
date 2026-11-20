@@ -14,6 +14,7 @@ use App\Support\Backups\BackupRunner;
 use App\Support\DaemonFacts;
 use App\Support\DaemonJobQueue;
 use App\Support\Databases\DatabaseConsole;
+use App\Support\Deploys\DeployOnPush;
 use App\Support\Deploys\ServiceLabels;
 use App\Support\Files\FileJobs;
 use App\Support\Fixes\FixRunner;
@@ -512,6 +513,9 @@ class DaemonGatewayController extends Controller
             app(DaemonJobQueue::class)->followUp($job);
             if ($job->kind === 'network') {
                 app(ProjectNetwork::class)->jobFinished($job);
+            }
+            if (in_array($job->kind, ['deploy', 'rollback'], true) && is_string($job->service)) {
+                app(DeployOnPush::class)->release($job->machine, $job->service);
             }
             if ($job->kind === 'deploy') {
                 app(ProjectLinks::class)->deployFinished($job);
