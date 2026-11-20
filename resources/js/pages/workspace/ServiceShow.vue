@@ -6,6 +6,7 @@ import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { Ellipsis, LoaderCircle, Search, X } from '@lucide/vue';
 import {
     SolarCopyPlus as CopyPlus,
+    SolarCpu as Cpu,
     SolarEye as Eye,
     SolarEyeOff as EyeOff,
     SolarFileText as FileText,
@@ -38,6 +39,8 @@ import { toast } from '@/lib/toast';
 import InputError from '@/components/InputError.vue';
 import AppSiteDialog from '@/components/machines/AppSiteDialog.vue';
 import type { SiteSwitches } from '@/components/machines/AppSiteDialog.vue';
+import AppLimitsDialog from '@/components/machines/AppLimitsDialog.vue';
+import type { AppLimits } from '@/components/machines/AppLimitsDialog.vue';
 import AppVariablesDialog from '@/components/machines/AppVariablesDialog.vue';
 import CloneServiceDialog from '@/components/machines/CloneServiceDialog.vue';
 import DatabaseBrowser from '@/components/machines/DatabaseBrowser.vue';
@@ -163,6 +166,7 @@ const props = defineProps<{
         };
         versions: AppVersion[];
         variables: string[];
+        limits: AppLimits;
     } | null;
 }>();
 
@@ -345,11 +349,47 @@ function uptime(startedAt: number | null | undefined): string {
     return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
 }
 
+const appliedLimits = computed(() => props.app?.limits?.applied ?? null);
 const memLimit = computed(() =>
-    props.stats?.memLimit && props.stats.memLimit < 2 ** 50
-        ? props.stats.memLimit
-        : null,
+    appliedLimits.value?.memoryMb
+        ? appliedLimits.value.memoryMb * 1024 * 1024
+        : props.stats?.memLimit && props.stats.memLimit < 2 ** 50
+          ? props.stats.memLimit
+          : null,
 );
+
+function cpusLabel(cpus: number): string {
+    return cpus === 1
+        ? trans('1 CPU')
+        : trans(':count CPUs', { count: String(cpus) });
+}
+
+function limitsLabel(
+    limits: { cpus: number | null; memoryMb: number | null } | null,
+): string {
+    if (!limits) return trans('No limits');
+
+    return [
+        limits.cpus ? cpusLabel(limits.cpus) : null,
+        limits.memoryMb
+            ? limits.memoryMb >= 1024 && limits.memoryMb % 1024 === 0
+                ? `${limits.memoryMb / 1024} GB`
+                : `${limits.memoryMb} MB`
+            : null,
+    ]
+        .filter(Boolean)
+        .join(', ');
+}
+
+const limitsPending = computed(() => {
+    const limits = props.app?.limits;
+    if (!limits?.setting) return false;
+
+    return (
+        limits.setting.cpus !== (limits.applied?.cpus ?? null) ||
+        limits.setting.memoryMb !== (limits.applied?.memoryMb ?? null)
+    );
+});
 
 const statusTone: Record<string, { dot: string; label: string }> = {
     running: { dot: 'bg-(--ds-green)', label: trans('Running') },
@@ -912,6 +952,7 @@ watch(
 onBeforeUnmount(() => {
     if (sitePoll) clearInterval(sitePoll);
 });
+const limitsOpen = ref(false);
 
 function variablesSaved(jobId: string | null): void {
     if (jobId && props.machine.id) {
@@ -1925,6 +1966,42 @@ const focusRing =
                         </div>
                     </dl>
                 </section>
+
+                <section
+                    class="ds-tile flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center lg:col-span-2"
+                    :aria-label="$t('CPU and memory limits')"
+                >
+                    <span class="ds-icon-chip shrink-0">
+                        <Cpu class="size-4" />
+                    </span>
+                    <div class="flex min-w-0 grow flex-col gap-0.5">
+                        <span class="text-[13px] text-(--ds-text-muted)">{{
+                            $t('CPU and memory limits')
+                        }}</span>
+                        <span class="text-sm font-medium">{{
+                            limitsLabel(app.limits.setting)
+                        }}</span>
+                        <span class="text-xs text-(--ds-text-faint)">{{
+                            app.limits.unavailable
+                                ? app.limits.unavailable
+                                : limitsPending
+                                  ? $t(
+                                        'Not applied yet: it runs without them until it deploys again.',
+                                    )
+                                  : $t(
+                                        'The most it may use. Saving a change deploys it again.',
+                                    )
+                        }}</span>
+                    </div>
+                    <AppButton
+                        v-if="canManage"
+                        class="shrink-0"
+                        :disabled="!online || app.limits.unavailable !== null"
+                        @click="limitsOpen = true"
+                    >
+                        {{ $t('Edit') }}
+                    </AppButton>
+                </section>
             </div>
             <AppVariablesDialog
                 v-if="canManage && app"
@@ -1940,6 +2017,14 @@ const focusRing =
                 :app="app.service"
                 :site="app.site"
                 @saved="router.reload({ only: ['app'] })"
+            />
+            <AppLimitsDialog
+                v-if="canManage && app"
+                v-model:open="limitsOpen"
+                :machine-id="machine.id!"
+                :app="app.service"
+                :limits="app.limits"
+                @saved="variablesSaved"
             />
 
             <section
@@ -2125,7 +2210,11 @@ const focusRing =
                             : percent(stats.cpu)
                     }}</span>
                     <span class="text-xs text-(--ds-text-faint)">{{
-                        $t('of the whole machine')
+                        appliedLimits?.cpus
+                            ? $t('of the whole machine, limit :value', {
+                                  value: cpusLabel(appliedLimits.cpus),
+                              })
+                            : $t('of the whole machine')
                     }}</span>
                 </li>
                 <li class="ds-tile flex flex-col gap-1 px-5 py-4">

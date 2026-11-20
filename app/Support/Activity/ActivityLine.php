@@ -285,6 +285,12 @@ final class ActivityLine
                 default => $set('changed the maintenance page for'),
             },
             'app.deploy_key' => $set('made a deploy key for', 'to fetch its private repository'),
+            'app.limits' => ($meta['cpus'] ?? null) === null && ($meta['memory_mb'] ?? null) === null
+                ? $set('took the CPU and memory limits off')
+                : $set('limited', $t('to :limits', ['limits' => implode(', ', array_filter([
+                    isset($meta['cpus']) ? $meta['cpus'].' '.((float) $meta['cpus'] === 1.0 ? 'CPU' : 'CPUs') : null,
+                    isset($meta['memory_mb']) ? $meta['memory_mb'].' MB' : null,
+                ]))])),
             'app.push_replaced' => $set('skipped an older push to', $t(':commit, since :newer came after it', ['commit' => (string) ($meta['commit'] ?? ''), 'newer' => (string) ($meta['newer'] ?? '')])),
             'app.push_skipped' => $set('didn’t deploy a push to', $t(':commit to :branch: :reason', ['commit' => (string) ($meta['commit'] ?? ''), 'branch' => (string) ($meta['branch'] ?? ''), 'reason' => rtrim((string) ($meta['reason'] ?? ''), '.')]), 'warn'),
             'backup_destination.update' => $set('changed the backup destination', isset($meta['from']) ? $t('(was :name)', ['name' => $meta['from']]) : null),

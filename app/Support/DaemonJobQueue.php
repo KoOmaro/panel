@@ -12,6 +12,7 @@ use App\Models\Machine;
 use App\Models\User;
 use App\Support\Audit\AuditContext;
 use App\Support\Deploys\AppDatabase;
+use App\Support\Deploys\AppLimits;
 use App\Support\GitHub\GitHubApp;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -64,6 +65,7 @@ class DaemonJobQueue
      */
     public function deploy(Machine $machine, User $user, array $job, bool $hold = false, ?string $trigger = null): DaemonJob
     {
+        $job = AppLimits::forJob($machine, $job);
         $job['snapshot_before'] = $machine->snapshotsBeforeDeploy((string) $job['service']);
         $database = $job['snapshot_before'] ? AppDatabase::for($machine, (string) $job['service'], (array) ($job['env'] ?? [])) : null;
         $job['snapshot_also'] = $database === null ? [] : [$database['key']];
@@ -377,6 +379,16 @@ class DaemonJobQueue
     public static function canResolveRef(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.resolve_ref_since'));
+    }
+
+    public static function canLimitResources(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.resource_limits_since'));
+    }
+
+    public static function canUseRegistryLogins(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.registry_logins_since'));
     }
 
     public static function canComposeFromRepo(Machine $machine): bool

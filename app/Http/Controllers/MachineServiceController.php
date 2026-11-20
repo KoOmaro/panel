@@ -118,6 +118,7 @@ class MachineServiceController extends Controller
                 'database' => AppVersionController::databaseProps($machine, $deploy),
                 'site' => SiteSwitches::props($machine, (string) $deploy->service, (array) ($deploy->command['job']['domains'] ?? [])),
                 'traffic' => SiteTraffic::state($machine, (string) $deploy->service, (array) ($deploy->command['job']['domains'] ?? [])),
+                'limits' => AppVersionController::limitsProps($machine, $deploy),
                 'versions' => array_map(fn (array $v) => [
                     'commit' => $v['commit'],
                     'live' => $v['live'],
