@@ -65,6 +65,7 @@ final class ActivityLine
             'machine.reboot' => $set('restarted', null, 'warn'),
             'machine.firewall' => $set($t(($meta['action'] ?? null) === 'open' ? 'opened port :port on' : 'closed port :port on', ['port' => $meta['port'] ?? '']), null, ($meta['action'] ?? null) === 'open' ? 'warn' : 'neutral'),
             'machine.traffic' => $set(($meta['enabled'] ?? null) === true ? 'started counting site traffic on' : 'stopped counting site traffic on'),
+            'machine.traffic_timing' => $set($t('added response times to :site’s access log on', ['site' => (string) ($meta['site'] ?? '')]), null, 'warn'),
             'machine.tunnel' => $set(($meta['action'] ?? null) === 'up' ? 'put a Cloudflare Tunnel on' : 'took the Cloudflare Tunnel off', null, 'warn'),
             'machine.remove' => $set('removed the machine', null, 'bad'),
             'machine.data_clear' => $set(match (array_keys(array_intersect_key($meta, array_flip(['logs', 'metrics', 'services'])))) {

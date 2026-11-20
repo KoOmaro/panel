@@ -4,15 +4,29 @@ import { LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import TimeSeriesChart from '@/components/machines/TimeSeriesChart.vue';
+import TrafficTimingDialog from '@/components/machines/TrafficTimingDialog.vue';
+import { appButtonClasses } from '@/lib/appButton';
 import { errorMessage, describe } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
 import { themeColour } from '@/lib/themeColour';
+
+/** A site the machine's own nginx or Apache config serves. */
+export type ExistingSite = {
+    server: string;
+    names: string[];
+    logs: string[];
+    configs: string[];
+    timed: boolean;
+    shared: boolean;
+    copy: boolean;
+};
 
 export type SiteTrafficState = {
     site: string;
     domain: string | null;
     collecting: boolean;
     blocked: string | null;
+    existing?: ExistingSite | null;
 };
 
 type Point = {
@@ -58,6 +72,26 @@ const props = defineProps<{
     state: SiteTrafficState;
     canManage: boolean;
 }>();
+const emit = defineEmits<{ changed: [] }>();
+
+const existing = computed(() => props.state.existing ?? null);
+// Sites of the machine's own web server only have times when their log
+// format records them.
+const timed = computed(() => existing.value?.timed ?? true);
+const timing = ref(false);
+const timingAsked = ref(false);
+const label = computed(() => {
+    if (!existing.value) return props.state.domain ?? '';
+    if (existing.value.shared)
+        return existing.value.logs[0] ?? props.state.site;
+
+    return props.state.domain ?? trans('Default site');
+});
+const url = computed(() =>
+    existing.value
+        ? `/machines/${props.machineId}/sites/${encodeURIComponent(props.state.site)}/traffic`
+        : `/machines/${props.machineId}/apps/${encodeURIComponent(props.app)}/traffic`,
+);
 
 const ranges: { value: Range; label: string }[] = [
     { value: '24h', label: '24h' },
@@ -73,7 +107,7 @@ let refresh: ReturnType<typeof setTimeout> | undefined;
 
 const ready = computed(
     () =>
-        props.state.domain !== null &&
+        (props.state.domain !== null || existing.value !== null) &&
         props.state.blocked === null &&
         props.state.collecting,
 );
@@ -86,14 +120,11 @@ async function load(quiet = false): Promise<void> {
     clearTimeout(refresh);
 
     try {
-        const response = await fetch(
-            `/machines/${props.machineId}/apps/${encodeURIComponent(props.app)}/traffic?range=${range.value}`,
-            {
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json' },
-                signal: controller.signal,
-            },
-        );
+        const response = await fetch(`${url.value}?range=${range.value}`, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+        });
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(describe(response.status, body));
         report.value = body as Report;
@@ -109,6 +140,10 @@ async function load(quiet = false): Promise<void> {
 }
 
 watch(range, () => load());
+watch(url, () => {
+    report.value = null;
+    load();
+});
 watch(ready, (now) => {
     if (now) load();
 });
@@ -260,12 +295,20 @@ const tiles = computed(() => {
             note: trans('sent to visitors'),
             tone: '',
         },
-        {
-            label: trans('Response time'),
-            value: ms(s.p95),
-            note: trans('p95, median :value', { value: ms(s.p50) }),
-            tone: '',
-        },
+        timed.value
+            ? {
+                  label: trans('Response time'),
+                  value: ms(s.p95),
+                  note: trans('p95, median :value', { value: ms(s.p50) }),
+                  tone: '',
+              }
+            : {
+                  label: trans('Response time'),
+                  value: trans('Not recorded'),
+                  note: trans('not in this log’s format'),
+                  // Words, not a number: smaller, so they fit the tile.
+                  tone: 'text-[18px]/9 text-(--ds-text-muted)',
+              },
         {
             label: trans('Visitors'),
             value: compact(s.visitors),
@@ -295,6 +338,19 @@ const tables = computed(() => [
 ]);
 
 const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
+const files = computed(() => existing.value?.logs.join(', ') ?? '');
+const canFix = computed(
+    () =>
+        props.canManage &&
+        existing.value !== null &&
+        !existing.value.timed &&
+        !existing.value.copy,
+);
+
+function recorded(): void {
+    timingAsked.value = true;
+    emit('changed');
+}
 </script>
 
 <template>
@@ -303,9 +359,10 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
             <div class="flex min-w-0 items-baseline gap-2">
                 <h2 class="text-[15px] font-medium">{{ $t('Traffic') }}</h2>
                 <span
-                    v-if="state.domain"
+                    v-if="label"
                     class="truncate font-ui-mono text-[12px] text-(--ds-text-faint)"
-                    >{{ state.domain }}</span
+                    :title="label"
+                    >{{ label }}</span
                 >
             </div>
             <div class="flex items-center gap-3">
@@ -335,7 +392,7 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
         </div>
 
         <div
-            v-if="!state.domain"
+            v-if="!state.domain && !existing"
             class="ds-tile flex flex-col items-center gap-1 px-5 py-10 text-center text-[13px]/5"
         >
             <p class="font-medium">{{ $t('This app has no domain') }}</p>
@@ -365,9 +422,13 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
             </p>
             <p class="max-w-md text-(--ds-text-muted)">
                 {{
-                    $t(
-                        'Turn on Traffic in the machine’s settings to count visits from the proxy’s access logs. Visitor IPs never leave the machine.',
-                    )
+                    existing
+                        ? $t(
+                              'Turn on Traffic in the machine’s settings to count visits from the access logs your web server already writes. ServerOS only reads them, and visitor IPs never leave the machine.',
+                          )
+                        : $t(
+                              'Turn on Traffic in the machine’s settings to count visits from the proxy’s access logs. Visitor IPs never leave the machine.',
+                          )
                 }}
             </p>
             <Link
@@ -409,6 +470,42 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
         </div>
 
         <template v-else>
+            <section
+                v-if="existing?.shared"
+                class="ds-tile flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                :aria-label="$t('Counted together')"
+            >
+                <div class="flex min-w-0 flex-col gap-0.5 text-[13px]/5">
+                    <h3 class="font-medium">{{ $t('Counted together') }}</h3>
+                    <p class="text-(--ds-text-muted)">
+                        {{
+                            $t(
+                                ':count sites write :file, and its lines don’t say which site a request was for, so they’re counted as one: :names.',
+                                {
+                                    count: String(existing.names.length),
+                                    file: existing.logs[0] ?? '',
+                                    names: existing.names.join(', '),
+                                },
+                            )
+                        }}
+                    </p>
+                </div>
+                <button
+                    v-if="canFix"
+                    type="button"
+                    :class="
+                        appButtonClasses(
+                            'secondary',
+                            'md',
+                            'self-start sm:self-center',
+                        )
+                    "
+                    @click="timing = true"
+                >
+                    {{ $t('Count them apart') }}
+                </button>
+            </section>
+
             <ul
                 class="grid grid-cols-2 gap-4 lg:grid-cols-5"
                 :aria-label="$t('Summary')"
@@ -422,8 +519,13 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
                         tile.label
                     }}</span>
                     <span
-                        class="truncate text-[28px]/9 font-medium tabular-nums"
-                        :class="tile.tone"
+                        class="truncate font-medium tabular-nums"
+                        :class="[
+                            tile.tone.includes('text-[18px]')
+                                ? ''
+                                : 'text-[28px]/9',
+                            tile.tone,
+                        ]"
                         >{{ tile.value }}</span
                     >
                     <span class="truncate text-xs text-(--ds-text-faint)">{{
@@ -455,12 +557,48 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
                     :min-max="1000"
                 />
                 <TimeSeriesChart
+                    v-if="timed"
                     :title="$t('Response time')"
                     :timestamps="timestamps"
                     :series="charts.timing"
                     :format="ms"
                     :min-max="10"
                 />
+                <section
+                    v-else
+                    class="ds-tile flex min-h-48 min-w-0 flex-col gap-3 p-4"
+                    :aria-label="$t('Response time')"
+                >
+                    <h3
+                        class="text-[13px]/5 font-medium text-(--ds-text-muted)"
+                    >
+                        {{ $t('Response time') }}
+                    </h3>
+                    <div
+                        class="flex flex-1 flex-col items-center justify-center gap-1 px-4 text-center text-[13px]/5"
+                    >
+                        <p class="font-medium">{{ $t('Not recorded') }}</p>
+                        <p class="max-w-sm text-(--ds-text-muted)">
+                            {{
+                                timingAsked
+                                    ? $t(
+                                          'Response times show up here for new visits within a couple of minutes.',
+                                      )
+                                    : $t(
+                                          'This site’s access log doesn’t say how long requests took. ServerOS can add a copy of the log that does, and shows you every line first.',
+                                      )
+                            }}
+                        </p>
+                        <button
+                            v-if="canFix && !timingAsked"
+                            type="button"
+                            :class="appButtonClasses('secondary', 'md', 'mt-2')"
+                            @click="timing = true"
+                        >
+                            {{ $t('Record response times') }}
+                        </button>
+                    </div>
+                </section>
             </div>
 
             <div class="grid gap-4 lg:grid-cols-2">
@@ -544,7 +682,20 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
                 </section>
             </div>
 
-            <p class="text-xs text-(--ds-text-faint)">
+            <p v-if="existing" class="text-xs text-(--ds-text-faint)">
+                {{
+                    existing.copy
+                        ? $t(
+                              'Counted on :name from a copy of :server’s access log with response times, which ServerOS added. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
+                              { name: machineName, server: existing.server },
+                          )
+                        : $t(
+                              'Counted on :name from :files, which ServerOS only reads. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
+                              { name: machineName, files },
+                          )
+                }}
+            </p>
+            <p v-else class="text-xs text-(--ds-text-faint)">
                 {{
                     $t(
                         'Counted on :name from the proxy’s access logs. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
@@ -553,5 +704,14 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
                 }}
             </p>
         </template>
+
+        <TrafficTimingDialog
+            v-if="canFix"
+            v-model:open="timing"
+            :machine-id="machineId"
+            :site="state.site"
+            :label="label"
+            @applied="recorded"
+        />
     </div>
 </template>

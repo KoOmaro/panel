@@ -25,7 +25,9 @@ use App\Support\Files\FileJobs;
 use App\Support\Machines\ServiceClones;
 use App\Support\Projects\AppSettings;
 use App\Support\Projects\Placement;
+use App\Support\Traffic\ExistingSites;
 use App\Support\Traffic\SiteTraffic;
+use App\Support\Traffic\TrafficSwitch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -134,6 +136,7 @@ class MachineServiceController extends Controller
                     return $names;
                 })(),
             ],
+            'siteTraffic' => self::siteTraffic($machine, $found),
             'commandsEnabled' => (bool) config('daemon.commands_enabled'),
             'files' => fn () => [
                 'places' => FileJobs::placesFor($machine, $found),
@@ -146,6 +149,42 @@ class MachineServiceController extends Controller
                 'minutes' => ConsoleLock::MINUTES,
             ],
         ]);
+    }
+
+    /**
+     * The Traffic tab of a web server (or an app it adopted that one passes
+     * requests to): the sites of the machine's own nginx or Apache config,
+     * or null when there's no such tab.
+     *
+     * @param  array<string, mixed>  $found
+     * @return array{server: string|null, collecting: bool, blocked: string|null, sites: list<array<string, mixed>>}|null
+     */
+    private static function siteTraffic(Machine $machine, array $found): ?array
+    {
+        if (! ExistingSites::available($machine) || is_string($found['app'] ?? null)) {
+            return null;
+        }
+        $server = ExistingSites::serverOf($found);
+        $sites = ExistingSites::forService($machine, $found);
+        if ($sites === [] && $server === null) {
+            return null;
+        }
+        $numbers = SiteTraffic::lastDay($machine);
+        $zero = ['requests' => 0, 'errors' => 0, 'clientErrors' => 0, 'visitors' => 0];
+        $rows = array_map(fn (array $site) => [
+            ...ExistingSites::state($machine, $site),
+            'label' => ExistingSites::label($site),
+            'lastDay' => $numbers[$site['site']] ?? $zero,
+        ], $sites);
+        // Busiest first, as the machine's traffic table has them.
+        usort($rows, fn (array $a, array $b) => [$b['lastDay']['requests'], $a['label']] <=> [$a['lastDay']['requests'], $b['label']]);
+
+        return [
+            'server' => $server === null ? null : ExistingSites::SERVERS[$server],
+            'collecting' => TrafficSwitch::on($machine),
+            'blocked' => TrafficSwitch::blocked($machine),
+            'sites' => $rows,
+        ];
     }
 
     #[Audited]

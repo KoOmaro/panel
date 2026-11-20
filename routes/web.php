@@ -249,6 +249,9 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::put('machines/{machine}/apps/{service}/settings', [AppVersionController::class, 'settings'])->middleware('throttle:20,1')->name('workspace.apps.settings');
         Route::put('machines/{machine}/apps/{service}/site', [AppSiteController::class, 'update'])->middleware('throttle:20,1')->name('workspace.apps.site');
         Route::get('machines/{machine}/apps/{service}/traffic', [MachineTrafficController::class, 'report'])->middleware('throttle:120,1')->name('workspace.apps.traffic');
+        Route::get('machines/{machine}/traffic/sites', [MachineTrafficController::class, 'sites'])->middleware('throttle:120,1')->name('workspace.machines.traffic.sites');
+        Route::get('machines/{machine}/sites/{site}/traffic', [MachineTrafficController::class, 'site'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:120,1')->name('workspace.machines.sites.traffic');
+        Route::get('machines/{machine}/sites/{site}/timing/{job}', [MachineTrafficController::class, 'timingJob'])->where('site', '[A-Za-z0-9_.-]+')->name('workspace.machines.sites.timing.show');
         Route::put('machines/{machine}/apps/{service}/limits', [AppVersionController::class, 'limits'])->middleware('throttle:20,1')->name('workspace.apps.limits');
         Route::get('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'variables'])->middleware('throttle:60,1')->name('workspace.apps.variables');
         Route::put('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'updateVariables'])->middleware('throttle:20,1')->name('workspace.apps.variables.update');
@@ -325,6 +328,7 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::get('machines/{machine}/tunnel/{job}', [MachineTunnelController::class, 'show'])->name('workspace.machines.tunnel.show');
         Route::put('machines/{machine}/traffic', [MachineTrafficController::class, 'update'])->middleware('throttle:10,1')->name('workspace.machines.traffic.update');
         Route::get('machines/{machine}/traffic/{job}', [MachineTrafficController::class, 'show'])->name('workspace.machines.traffic.show');
+        Route::post('machines/{machine}/sites/{site}/timing', [MachineTrafficController::class, 'timing'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:10,1')->name('workspace.machines.sites.timing');
         Route::post('machines/{machine}/reboot', [MachineUpdatesController::class, 'reboot'])->middleware('throttle:3,1')->name('workspace.machines.reboot');
         Route::get('machines/{machine}/scan', [MachineScanController::class, 'show'])->name('workspace.machines.scan.show');
         Route::post('machines/{machine}/jobs/{job}/retry', [DaemonJobController::class, 'retry'])->middleware('throttle:10,1')->name('workspace.machines.jobs.retry');

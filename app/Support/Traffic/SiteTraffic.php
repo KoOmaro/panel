@@ -54,11 +54,21 @@ final class SiteTraffic
      */
     public static function report(Machine $machine, string $app, string $range): array
     {
+        return self::reportSite($machine, TrafficRollup::siteOf($app), $range);
+    }
+
+    /**
+     * The same report for a site by its key: an app's (siteOf) or a site of
+     * the machine's own web server (ExistingSites).
+     *
+     * @return array{range: string, step: int, from: int, to: int, hasData: bool, summary: array{requests: int, status: array{'2xx': int, '3xx': int, '4xx': int, '5xx': int}, errorRate: float|null, clientErrorRate: float|null, bytes: int, p50: float|null, p95: float|null, visitors: int}, series: list<array{ts: int, requests: int|null, s2xx: int|null, s3xx: int|null, s4xx: int|null, s5xx: int|null, bytes: int|null, p50: float|null, p95: float|null, visitors: int|null}>, paths: list<array{name: string, requests: int, share: float}>, referrers: list<array{name: string, requests: int, share: float}>}
+     */
+    public static function reportSite(Machine $machine, string $site, string $range): array
+    {
         $range = array_key_exists($range, self::RANGES) ? $range : '24h';
         ['window' => $window, 'step' => $step, 'source' => $source] = self::RANGES[$range];
         $now = now()->getTimestamp();
         $first = intdiv($now - $window, $step) * $step + $step;
-        $site = TrafficRollup::siteOf($app);
 
         $base = fn () => TrafficRollup::query()
             ->where('machine_id', $machine->id)
@@ -127,5 +137,97 @@ final class SiteTraffic
             'paths' => $share($totals['paths']),
             'referrers' => $share($totals['referrers']),
         ];
+    }
+
+    /**
+     * Each site's last 24 hours on the machine, by site key: requests,
+     * client and server errors and visitors.
+     *
+     * @return array<string, array{requests: int, errors: int, clientErrors: int, visitors: int}>
+     */
+    public static function lastDay(Machine $machine): array
+    {
+        $from = intdiv(now()->getTimestamp() - 86400, 60) * 60 + 60;
+
+        return TrafficRollup::query()
+            ->where('machine_id', $machine->id)
+            ->where('seconds', TrafficRollup::MINUTE)
+            ->where('bucket', '>=', $from)
+            ->groupBy('site')
+            ->select('site')
+            ->selectRaw('sum(requests) as requests, sum(status_5xx) as errors, sum(status_4xx) as client_errors, sum(visitors) as visitors')
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn (object $row) => [(string) $row->site => [
+                'requests' => (int) $row->requests,
+                'errors' => (int) $row->errors,
+                'clientErrors' => (int) $row->client_errors,
+                'visitors' => (int) $row->visitors,
+            ]])
+            ->all();
+    }
+
+    /**
+     * Every site the machine counts, ServerOS's apps and the sites of its
+     * own web server, with their last 24 hours: what the machine's traffic
+     * table and list_site_traffic show. `url` is the path of the page that
+     * shows the site.
+     *
+     * @return list<array{site: string, kind: string, name: string, server: string, names: list<string>, logs: list<string>, shared: bool, timed: bool|null, url: string|null, requests: int, errors: int, clientErrors: int, visitors: int}>
+     */
+    public static function sites(Machine $machine): array
+    {
+        $numbers = self::lastDay($machine);
+        $zero = ['requests' => 0, 'errors' => 0, 'clientErrors' => 0, 'visitors' => 0];
+        $rows = [];
+
+        $apps = [];
+        foreach ((array) ($machine->inventory['services'] ?? []) as $service) {
+            if (is_array($service) && preg_match('/^\/?serveros-(.+)-[0-9a-f]{12}(?:-b)?$/', (string) ($service['name'] ?? ''), $match)) {
+                $apps[$match[1]] = true;
+            }
+        }
+        foreach (array_keys($apps) as $app) {
+            $app = (string) $app;
+            $domains = DeployRequest::plainDomains(self::domains($machine, $app));
+            $site = TrafficRollup::siteOf($app);
+            if ($domains === [] && ! isset($numbers[$site])) {
+                continue;
+            }
+            $rows[] = [
+                'site' => $site,
+                'kind' => 'app',
+                'name' => $app,
+                'server' => 'ServerOS',
+                'names' => $domains,
+                'logs' => [],
+                'shared' => false,
+                'timed' => true,
+                'url' => "/machines/{$machine->id}/services/app:{$app}/traffic",
+                ...($numbers[$site] ?? $zero),
+            ];
+        }
+
+        if (ExistingSites::available($machine)) {
+            foreach (ExistingSites::all($machine) as $site) {
+                $service = ExistingSites::serviceKey($machine, $site['server']);
+                $rows[] = [
+                    'site' => $site['site'],
+                    'kind' => 'existing',
+                    'name' => ExistingSites::label($site),
+                    'server' => ExistingSites::SERVERS[$site['server']],
+                    'names' => $site['names'],
+                    'logs' => $site['logs'],
+                    'shared' => $site['shared'],
+                    'timed' => $site['timed'],
+                    'url' => $service === null ? null : "/machines/{$machine->id}/services/{$service}/traffic?site=".rawurlencode($site['site']),
+                    ...($numbers[$site['site']] ?? $zero),
+                ];
+            }
+        }
+
+        usort($rows, fn (array $a, array $b) => [$b['requests'], $a['name']] <=> [$a['requests'], $b['name']]);
+
+        return $rows;
     }
 }

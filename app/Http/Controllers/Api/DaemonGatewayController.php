@@ -28,6 +28,7 @@ use App\Support\Machines\PackageUpdates;
 use App\Support\Projects\ProjectData;
 use App\Support\Projects\ProjectLinks;
 use App\Support\Projects\ProjectNetwork;
+use App\Support\Traffic\ExistingSites;
 use App\Support\Traffic\TrafficSwitch;
 use App\Support\Workflows\WorkflowEngine;
 use App\Support\Workflows\WorkflowEvents;
@@ -192,6 +193,10 @@ class DaemonGatewayController extends Controller
                     if (is_array($payload['traffic'] ?? null)) {
                         // Each site's minutes, counted from the proxy's access logs: stored together below.
                         $traffic = [...$traffic, ...array_slice(array_values($payload['traffic']), 0, TrafficRollup::MAX_PER_REQUEST - count($traffic))];
+                    }
+                    if (is_array($payload['traffic_sites'] ?? null)) {
+                        // The sites the machine's own web server configs serve, all of them.
+                        $changes['traffic_sites'] = ExistingSites::stored($payload['traffic_sites']);
                     }
                     if ($services !== []) {
                         $changes['service_stats'] = array_slice($services, 0, 200, true);

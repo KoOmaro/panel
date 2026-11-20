@@ -34,6 +34,9 @@ return [
     'resolve_ref_since' => env('DAEMON_RESOLVE_REF_SINCE', '0.1.1-pre.45'),
     'site_options_since' => env('DAEMON_SITE_OPTIONS_SINCE', '0.1.1-pre.46'),
     'traffic_since' => env('DAEMON_TRAFFIC_SINCE', '0.1.1-pre.46'),
+    // Traffic for the sites the machine's own nginx and Apache configs serve,
+    // and response times for one of them on request.
+    'existing_sites_traffic_since' => env('DAEMON_EXISTING_SITES_TRAFFIC_SINCE', '0.1.1-pre.47'),
     // CPU and memory limits per app, and registry logins for private images.
     'resource_limits_since' => env('DAEMON_RESOURCE_LIMITS_SINCE', '0.1.1-pre.46'),
     'registry_logins_since' => env('DAEMON_REGISTRY_LOGINS_SINCE', '0.1.1-pre.46'),

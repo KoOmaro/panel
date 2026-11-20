@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { router } from '@inertiajs/vue3';
-import { LoaderCircle } from '@lucide/vue';
+import { Link, router } from '@inertiajs/vue3';
+import { ChevronRight, LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { fixed } from '@/lib/formatting';
 import { toast } from '@/lib/toast';
 
 export type TrafficSettingsProps = {
@@ -12,8 +13,25 @@ export type TrafficSettingsProps = {
     blocked: string | null;
     proxy: string | null;
     sites: number | null;
+    existing: number | null;
     changing: string | null;
     error: string | null;
+};
+
+type SiteRow = {
+    site: string;
+    kind: 'app' | 'existing';
+    name: string;
+    server: string;
+    names: string[];
+    logs: string[];
+    shared: boolean;
+    timed: boolean | null;
+    url: string | null;
+    requests: number;
+    errors: number;
+    clientErrors: number;
+    visitors: number;
 };
 
 const props = defineProps<{
@@ -26,8 +44,71 @@ const props = defineProps<{
 const on = ref(props.traffic.enabled);
 const busy = ref(false);
 const error = ref<string | null>(props.traffic.error);
+const rows = ref<SiteRow[] | null>(null);
 let poll: ReturnType<typeof setTimeout> | undefined;
-onBeforeUnmount(() => clearTimeout(poll));
+let controller: AbortController | null = null;
+onBeforeUnmount(() => {
+    clearTimeout(poll);
+    controller?.abort();
+});
+
+async function loadSites(): Promise<void> {
+    if (!props.traffic.enabled || props.traffic.blocked) {
+        rows.value = null;
+
+        return;
+    }
+    controller?.abort();
+    controller = new AbortController();
+    try {
+        const response = await fetch(
+            `/machines/${props.machineId}/traffic/sites`,
+            {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+                signal: controller.signal,
+            },
+        );
+        if (!response.ok) return;
+        const body = await response.json();
+        rows.value = Array.isArray(body.sites) ? (body.sites as SiteRow[]) : [];
+    } catch {
+        // The table is extra; the switch works without it.
+    }
+}
+
+function compact(value: number): string {
+    if (value >= 1e6) return `${fixed(value / 1e6, 1)}M`;
+    if (value >= 1e4) return `${Math.round(value / 1e3)}k`;
+    if (value >= 1e3) return `${fixed(value / 1e3, 1)}k`;
+
+    return String(Math.round(value));
+}
+
+function rate(part: number, whole: number): string {
+    if (whole === 0) return '—';
+    const p = (part / whole) * 100;
+    if (p === 0) return '0%';
+    if (p < 0.1) return '<0.1%';
+
+    return `${p < 10 ? fixed(p, 1) : Math.round(p)}%`;
+}
+
+/** A row's second line: the app's domain, or the site's other names or its log. */
+function detail(row: SiteRow): string {
+    if (row.kind === 'app') return row.names[0] ?? trans('No domain');
+    if (row.shared) return row.names.join(', ');
+    if (row.names.length > 1) return row.names.slice(1).join(', ');
+
+    // The log's file name: the folder is on the site's own page.
+    return row.logs[0]?.split('/').pop() ?? '';
+}
+
+const counted = computed(() =>
+    props.traffic.sites === null && props.traffic.existing === null
+        ? null
+        : (props.traffic.sites ?? 0) + (props.traffic.existing ?? 0),
+);
 
 watch(
     () => props.traffic,
@@ -35,6 +116,7 @@ watch(
         if (busy.value) return;
         on.value = next.enabled;
         error.value = next.error;
+        loadSites();
     },
 );
 
@@ -152,6 +234,7 @@ function follow(jobId: string, next: boolean): Promise<void> {
 }
 
 onMounted(() => {
+    loadSites();
     if (!props.traffic.changing) return;
     busy.value = true;
     follow(props.traffic.changing, props.traffic.enabled)
@@ -173,10 +256,15 @@ onMounted(() => {
                 <h2 class="text-[13px]/5 font-medium">{{ $t('Traffic') }}</h2>
                 <p class="text-[13px]/5 text-(--ds-text-muted)">
                     {{
-                        $t(
-                            'Counts visits to the sites ServerOS runs on :name from the proxy’s access logs. Visitor IPs never leave the machine.',
-                            { name: machineName },
-                        )
+                        traffic.existing !== null
+                            ? $t(
+                                  'Counts visits to the sites on :name from their access logs: the apps ServerOS runs, and the sites in your own nginx or Apache config, whose logs ServerOS only reads. Visitor IPs never leave the machine.',
+                                  { name: machineName },
+                              )
+                            : $t(
+                                  'Counts visits to the sites ServerOS runs on :name from the proxy’s access logs. Visitor IPs never leave the machine.',
+                                  { name: machineName },
+                              )
                     }}
                     <template v-if="restarts">
                         {{
@@ -218,17 +306,125 @@ onMounted(() => {
             {{ $t('That didn’t apply: :reason', { reason: error }) }}
         </p>
         <p
-            v-else-if="traffic.enabled && traffic.sites !== null"
+            v-else-if="traffic.enabled && counted !== null && !rows?.length"
             class="border-t border-(--ds-border) px-5 py-3 text-[13px]/5 text-(--ds-text-muted)"
         >
             {{
                 $t(
-                    traffic.sites === 1
+                    counted === 1
                         ? 'Counting 1 site. Each app’s Traffic tab shows its visits.'
                         : 'Counting :count sites. Each app’s Traffic tab shows its visits.',
-                    { count: String(traffic.sites) },
+                    { count: String(counted) },
                 )
             }}
         </p>
+
+        <div
+            v-if="traffic.enabled && !busy && !error && rows?.length"
+            class="border-t border-(--ds-border)"
+        >
+            <table
+                class="w-full table-fixed border-collapse text-left text-[13px]/5"
+                :aria-label="$t('Sites counted')"
+            >
+                <thead>
+                    <tr class="text-[12px]/4 text-(--ds-text-faint)">
+                        <th class="py-2 pr-3 pl-5 font-normal">
+                            {{ $t('Site') }}
+                        </th>
+                        <th
+                            class="hidden w-28 border-l border-(--ds-divider) px-3 font-normal sm:table-cell"
+                        >
+                            {{ $t('Served by') }}
+                        </th>
+                        <th
+                            class="w-20 border-l border-(--ds-divider) px-3 text-right font-normal sm:w-24"
+                        >
+                            {{ $t('Requests') }}
+                        </th>
+                        <th
+                            class="hidden w-20 border-l border-(--ds-divider) px-3 text-right font-normal sm:table-cell"
+                        >
+                            {{ $t('Errors') }}
+                        </th>
+                        <th
+                            class="w-20 border-l border-(--ds-divider) px-3 text-right font-normal sm:w-24"
+                        >
+                            {{ $t('Visitors') }}
+                        </th>
+                        <th class="w-10 pr-4" aria-hidden="true" />
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr
+                        v-for="row in rows"
+                        :key="row.site"
+                        class="border-t border-(--ds-divider)"
+                        :class="row.url && 'hover:bg-(--ds-hover)'"
+                    >
+                        <td class="min-w-0 py-2 pr-3 pl-5">
+                            <component
+                                :is="row.url ? Link : 'span'"
+                                :href="row.url ?? undefined"
+                                class="block truncate font-medium text-(--ds-text)"
+                                :title="row.names.join(', ') || row.name"
+                                >{{ row.name }}</component
+                            >
+                            <span
+                                class="block truncate text-xs text-(--ds-text-faint)"
+                                :title="detail(row)"
+                                >{{ detail(row) }}</span
+                            >
+                        </td>
+                        <td
+                            class="hidden px-3 text-(--ds-text-muted) sm:table-cell"
+                        >
+                            {{ row.server }}
+                        </td>
+                        <td class="px-3 text-right tabular-nums">
+                            {{ compact(row.requests) }}
+                        </td>
+                        <td
+                            class="hidden px-3 text-right tabular-nums sm:table-cell"
+                            :class="
+                                row.requests > 0 &&
+                                row.errors / row.requests >= 0.05
+                                    ? 'text-(--ds-red)'
+                                    : 'text-(--ds-text-muted)'
+                            "
+                        >
+                            {{ rate(row.errors, row.requests) }}
+                        </td>
+                        <td class="px-3 text-right tabular-nums">
+                            {{ compact(row.visitors) }}
+                        </td>
+                        <td class="pr-4 text-right">
+                            <Link
+                                v-if="row.url"
+                                :href="row.url"
+                                class="inline-flex size-6 items-center justify-center rounded-md text-(--ds-text-faint) hover:bg-(--ds-hover) hover:text-(--ds-text)"
+                                :aria-label="
+                                    $t('Traffic for :name', { name: row.name })
+                                "
+                            >
+                                <ChevronRight
+                                    class="size-4"
+                                    aria-hidden="true"
+                                />
+                            </Link>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <p
+                class="border-t border-(--ds-divider) px-5 py-2.5 text-xs text-(--ds-text-faint)"
+            >
+                {{
+                    $t(
+                        'The last 24 hours. Errors are the share of server errors (5xx).',
+                    )
+                }}
+            </p>
+        </div>
     </section>
 </template>

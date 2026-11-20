@@ -15,7 +15,8 @@ use RuntimeException;
  * keeps the setting itself; the panel keeps what it asked for, the job that
  * asked, and what came back.
  *
- * Stored on the machine as {enabled, previous, job, sites}: `enabled` is
+ * Stored on the machine as {enabled, previous, job, sites, existing}:
+ * `existing` counts the sites of the machine's own web server. `enabled` is
  * what was asked for, `previous` what it was before, so a change that
  * didn't apply goes back.
  */
@@ -45,7 +46,7 @@ final class TrafficSwitch
         if (! DaemonJobQueue::canCollectTraffic($machine)) {
             return self::say('Update the ServerOS daemon on :name to :version or later to count traffic.', ['name' => $machine->name, 'version' => 'v'.config('daemon.traffic_since')]);
         }
-        if ($machine->proxy === 'none') {
+        if ($machine->proxy === 'none' && ! ExistingSites::available($machine)) {
             return self::say('No proxy serves sites on :name, so there are no visits to count.', ['name' => $machine->name]);
         }
 
@@ -55,7 +56,7 @@ final class TrafficSwitch
     /**
      * What the machine's settings show.
      *
-     * @return array{enabled: bool, blocked: string|null, proxy: string|null, sites: int|null, changing: string|null, error: string|null}
+     * @return array{enabled: bool, blocked: string|null, proxy: string|null, sites: int|null, existing: int|null, changing: string|null, error: string|null}
      */
     public static function props(Machine $machine): array
     {
@@ -67,6 +68,8 @@ final class TrafficSwitch
             'blocked' => self::blocked($machine),
             'proxy' => Machine::PROXIES[$machine->proxy ?? ''] ?? null,
             'sites' => is_int($machine->traffic['sites'] ?? null) ? $machine->traffic['sites'] : null,
+            // The sites of the machine's own web server it counts too, when its daemon does.
+            'existing' => ExistingSites::available($machine) ? (is_int($machine->traffic['existing'] ?? null) ? $machine->traffic['existing'] : count(ExistingSites::all($machine))) : null,
             'changing' => $job !== null && $job->isActive() && ! $job->isStale() ? $job->id : null,
             'error' => $failed ? (is_array($job->error) && is_string($job->error['message'] ?? null) && $job->error['message'] !== ''
                 ? $job->error['message']
@@ -99,6 +102,7 @@ final class TrafficSwitch
             'previous' => $previous,
             'job' => $record->id,
             'sites' => $machine->traffic['sites'] ?? null,
+            'existing' => $machine->traffic['existing'] ?? null,
         ]])->save();
 
         Activity::record($machine->workspace_id, 'machine.traffic', $machine->name, $machine, $user, ['enabled' => $enabled]);
@@ -111,7 +115,7 @@ final class TrafficSwitch
      * the job isn't the one that last changed it.
      *
      * @param  array<string, mixed>|null  $result
-     * @return array{enabled: bool, previous: bool, job: string, sites: int|null}|null
+     * @return array{enabled: bool, previous: bool, job: string, sites: int|null, existing: int|null}|null
      */
     public static function finished(Machine $machine, DaemonJob $job, string $state, ?array $result): ?array
     {
@@ -120,16 +124,24 @@ final class TrafficSwitch
             return null;
         }
         $sites = is_int($traffic['sites'] ?? null) ? $traffic['sites'] : null;
+        $existing = is_int($traffic['existing'] ?? null) ? $traffic['existing'] : null;
 
         if ($state === 'succeeded') {
             $enabled = is_bool($result['enabled'] ?? null) ? $result['enabled'] : (bool) ($traffic['enabled'] ?? false);
 
-            return ['enabled' => $enabled, 'previous' => $enabled, 'job' => $job->id, 'sites' => is_int($result['sites'] ?? null) ? max(0, $result['sites']) : $sites];
+            return [
+                'enabled' => $enabled,
+                'previous' => $enabled,
+                'job' => $job->id,
+                'sites' => is_int($result['sites'] ?? null) ? max(0, $result['sites']) : $sites,
+                // Daemons that count the machine's own sites say how many.
+                'existing' => is_int($result['existing'] ?? null) ? max(0, $result['existing']) : $existing,
+            ];
         }
 
         $previous = (bool) ($traffic['previous'] ?? false);
 
-        return ['enabled' => $previous, 'previous' => $previous, 'job' => $job->id, 'sites' => $sites];
+        return ['enabled' => $previous, 'previous' => $previous, 'job' => $job->id, 'sites' => $sites, 'existing' => $existing];
     }
 
     /** @param  array<string, string>  $replace */

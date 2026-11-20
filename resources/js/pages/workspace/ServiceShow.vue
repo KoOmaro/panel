@@ -49,6 +49,8 @@ import type { FilePlace } from '@/components/machines/FileBrowser.vue';
 import JobStatusBadge from '@/components/machines/JobStatusBadge.vue';
 import type { Machine } from '@/components/machines/machines';
 import ServiceLogo from '@/components/machines/ServiceLogo.vue';
+import ExistingSitesTraffic from '@/components/machines/ExistingSitesTraffic.vue';
+import type { ExistingSitesTrafficProps } from '@/components/machines/ExistingSitesTraffic.vue';
 import SiteTraffic from '@/components/machines/SiteTraffic.vue';
 import type { SiteTrafficState } from '@/components/machines/SiteTraffic.vue';
 import type {
@@ -168,6 +170,7 @@ const props = defineProps<{
         variables: string[];
         limits: AppLimits;
     } | null;
+    siteTraffic: ExistingSitesTrafficProps | null;
 }>();
 
 type AppVersion = {
@@ -268,7 +271,7 @@ const tabs = computed(() =>
     (
         [
             'overview',
-            ...(props.app ? (['traffic'] as const) : []),
+            ...(props.app || props.siteTraffic ? (['traffic'] as const) : []),
             'logs',
             'files',
             ...(props.database ? (['database'] as const) : []),
@@ -2471,6 +2474,15 @@ const focusRing =
             :machine-name="machine.name"
             :app="app.service"
             :state="app.traffic"
+            :can-manage="canManage"
+        />
+
+        <ExistingSitesTraffic
+            v-else-if="tab === 'traffic' && siteTraffic"
+            :machine-id="machine.id ?? 0"
+            :machine-name="machine.name"
+            :service-url="serviceUrl"
+            :traffic="siteTraffic"
             :can-manage="canManage"
         />
 

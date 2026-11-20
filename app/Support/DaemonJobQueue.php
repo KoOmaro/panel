@@ -505,6 +505,12 @@ class DaemonJobQueue
         return self::atLeast($machine, (string) config('daemon.traffic_since'));
     }
 
+    /** Whether the daemon counts the sites in the machine's own web server configs too. */
+    public static function canCountExistingSites(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.existing_sites_traffic_since'));
+    }
+
     public static function canWildcard(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.wildcard_domains_since'));

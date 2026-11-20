@@ -74,6 +74,15 @@ class TrafficRollup extends Model
     }
 
     /**
+     * A site key as the daemon sends it: an app's stem, or a site of the
+     * machine's own web server, whose key has a dot (ExistingSites).
+     */
+    public static function keyOf(string $site): string
+    {
+        return substr((string) preg_replace('/[^A-Za-z0-9_.-]/', '-', $site), 0, 120);
+    }
+
+    /**
      * Stores a batch of per-minute rollups from the daemon, in one upsert. A
      * minute sent again replaces the one kept. Returns how many were kept.
      *
@@ -87,7 +96,7 @@ class TrafficRollup extends Model
             if (! is_array($rollup) || ! is_string($rollup['site'] ?? null) || ! is_int($rollup['minute'] ?? null)) {
                 continue;
             }
-            $site = self::siteOf($rollup['site']);
+            $site = self::keyOf($rollup['site']);
             $minute = $rollup['minute'];
             if ($site === '' || $minute % 60 !== 0 || $minute > $now + 120 || $minute < $now - self::ACCEPT_SECONDS) {
                 continue;

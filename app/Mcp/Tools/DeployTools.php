@@ -12,6 +12,7 @@ use App\Mcp\Tools\Deploy\GetApp;
 use App\Mcp\Tools\Deploy\GetConnection;
 use App\Mcp\Tools\Deploy\GetSiteTraffic;
 use App\Mcp\Tools\Deploy\ListDeploys;
+use App\Mcp\Tools\Deploy\ListSiteTraffic;
 use App\Mcp\Tools\Deploy\ListTemplates;
 use App\Mcp\Tools\Deploy\RedeployApp;
 use App\Mcp\Tools\Deploy\RollbackApp;
@@ -32,6 +33,7 @@ final class DeployTools implements ToolGroup
             GetApp::class,
             GetConnection::class,
             GetSiteTraffic::class,
+            ListSiteTraffic::class,
             DeployNewVersion::class,
             RedeployApp::class,
             RollbackApp::class,
