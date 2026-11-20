@@ -142,6 +142,7 @@ final class ApiRoutes
                 ['POST', 'machines/{machine}/apps/{app}/rollback', 'rollback_app'],
                 ['PUT', 'machines/{machine}/apps/{app}/domain', 'set_app_domain'],
                 ['PATCH', 'machines/{machine}/apps/{app}/settings', 'update_app_settings'],
+                ['PATCH', 'machines/{machine}/apps/{app}/site', 'update_site_settings'],
             ],
             'Projects' => [
                 ['GET', 'projects', 'list_projects'],

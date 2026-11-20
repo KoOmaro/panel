@@ -16,6 +16,7 @@ use App\Mcp\Tools\Deploy\RedeployApp;
 use App\Mcp\Tools\Deploy\RollbackApp;
 use App\Mcp\Tools\Deploy\SetAppDomain;
 use App\Mcp\Tools\Deploy\UpdateAppSettings;
+use App\Mcp\Tools\Deploy\UpdateSiteSettings;
 
 final class DeployTools implements ToolGroup
 {
@@ -34,6 +35,7 @@ final class DeployTools implements ToolGroup
             RollbackApp::class,
             SetAppDomain::class,
             UpdateAppSettings::class,
+            UpdateSiteSettings::class,
             CheckDomain::class,
         ];
     }

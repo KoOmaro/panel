@@ -36,6 +36,8 @@ import {
 } from 'vue';
 import { toast } from '@/lib/toast';
 import InputError from '@/components/InputError.vue';
+import AppSiteDialog from '@/components/machines/AppSiteDialog.vue';
+import type { SiteSwitches } from '@/components/machines/AppSiteDialog.vue';
 import AppVariablesDialog from '@/components/machines/AppVariablesDialog.vue';
 import CloneServiceDialog from '@/components/machines/CloneServiceDialog.vue';
 import DatabaseBrowser from '@/components/machines/DatabaseBrowser.vue';
@@ -146,6 +148,7 @@ const props = defineProps<{
         deployedAt: string | null;
         snapshotBefore: boolean;
         deployOnPush: { on: boolean; branch: string } | null;
+        site: SiteSwitches;
         database: {
             setting: string;
             current: { name: string; display: string } | null;
@@ -834,6 +837,63 @@ function repair() {
 }
 
 const variablesOpen = ref(false);
+const siteOpen = ref(false);
+const siteRows = computed(() => {
+    const site = props.app?.site;
+    if (!site) return [];
+
+    return [
+        {
+            label: trans('Maintenance page'),
+            value: site.maintenance ? trans('Up') : trans('Off'),
+            on: site.maintenance,
+            warn: site.maintenance,
+        },
+        {
+            label: trans('Password'),
+            value: site.password ? (site.user ?? '') : trans('Off'),
+            on: site.password,
+            warn: false,
+        },
+        {
+            label: trans('www redirect'),
+            value:
+                site.wwwRedirect && site.wwwName ? site.wwwName : trans('Off'),
+            on: site.wwwRedirect,
+            warn: false,
+        },
+        {
+            label: trans('Redirects'),
+            value: site.redirects.length
+                ? String(site.redirects.length)
+                : trans('None'),
+            on: site.redirects.length > 0,
+            warn: false,
+        },
+    ];
+});
+const siteApplying = computed(() => {
+    const state = props.app?.site.job?.state;
+
+    return state === 'queued' || state === 'running';
+});
+watch(siteApplying, (now, before) => {
+    if (before && !now) router.reload({ only: ['app'] });
+});
+let sitePoll: ReturnType<typeof setInterval> | null = null;
+watch(
+    siteApplying,
+    (now) => {
+        if (sitePoll) clearInterval(sitePoll);
+        sitePoll = now
+            ? setInterval(() => router.reload({ only: ['app'] }), 3000)
+            : null;
+    },
+    { immediate: true },
+);
+onBeforeUnmount(() => {
+    if (sitePoll) clearInterval(sitePoll);
+});
 
 function variablesSaved(jobId: string | null): void {
     if (jobId && props.machine.id) {
@@ -1748,6 +1808,105 @@ const focusRing =
                         {{ $t('Edit') }}
                     </AppButton>
                 </section>
+
+                <section
+                    v-if="app.domains.length"
+                    class="ds-tile flex flex-col gap-4 px-5 py-4 lg:col-span-2"
+                    :aria-label="$t('Site settings')"
+                >
+                    <div class="flex items-center gap-4">
+                        <span class="ds-icon-chip shrink-0">
+                            <ShieldCheck class="size-4" />
+                        </span>
+                        <div class="flex min-w-0 grow flex-col gap-0.5">
+                            <span class="text-sm font-medium">{{
+                                $t('Site settings')
+                            }}</span>
+                            <span
+                                v-if="siteApplying"
+                                class="flex items-center gap-1.5 text-xs text-(--ds-text-faint)"
+                            >
+                                <LoaderCircle class="size-3 animate-spin" />
+                                {{ $t('Applying the last change…') }}
+                            </span>
+                            <span
+                                v-else-if="
+                                    app.site.job?.state === 'failed' ||
+                                    app.site.job?.state === 'stale'
+                                "
+                                class="text-xs text-(--ds-red)"
+                                >{{
+                                    $t(
+                                        'The last change didn’t apply: :reason',
+                                        {
+                                            reason:
+                                                app.site.job.error ||
+                                                $t('the machine didn’t answer'),
+                                        },
+                                    )
+                                }}</span
+                            >
+                            <span
+                                v-else-if="!app.site.supported"
+                                class="text-xs text-(--ds-text-faint)"
+                                >{{
+                                    $t(
+                                        'Needs a newer ServerOS daemon on this machine. It updates itself.',
+                                    )
+                                }}</span
+                            >
+                            <span
+                                v-else
+                                class="text-xs text-(--ds-text-faint)"
+                                >{{
+                                    $t(
+                                        'Changes apply in seconds, without a redeploy.',
+                                    )
+                                }}</span
+                            >
+                        </div>
+                        <AppButton
+                            v-if="canManage"
+                            class="shrink-0"
+                            :disabled="
+                                !online || !app.site.supported || siteApplying
+                            "
+                            @click="siteOpen = true"
+                        >
+                            {{ $t('Edit') }}
+                        </AppButton>
+                    </div>
+                    <dl
+                        class="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-(--ds-divider) bg-(--ds-divider) sm:grid-cols-4"
+                    >
+                        <div
+                            v-for="row in siteRows"
+                            :key="row.label"
+                            class="flex min-w-0 flex-col gap-0.5 bg-(--ds-card) px-3 py-2.5"
+                        >
+                            <dt class="text-xs text-(--ds-text-faint)">
+                                {{ row.label }}
+                            </dt>
+                            <dd
+                                class="flex min-w-0 items-center gap-1.5 text-[13px]"
+                                :class="
+                                    row.on
+                                        ? 'font-medium text-(--ds-text)'
+                                        : 'text-(--ds-text-muted)'
+                                "
+                            >
+                                <span
+                                    v-if="row.warn"
+                                    class="size-1.5 shrink-0 rounded-full bg-(--ds-amber)"
+                                    aria-hidden="true"
+                                />
+                                <span class="truncate" :title="row.value">{{
+                                    row.value
+                                }}</span>
+                            </dd>
+                        </div>
+                    </dl>
+                </section>
             </div>
             <AppVariablesDialog
                 v-if="canManage && app"
@@ -1755,6 +1914,14 @@ const focusRing =
                 :machine-id="machine.id!"
                 :app="app.service"
                 @saved="variablesSaved"
+            />
+            <AppSiteDialog
+                v-if="canManage && app && app.domains.length"
+                v-model:open="siteOpen"
+                :machine-id="machine.id!"
+                :app="app.service"
+                :site="app.site"
+                @saved="router.reload({ only: ['app'] })"
             />
 
             <section
