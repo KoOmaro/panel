@@ -43,12 +43,7 @@ class WorkspaceSettingsController extends Controller
             'canManageSettings' => $request->user()->can('manageSettings', $workspace),
             'canDelete' => $request->user()->can('delete', $workspace),
             'canManageAlerts' => $canAlerts,
-            'alerts' => [
-                'email' => (bool) ($workspace->alert_email ?? true),
-                'webhook' => $canAlerts ? $workspace->alert_webhook_url : null,
-                'webhookSet' => filled($workspace->alert_webhook_url),
-                'muted' => AlertKinds::muted($workspace),
-            ],
+            'alerts' => AlertKinds::props($workspace, $canAlerts),
             'github' => $canAlerts && (GitHubApp::enabled() || Edition::selfHosted()) ? $workspace->githubInstallations()
                 ->orderBy('account_login')
                 ->get()

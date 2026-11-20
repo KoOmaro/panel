@@ -41,6 +41,7 @@ type Props = {
         email: boolean;
         webhook: string | null;
         webhookSet: boolean;
+        telegram: { chat: string | null; set: boolean };
         muted: string[];
     };
     github:
@@ -191,6 +192,7 @@ watch(confirmingDelete, (open) => {
                                 ? $t('Email to owners and admins')
                                 : null,
                             alerts.webhookSet ? $t('Webhook') : null,
+                            alerts.telegram?.set ? $t('Telegram') : null,
                         ]
                             .filter(Boolean)
                             .join(' and ') || $t('Off')
