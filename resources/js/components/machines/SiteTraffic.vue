@@ -5,12 +5,13 @@ import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import TimeSeriesChart from '@/components/machines/TimeSeriesChart.vue';
 import TrafficTimingDialog from '@/components/machines/TrafficTimingDialog.vue';
+import type { TrafficChange } from '@/components/machines/TrafficTimingDialog.vue';
 import { appButtonClasses } from '@/lib/appButton';
 import { errorMessage, describe } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
 import { themeColour } from '@/lib/themeColour';
 
-/** A site the machine's own nginx or Apache config serves. */
+/** A site the machine's own web servers serve (or a log file set by hand). */
 export type ExistingSite = {
     server: string;
     names: string[];
@@ -19,6 +20,17 @@ export type ExistingSite = {
     timed: boolean;
     shared: boolean;
     copy: boolean;
+    container?: string | null;
+    /** Containers it sends requests to (Traefik's labels). */
+    apps?: string[];
+    catchAll?: boolean;
+    /** Why nothing is counted: its config writes no log, or one ServerOS can't read. */
+    unlogged?: 'off' | 'elsewhere' | null;
+    editable?: boolean;
+    manual?: boolean;
+    /** ServerOS can start, stop or time this site's log. */
+    canChange?: boolean;
+    update?: string | null;
 };
 
 export type SiteTrafficState = {
@@ -80,12 +92,27 @@ const existing = computed(() => props.state.existing ?? null);
 const timed = computed(() => existing.value?.timed ?? true);
 const timing = ref(false);
 const timingAsked = ref(false);
+const change = ref<TrafficChange>('timing');
 const label = computed(() => {
     if (!existing.value) return props.state.domain ?? '';
     if (existing.value.shared)
         return existing.value.logs[0] ?? props.state.site;
+    if (existing.value.catchAll) return trans('All other hosts');
 
     return props.state.domain ?? trans('Default site');
+});
+const unlogged = computed(() => existing.value?.unlogged ?? null);
+/** Where the web server runs, in words: "Caddy", "nginx in web". */
+const where = computed(() => {
+    const site = existing.value;
+    if (!site) return '';
+
+    return site.container
+        ? trans(':server in :container', {
+              server: site.server,
+              container: site.container,
+          })
+        : site.server;
 });
 const url = computed(() =>
     existing.value
@@ -109,7 +136,8 @@ const ready = computed(
     () =>
         (props.state.domain !== null || existing.value !== null) &&
         props.state.blocked === null &&
-        props.state.collecting,
+        props.state.collecting &&
+        unlogged.value === null,
 );
 
 async function load(quiet = false): Promise<void> {
@@ -338,17 +366,62 @@ const tables = computed(() => [
 ]);
 
 const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
+const output = (log: string) => log === '/dev/stdout' || log === '/dev/stderr';
 const files = computed(() => existing.value?.logs.join(', ') ?? '');
-const canFix = computed(
+const fromOutput = computed(
+    () =>
+        !!existing.value?.container &&
+        existing.value.logs.length > 0 &&
+        existing.value.logs.every(output),
+);
+const changeable = computed(
     () =>
         props.canManage &&
         existing.value !== null &&
+        (existing.value.canChange ??
+            ((existing.value.editable ?? true) && !existing.value.unlogged)),
+);
+const canFix = computed(
+    () =>
+        changeable.value &&
+        !!existing.value &&
+        ['nginx', 'Apache'].includes(existing.value.server) &&
         !existing.value.timed &&
-        !existing.value.copy,
+        !existing.value.copy &&
+        !existing.value.unlogged,
+);
+const canStart = computed(
+    () => changeable.value && unlogged.value === 'off' && !existing.value?.copy,
+);
+const canUndo = computed(
+    () => changeable.value && !!existing.value?.copy && !existing.value.manual,
 );
 
+/** How to turn its log on by hand, when ServerOS won't change its config. */
+const byHand = computed(() => {
+    const site = existing.value;
+    if (!site) return '';
+    if (site.server === 'Caddy')
+        return trans(
+            'Add a log directive to this site in its Caddyfile. Logs to the container’s output are read too.',
+        );
+    if (site.server === 'Traefik')
+        return trans(
+            'Start Traefik with --accesslog=true and --accesslog.format=json. Logs to the container’s output are read too.',
+        );
+
+    return trans(
+        'Take out access_log off for this site in its config. Logs to the container’s output are read too.',
+    );
+});
+
+function openChange(mode: TrafficChange): void {
+    change.value = mode;
+    timing.value = true;
+}
+
 function recorded(): void {
-    timingAsked.value = true;
+    if (change.value === 'timing') timingAsked.value = true;
     emit('changed');
 }
 </script>
@@ -360,7 +433,12 @@ function recorded(): void {
                 <h2 class="text-[15px] font-medium">{{ $t('Traffic') }}</h2>
                 <span
                     v-if="label"
-                    class="truncate font-ui-mono text-[12px] text-(--ds-text-faint)"
+                    class="truncate text-(--ds-text-faint)"
+                    :class="
+                        existing?.catchAll
+                            ? 'text-[13px]'
+                            : 'font-ui-mono text-[12px]'
+                    "
                     :title="label"
                     >{{ label }}</span
                 >
@@ -440,6 +518,42 @@ function recorded(): void {
         </div>
 
         <div
+            v-else-if="unlogged"
+            class="ds-tile flex flex-col items-center gap-1 px-5 py-10 text-center text-[13px]/5"
+        >
+            <p class="font-medium">{{ $t('This site isn’t logged') }}</p>
+            <p class="max-w-md text-(--ds-text-muted)">
+                {{
+                    unlogged === 'off'
+                        ? $t(
+                              ':server writes no access log for this site, so there are no visits to count.',
+                              { server: where },
+                          )
+                        : $t(
+                              'This site’s log goes to syslog or the journal, which ServerOS can’t read. Point it at a file to count its visits.',
+                          )
+                }}
+                <template v-if="unlogged === 'off' && !canStart">
+                    {{
+                        existing?.update
+                            ? existing.update
+                            : existing?.container
+                              ? byHand
+                              : ''
+                    }}
+                </template>
+            </p>
+            <button
+                v-if="canStart"
+                type="button"
+                :class="appButtonClasses('secondary', 'md', 'mt-2')"
+                @click="openChange('add')"
+            >
+                {{ $t('Start logging this site') }}
+            </button>
+        </div>
+
+        <div
             v-else-if="error && !report"
             class="ds-tile px-5 py-10 text-center text-[13px]/5 text-(--ds-red)"
             role="alert"
@@ -500,7 +614,7 @@ function recorded(): void {
                             'self-start sm:self-center',
                         )
                     "
-                    @click="timing = true"
+                    @click="openChange('timing')"
                 >
                     {{ $t('Count them apart') }}
                 </button>
@@ -593,7 +707,7 @@ function recorded(): void {
                             v-if="canFix && !timingAsked"
                             type="button"
                             :class="appButtonClasses('secondary', 'md', 'mt-2')"
-                            @click="timing = true"
+                            @click="openChange('timing')"
                         >
                             {{ $t('Record response times') }}
                         </button>
@@ -686,14 +800,30 @@ function recorded(): void {
                 {{
                     existing.copy
                         ? $t(
-                              'Counted on :name from a copy of :server’s access log with response times, which ServerOS added. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
-                              { name: machineName, server: existing.server },
+                              'Counted on :name from a log ServerOS added to :server’s config. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
+                              { name: machineName, server: where },
                           )
-                        : $t(
-                              'Counted on :name from :files, which ServerOS only reads. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
-                              { name: machineName, files },
-                          )
+                        : fromOutput
+                          ? $t(
+                                'Counted on :name from the output of the container :container, which ServerOS only reads. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
+                                {
+                                    name: machineName,
+                                    container: existing.container ?? '',
+                                },
+                            )
+                          : $t(
+                                'Counted on :name from :files, which ServerOS only reads. Visitor IPs and user agents never leave the machine, and pages are shown without their query strings.',
+                                { name: machineName, files },
+                            )
                 }}
+                <button
+                    v-if="canUndo"
+                    type="button"
+                    class="cursor-pointer text-(--ds-text-muted) underline underline-offset-2 hover:text-(--ds-text)"
+                    @click="openChange('remove')"
+                >
+                    {{ $t('Take ServerOS’s lines out') }}
+                </button>
             </p>
             <p v-else class="text-xs text-(--ds-text-faint)">
                 {{
@@ -706,11 +836,13 @@ function recorded(): void {
         </template>
 
         <TrafficTimingDialog
-            v-if="canFix"
+            v-if="canFix || canStart || canUndo"
             v-model:open="timing"
             :machine-id="machineId"
             :site="state.site"
             :label="label"
+            :mode="change"
+            :server="where"
             @applied="recorded"
         />
     </div>

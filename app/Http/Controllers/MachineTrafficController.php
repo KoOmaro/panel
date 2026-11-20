@@ -20,7 +20,9 @@ use RuntimeException;
 /**
  * Traffic counted from the access logs: the machine's switch, its list of
  * sites, each app's numbers for its Traffic tab, and the sites of the
- * machine's own web server, with response times for one on request.
+ * machine's own web servers, with response times for one, a log of
+ * ServerOS's own for one that writes none (and taking it out again), and
+ * log files set by hand, on request.
  */
 class MachineTrafficController extends Controller
 {
@@ -118,6 +120,120 @@ class MachineTrafficController extends Controller
         }
 
         return response()->json(['jobId' => $record->id], 202);
+    }
+
+    /**
+     * Starts (`add`) or stops (`remove`) ServerOS's own log for one site of
+     * the machine's own web servers. Without `apply` the machine only says
+     * which lines it would add or take out, and where; with it, it does.
+     */
+    #[Audited]
+    public function logging(Request $request, Workspace $workspace, Machine $machine, string $site, DaemonJobQueue $queue): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id, 404);
+        Gate::authorize('manageMachines', $workspace);
+        $data = $request->validate([
+            'action' => ['required', 'in:add,remove'],
+            'apply' => ['required', 'boolean'],
+        ]);
+        $found = ExistingSites::available($machine) ? ExistingSites::find($machine, $site) : null;
+        abort_if($found === null, 404);
+        if (! DaemonJobQueue::canCountAnySite($machine)) {
+            return response()->json(['error' => ExistingSites::updateNote($machine)], 409);
+        }
+        if (! $found['editable']) {
+            return response()->json(['error' => $found['container'] !== null
+                ? __('This site’s server runs in the container :name, so ServerOS won’t change its config. Turn on its access log in the container’s config instead.', ['name' => $found['container']])
+                : __('This site’s config isn’t a file ServerOS can change.')], 409);
+        }
+        $add = $data['action'] === 'add';
+        if ($add && $found['copy']) {
+            return response()->json(['error' => __('ServerOS already logs this site.')], 409);
+        }
+        if (! $add && ! $found['copy']) {
+            return response()->json(['error' => __('ServerOS hasn’t added anything to this site’s config.')], 409);
+        }
+        $apply = (bool) $data['apply'];
+
+        try {
+            $record = $queue->queue($machine, $request->user(), 'traffic_logging', ['type' => 'traffic_logging', 'site' => $found['site'], 'action' => $data['action'], 'apply' => $apply], null, 180);
+        } catch (RuntimeException $e) {
+            return response()->json(['error' => $e->getMessage()], 409);
+        }
+        if ($apply) {
+            Activity::record($machine->workspace_id, 'machine.traffic_logging', $machine->name, $machine, $request->user(), ['site' => ExistingSites::label($found), 'action' => $data['action']]);
+        } else {
+            AuditContext::nothingChanged();
+        }
+
+        return response()->json(['jobId' => $record->id], 202);
+    }
+
+    public function loggingJob(Workspace $workspace, Machine $machine, string $site, DaemonJob $job): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id && $job->machine_id === $machine->id && $job->kind === 'traffic_logging' && ($job->command['job']['site'] ?? null) === $site, 404);
+
+        return response()->json([
+            'state' => $job->isStale() ? 'stale' : $job->state,
+            'result' => $job->result,
+            'error' => $job->error,
+        ]);
+    }
+
+    /**
+     * Counts a log file an app writes itself, for an app with no web
+     * server in front. Read-only, like the web servers' own logs.
+     */
+    #[Audited]
+    public function addFile(Request $request, Workspace $workspace, Machine $machine, DaemonJobQueue $queue): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id, 404);
+        Gate::authorize('manageMachines', $workspace);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:60', 'regex:/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/'],
+            'path' => ['required', 'string', 'max:500', 'regex:/^\/[^\0]*$/', 'not_regex:/^\/(proc|sys|dev)(\/|$)/'],
+        ]);
+        if (! DaemonJobQueue::canCountAnySite($machine)) {
+            return response()->json(['error' => ExistingSites::updateNote($machine)], 409);
+        }
+
+        try {
+            $record = $queue->queue($machine, $request->user(), 'traffic_source', ['type' => 'traffic_source', 'action' => 'add', 'name' => $data['name'], 'path' => $data['path']], null, 60);
+        } catch (RuntimeException $e) {
+            return response()->json(['error' => $e->getMessage()], 409);
+        }
+        Activity::record($machine->workspace_id, 'machine.traffic_file', $machine->name, $machine, $request->user(), ['name' => $data['name'], 'action' => 'add']);
+
+        return response()->json(['jobId' => $record->id], 202);
+    }
+
+    #[Audited]
+    public function removeFile(Request $request, Workspace $workspace, Machine $machine, string $site, DaemonJobQueue $queue): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id, 404);
+        Gate::authorize('manageMachines', $workspace);
+        $found = ExistingSites::find($machine, $site);
+        abort_if($found === null || ! $found['manual'], 404);
+
+        try {
+            $record = $queue->queue($machine, $request->user(), 'traffic_source', ['type' => 'traffic_source', 'action' => 'remove', 'name' => $found['site']], null, 60);
+        } catch (RuntimeException $e) {
+            return response()->json(['error' => $e->getMessage()], 409);
+        }
+        Activity::record($machine->workspace_id, 'machine.traffic_file', $machine->name, $machine, $request->user(), ['name' => ExistingSites::label($found), 'action' => 'remove']);
+
+        return response()->json(['jobId' => $record->id], 202);
+    }
+
+    public function fileJob(Workspace $workspace, Machine $machine, DaemonJob $job): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id && $job->machine_id === $machine->id && $job->kind === 'traffic_source', 404);
+
+        return response()->json([
+            'state' => $job->isStale() ? 'stale' : $job->state,
+            'result' => $job->result,
+            'error' => $job->error,
+        ]);
     }
 
     public function timingJob(Workspace $workspace, Machine $machine, string $site, DaemonJob $job): JsonResponse

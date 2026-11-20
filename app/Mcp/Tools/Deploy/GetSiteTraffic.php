@@ -30,8 +30,8 @@ final class GetSiteTraffic extends Tool
             .'series (a point every 15 minutes for 24h, every hour for 7d, every 6 hours for 30d; null before the first visit), and the top paths (without query strings) and referrers (hosts only), each with its share of requests. '
             .'collecting says whether the machine counts traffic at all (it’s off by default and turned on in the machine’s settings), blocked says why it can’t when it can’t. No IP addresses, user agents, countries or devices are kept. '
             .'app is the name it was deployed as (list_deploys shows them), app:<name>, or one of its services. '
-            .'For a site the machine’s own nginx or Apache config serves, pass site instead: its key from list_site_traffic (like nginx.shop.example.com). '
-            .'Those are counted read-only from the access logs the config already writes; existing.timed says whether their log format records response times (p50 and p95 are null when not), and existing.shared that several sites write one log without saying which, so they’re counted together.';
+            .'For a site the machine’s own web servers serve (nginx, Apache, Caddy or Traefik, on the machine or in a container), pass site instead: its key from list_site_traffic (like nginx.shop.example.com or caddy.any). '
+            .'Those are counted read-only from the access logs the config already writes; existing.timed says whether their log format records response times (p50 and p95 are null when not), existing.shared that several sites write one log without saying which, so they’re counted together, and existing.unlogged that the site writes no log ServerOS can read (change_site_logging can start one when existing.canChange).';
     }
 
     public function inputSchema(): array
@@ -39,7 +39,7 @@ final class GetSiteTraffic extends Tool
         return Schema::object([
             'machine' => Schema::machine(),
             'app' => Schema::string('The app: the name it was deployed as (like shop), app:<name>, or one of its services’ keys or names.', maxLength: 300),
-            'site' => Schema::string('Instead of app: a site of the machine’s own nginx or Apache, by its key from list_site_traffic.', maxLength: 120),
+            'site' => Schema::string('Instead of app: a site of the machine’s own web servers, by its key from list_site_traffic.', maxLength: 120),
             'range' => Schema::string('How far back: 24h (the default), 7d or 30d.', array_keys(SiteTraffic::RANGES)),
         ], ['machine']);
     }
@@ -89,16 +89,18 @@ final class GetSiteTraffic extends Tool
         }
         $state = ExistingSites::state($machine, $site);
         $report = SiteTraffic::reportSite($machine, $site['site'], $range);
-        $service = ExistingSites::serviceKey($machine, $site['server']);
+        $url = ExistingSites::url($machine, $site);
 
         return [
             'machine' => ['id' => $machine->id, 'name' => $machine->name],
             ...$state,
             ...$report,
-            'pageUrl' => $service === null ? null : $context->url("/machines/{$machine->id}/services/{$service}/traffic?site=".rawurlencode($site['site'])),
+            'pageUrl' => $url === null ? null : $context->url($url),
             'note' => match (true) {
                 $state['blocked'] !== null => $state['blocked'],
                 ! $state['collecting'] => 'The machine doesn’t count traffic. Turn it on in the machine’s settings, under Traffic.',
+                $site['unlogged'] === 'off' => ExistingSites::where($site).' writes no access log for this site, so there’s nothing to count.'.($state['existing']['canChange'] ? ' change_site_logging can add a log of ServerOS’s own to its config.' : ($site['container'] !== null ? ' Turn on its access log in the container’s config.' : '')),
+                $site['unlogged'] === 'elsewhere' => 'This site’s log goes to syslog or the journal, which ServerOS can’t read. Point it at a file to count its visits.',
                 ! $report['hasData'] => 'No visits counted in this range yet. They show up within a couple of minutes of the first one.',
                 default => null,
             },

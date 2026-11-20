@@ -3,6 +3,7 @@
 namespace App\Mcp\Tools;
 
 use App\Mcp\ToolGroup;
+use App\Mcp\Tools\Deploy\ChangeSiteLogging;
 use App\Mcp\Tools\Deploy\CheckDomain;
 use App\Mcp\Tools\Deploy\DeployFromGit;
 use App\Mcp\Tools\Deploy\DeployNewVersion;
@@ -32,6 +33,7 @@ final class DeployTools implements ToolGroup
             ListDeploys::class,
             GetApp::class,
             GetConnection::class,
+            ChangeSiteLogging::class,
             GetSiteTraffic::class,
             ListSiteTraffic::class,
             DeployNewVersion::class,

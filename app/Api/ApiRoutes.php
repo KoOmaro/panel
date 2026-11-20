@@ -139,6 +139,7 @@ final class ApiRoutes
                 ['GET', 'machines/{machine}/apps/{app}/traffic', 'get_site_traffic'],
                 ['GET', 'machines/{machine}/traffic', 'list_site_traffic'],
                 ['GET', 'machines/{machine}/sites/{site}/traffic', 'get_site_traffic'],
+                ['POST', 'machines/{machine}/sites/{site}/logging', 'change_site_logging'],
                 ['GET', 'machines/{machine}/connections/{service}', 'get_connection'],
                 ['POST', 'machines/{machine}/apps/{app}/deploy', 'deploy_new_version'],
                 ['POST', 'machines/{machine}/apps/{app}/redeploy', 'redeploy_app'],

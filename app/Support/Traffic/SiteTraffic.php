@@ -173,7 +173,7 @@ final class SiteTraffic
      * table and list_site_traffic show. `url` is the path of the page that
      * shows the site.
      *
-     * @return list<array{site: string, kind: string, name: string, server: string, names: list<string>, logs: list<string>, shared: bool, timed: bool|null, url: string|null, requests: int, errors: int, clientErrors: int, visitors: int}>
+     * @return list<array{site: string, kind: string, name: string, server: string, container: string|null, names: list<string>, logs: list<string>, shared: bool, timed: bool|null, catchAll: bool, unlogged: string|null, url: string|null, requests: int, errors: int, clientErrors: int, visitors: int}>
      */
     public static function sites(Machine $machine): array
     {
@@ -199,10 +199,13 @@ final class SiteTraffic
                 'kind' => 'app',
                 'name' => $app,
                 'server' => 'ServerOS',
+                'container' => null,
                 'names' => $domains,
                 'logs' => [],
                 'shared' => false,
                 'timed' => true,
+                'catchAll' => false,
+                'unlogged' => null,
                 'url' => "/machines/{$machine->id}/services/app:{$app}/traffic",
                 ...($numbers[$site] ?? $zero),
             ];
@@ -210,23 +213,26 @@ final class SiteTraffic
 
         if (ExistingSites::available($machine)) {
             foreach (ExistingSites::all($machine) as $site) {
-                $service = ExistingSites::serviceKey($machine, $site['server']);
                 $rows[] = [
                     'site' => $site['site'],
                     'kind' => 'existing',
                     'name' => ExistingSites::label($site),
                     'server' => ExistingSites::SERVERS[$site['server']],
+                    'container' => $site['container'],
                     'names' => $site['names'],
                     'logs' => $site['logs'],
                     'shared' => $site['shared'],
                     'timed' => $site['timed'],
-                    'url' => $service === null ? null : "/machines/{$machine->id}/services/{$service}/traffic?site=".rawurlencode($site['site']),
+                    'catchAll' => $site['catchAll'],
+                    'unlogged' => $site['unlogged'],
+                    'url' => ExistingSites::url($machine, $site),
                     ...($numbers[$site['site']] ?? $zero),
                 ];
             }
         }
 
-        usort($rows, fn (array $a, array $b) => [$b['requests'], $a['name']] <=> [$a['requests'], $b['name']]);
+        // Busiest first; sites with no log after the ones counted.
+        usort($rows, fn (array $a, array $b) => [$a['unlogged'] !== null, $b['requests'], $a['name']] <=> [$b['unlogged'] !== null, $a['requests'], $b['name']]);
 
         return $rows;
     }

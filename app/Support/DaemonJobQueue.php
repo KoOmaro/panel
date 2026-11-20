@@ -511,6 +511,16 @@ class DaemonJobQueue
         return self::atLeast($machine, (string) config('daemon.existing_sites_traffic_since'));
     }
 
+    /**
+     * Whether the daemon counts every site the machine serves (Caddy,
+     * Traefik, servers in containers), lists the ones that write no log,
+     * and starts or stops a log for one on request.
+     */
+    public static function canCountAnySite(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.any_site_traffic_since'));
+    }
+
     public static function canWildcard(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.wildcard_domains_since'));

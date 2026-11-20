@@ -2482,6 +2482,7 @@ const focusRing =
             :machine-id="machine.id ?? 0"
             :machine-name="machine.name"
             :service-url="serviceUrl"
+            :service-name="service.name"
             :traffic="siteTraffic"
             :can-manage="canManage"
         />

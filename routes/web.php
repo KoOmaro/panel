@@ -252,6 +252,8 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::get('machines/{machine}/traffic/sites', [MachineTrafficController::class, 'sites'])->middleware('throttle:120,1')->name('workspace.machines.traffic.sites');
         Route::get('machines/{machine}/sites/{site}/traffic', [MachineTrafficController::class, 'site'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:120,1')->name('workspace.machines.sites.traffic');
         Route::get('machines/{machine}/sites/{site}/timing/{job}', [MachineTrafficController::class, 'timingJob'])->where('site', '[A-Za-z0-9_.-]+')->name('workspace.machines.sites.timing.show');
+        Route::get('machines/{machine}/sites/{site}/logging/{job}', [MachineTrafficController::class, 'loggingJob'])->where('site', '[A-Za-z0-9_.-]+')->name('workspace.machines.sites.logging.show');
+        Route::get('machines/{machine}/traffic/files/{job}', [MachineTrafficController::class, 'fileJob'])->name('workspace.machines.traffic.files.show');
         Route::put('machines/{machine}/apps/{service}/limits', [AppVersionController::class, 'limits'])->middleware('throttle:20,1')->name('workspace.apps.limits');
         Route::get('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'variables'])->middleware('throttle:60,1')->name('workspace.apps.variables');
         Route::put('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'updateVariables'])->middleware('throttle:20,1')->name('workspace.apps.variables.update');
@@ -329,6 +331,9 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::put('machines/{machine}/traffic', [MachineTrafficController::class, 'update'])->middleware('throttle:10,1')->name('workspace.machines.traffic.update');
         Route::get('machines/{machine}/traffic/{job}', [MachineTrafficController::class, 'show'])->name('workspace.machines.traffic.show');
         Route::post('machines/{machine}/sites/{site}/timing', [MachineTrafficController::class, 'timing'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:10,1')->name('workspace.machines.sites.timing');
+        Route::post('machines/{machine}/sites/{site}/logging', [MachineTrafficController::class, 'logging'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:10,1')->name('workspace.machines.sites.logging');
+        Route::post('machines/{machine}/traffic/files', [MachineTrafficController::class, 'addFile'])->middleware('throttle:10,1')->name('workspace.machines.traffic.files.store');
+        Route::delete('machines/{machine}/traffic/files/{site}', [MachineTrafficController::class, 'removeFile'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:10,1')->name('workspace.machines.traffic.files.destroy');
         Route::post('machines/{machine}/reboot', [MachineUpdatesController::class, 'reboot'])->middleware('throttle:3,1')->name('workspace.machines.reboot');
         Route::get('machines/{machine}/scan', [MachineScanController::class, 'show'])->name('workspace.machines.scan.show');
         Route::post('machines/{machine}/jobs/{job}/retry', [DaemonJobController::class, 'retry'])->middleware('throttle:10,1')->name('workspace.machines.jobs.retry');

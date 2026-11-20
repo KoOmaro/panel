@@ -2,13 +2,16 @@
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { ArrowLeft } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import SiteTraffic from '@/components/machines/SiteTraffic.vue';
 import type { SiteTrafficState } from '@/components/machines/SiteTraffic.vue';
+import TrafficFileDialog from '@/components/machines/TrafficFileDialog.vue';
+import { appButtonClasses } from '@/lib/appButton';
 import { fixed } from '@/lib/formatting';
 
 export type ExistingSiteRow = SiteTrafficState & {
     label: string;
+    where?: string;
     lastDay: {
         requests: number;
         errors: number;
@@ -18,9 +21,15 @@ export type ExistingSiteRow = SiteTrafficState & {
 };
 
 export type ExistingSitesTrafficProps = {
+    /** The web server, on a web server's own page. */
     server: string | null;
+    /** server: a web server's own sites; app: the sites in front of an app. */
+    role?: 'server' | 'app';
     collecting: boolean;
     blocked: string | null;
+    update?: string | null;
+    canAddFile?: boolean;
+    ports?: number[];
     sites: ExistingSiteRow[];
 };
 
@@ -28,21 +37,32 @@ const props = defineProps<{
     machineId: number;
     machineName: string;
     serviceUrl: string;
+    serviceName?: string;
     traffic: ExistingSitesTrafficProps;
     canManage: boolean;
 }>();
 
 const page = usePage();
+const role = computed(() => props.traffic.role ?? 'server');
 const selectedKey = computed(() => {
     const query = page.url.split('?')[1] ?? '';
 
     return new URLSearchParams(query).get('site');
 });
+// An app with one site in front of it shows that site, with no list.
+const only = computed(() =>
+    role.value === 'app' && props.traffic.sites.length === 1
+        ? props.traffic.sites[0]
+        : null,
+);
 const selected = computed(
-    () => props.traffic.sites.find((s) => s.site === selectedKey.value) ?? null,
+    () =>
+        props.traffic.sites.find((s) => s.site === selectedKey.value) ??
+        only.value,
 );
 const listUrl = computed(() => `${props.serviceUrl}/traffic`);
 const server = computed(() => props.traffic.server ?? trans('this service'));
+const adding = ref(false);
 
 function siteUrl(site: string): string {
     return `${listUrl.value}?site=${encodeURIComponent(site)}`;
@@ -70,24 +90,62 @@ function rate(part: number, whole: number): string {
     return `${p < 10 ? fixed(p, 1) : Math.round(p)}%`;
 }
 
-/** What a site's second line says: its other names, or where it's set up. */
-/** The site's own log, not the copy with times ServerOS may have added. */
-function ownLog(logs: string[]): string | undefined {
+/** The site's own log, not the copy ServerOS may have added. */
+function ownLog(row: ExistingSiteRow): string {
+    const site = row.existing;
+    if (!site) return '—';
+    if (site.unlogged) return '';
+    const own =
+        site.logs.find(
+            (log) => !log.startsWith('/var/log/serveros-traffic/'),
+        ) ?? site.logs[0];
+
+    return own ?? '—';
+}
+
+/** Its log is the container's output, not a file. */
+function fromOutput(row: ExistingSiteRow): boolean {
+    const logs = row.existing?.logs ?? [];
+
     return (
-        logs.find((log) => !log.startsWith('/var/log/serveros-traffic/')) ??
-        logs[0]
+        logs.length > 0 &&
+        logs.every((log) => log === '/dev/stdout' || log === '/dev/stderr')
     );
 }
 
+/** What a site's second line says: its other names, or where it's set up. */
 function detail(row: ExistingSiteRow): string {
     const site = row.existing;
     if (!site) return '';
-    if (site.shared) return site.names.join(', ');
-    if (site.names.length > 1) return site.names.slice(1).join(', ');
+    const parts: string[] = [];
+    if (role.value === 'app' && row.where) parts.push(row.where);
+    if (site.shared) {
+        parts.push(site.names.join(', '));
+    } else if (site.catchAll) {
+        parts.push(trans('Every host no other site answers'));
+    } else if (site.names.length > 1) {
+        parts.push(site.names.slice(1).join(', '));
+    } else if (site.apps?.length) {
+        parts.push(trans('Sends to :apps', { apps: site.apps.join(', ') }));
+    } else if (parts.length === 0 && site.configs[0]?.startsWith('/')) {
+        // Where it's set up, without the server's own folder.
+        parts.push(site.configs[0].split('/').slice(-2).join('/'));
+    }
 
-    // Where it's set up, without the server's own folder.
-    return site.configs[0]?.split('/').slice(-2).join('/') ?? site.server;
+    return parts.join(' · ');
 }
+
+const counted = computed(() =>
+    props.traffic.sites.filter((s) => !s.existing?.unlogged),
+);
+const unloggedCount = computed(
+    () => props.traffic.sites.length - counted.value.length,
+);
+const title = computed(() =>
+    role.value === 'app'
+        ? trans('Sites that send requests to it')
+        : trans('Sites in :server’s config', { server: server.value }),
+);
 
 function reload(): void {
     router.reload({ only: ['siteTraffic'] });
@@ -99,12 +157,17 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
 <template>
     <div v-if="selected" class="flex flex-col gap-4">
         <Link
+            v-if="!only"
             :href="listUrl"
             preserve-scroll
             class="flex w-fit items-center gap-1.5 text-[13px]/5 text-(--ds-text-muted) hover:text-(--ds-text)"
         >
             <ArrowLeft class="size-3.5" aria-hidden="true" />
-            {{ $t('All :server sites', { server }) }}
+            {{
+                role === 'app'
+                    ? $t('All sites')
+                    : $t('All :server sites', { server })
+            }}
         </Link>
         <SiteTraffic
             :key="selected.site"
@@ -121,12 +184,14 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
         <div class="flex min-h-8 flex-wrap items-center justify-between gap-3">
             <div class="flex min-w-0 items-baseline gap-2">
                 <h2 class="text-[15px] font-medium">{{ $t('Traffic') }}</h2>
-                <span class="truncate text-[13px] text-(--ds-text-faint)">{{
-                    $t('Sites in :server’s config', { server })
-                }}</span>
+                <span
+                    v-if="traffic.sites.length"
+                    class="truncate text-[13px] text-(--ds-text-faint)"
+                    >{{ title }}</span
+                >
             </div>
             <span
-                v-if="traffic.collecting && traffic.sites.length"
+                v-if="traffic.collecting && counted.length"
                 class="text-xs text-(--ds-text-faint)"
                 >{{ $t('Last 24 hours') }}</span
             >
@@ -143,6 +208,14 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
         </div>
 
         <div
+            v-else-if="traffic.update"
+            class="ds-tile flex flex-col items-center gap-1 px-5 py-10 text-center text-[13px]/5"
+        >
+            <p class="font-medium">{{ $t('Update the daemon to see this') }}</p>
+            <p class="max-w-md text-(--ds-text-muted)">{{ traffic.update }}</p>
+        </div>
+
+        <div
             v-else-if="!traffic.collecting"
             class="ds-tile flex flex-col items-center gap-1 px-5 py-10 text-center text-[13px]/5"
         >
@@ -151,10 +224,14 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
             </p>
             <p class="max-w-md text-(--ds-text-muted)">
                 {{
-                    $t(
-                        'Turn on Traffic in the machine’s settings to count visits to :server’s sites from the access logs it already writes. ServerOS only reads them, and visitor IPs never leave the machine.',
-                        { server },
-                    )
+                    role === 'app'
+                        ? $t(
+                              'Turn on Traffic in the machine’s settings to count visits from the access logs your web servers already write. ServerOS only reads them, and visitor IPs never leave the machine.',
+                          )
+                        : $t(
+                              'Turn on Traffic in the machine’s settings to count visits to :server’s sites from the access logs it already writes. ServerOS only reads them, and visitor IPs never leave the machine.',
+                              { server },
+                          )
                 }}
             </p>
             <Link
@@ -166,6 +243,44 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
         </div>
 
         <div
+            v-else-if="traffic.sites.length === 0 && role === 'app'"
+            class="ds-tile flex flex-col items-center gap-1 px-5 py-10 text-center text-[13px]/5"
+        >
+            <p class="font-medium">{{ $t('No web server in front of it') }}</p>
+            <p class="max-w-lg text-(--ds-text-muted)">
+                {{
+                    traffic.ports?.length
+                        ? $t(
+                              'ServerOS counts visits from the web server in front of an app, and none on :name sends requests to it. It may answer on port :port itself, or behind a load balancer elsewhere, where HTTPS hides each request from the machine.',
+                              {
+                                  name: machineName,
+                                  port: String(traffic.ports[0]),
+                              },
+                          )
+                        : $t(
+                              'ServerOS counts visits from the web server in front of an app, and none on :name sends requests to it.',
+                              { name: machineName },
+                          )
+                }}
+            </p>
+            <p class="max-w-lg text-(--ds-text-muted)">
+                {{
+                    $t(
+                        'To see its visits, put the machine’s proxy in front of it with a domain, or count the access log it writes itself.',
+                    )
+                }}
+            </p>
+            <button
+                v-if="canManage && traffic.canAddFile"
+                type="button"
+                :class="appButtonClasses('secondary', 'md', 'mt-2')"
+                @click="adding = true"
+            >
+                {{ $t('Count its own log file') }}
+            </button>
+        </div>
+
+        <div
             v-else-if="traffic.sites.length === 0"
             class="ds-tile flex flex-col items-center gap-1 px-5 py-10 text-center text-[13px]/5"
         >
@@ -173,7 +288,7 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
             <p class="max-w-md text-(--ds-text-muted)">
                 {{
                     $t(
-                        'ServerOS found no site in :server’s config with an access log it can read. Logs sent to syslog, compressed, or with variables in their path can’t be read.',
+                        'ServerOS found no site in :server’s config. Sites show up here within a minute of being added.',
                         { server },
                     )
                 }}
@@ -240,49 +355,88 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
                             <span
                                 class="block truncate text-xs text-(--ds-text-faint)"
                                 :title="detail(row)"
-                                >{{ detail(row) }}</span
+                                >{{ detail(row) || '\u00A0' }}</span
                             >
                         </td>
                         <td
                             class="hidden min-w-0 px-3 md:table-cell"
                             :title="row.existing?.logs.join(', ')"
                         >
+                            <span
+                                v-if="row.existing?.unlogged"
+                                class="text-(--ds-text-muted)"
+                                >{{ $t('Not logged') }}</span
+                            >
+                            <span
+                                v-else-if="fromOutput(row)"
+                                class="text-(--ds-text-secondary)"
+                                >{{ $t('Container output') }}</span
+                            >
                             <!-- Cut from the left, so the file's name stays in view. -->
                             <span
+                                v-else
                                 class="block truncate text-left font-ui-mono text-[12px] text-(--ds-text-secondary) [direction:rtl]"
-                                >{{
-                                    '\u200E' +
-                                    (ownLog(row.existing?.logs ?? []) ?? '—')
-                                }}</span
+                                >{{ '\u200E' + ownLog(row) }}</span
                             >
                         </td>
-                        <td class="px-3 text-right tabular-nums">
-                            {{ compact(row.lastDay.requests) }}
-                        </td>
-                        <td
-                            class="hidden px-3 text-right tabular-nums sm:table-cell"
-                            :class="
-                                row.lastDay.requests > 0 &&
-                                row.lastDay.errors / row.lastDay.requests >=
-                                    0.05
-                                    ? 'text-(--ds-red)'
-                                    : 'text-(--ds-text-muted)'
-                            "
-                        >
-                            {{ rate(row.lastDay.errors, row.lastDay.requests) }}
-                        </td>
-                        <td class="px-3 text-right tabular-nums max-sm:pr-4">
-                            {{ compact(row.lastDay.visitors) }}
-                        </td>
-                        <td
-                            class="hidden pr-4 pl-3 text-(--ds-text-muted) lg:table-cell"
-                        >
-                            {{
-                                row.existing?.timed
-                                    ? $t('Recorded')
-                                    : $t('Not recorded')
-                            }}
-                        </td>
+                        <template v-if="row.existing?.unlogged">
+                            <td
+                                class="px-3 text-right text-(--ds-text-faint) tabular-nums"
+                            >
+                                —
+                            </td>
+                            <td
+                                class="hidden px-3 text-right text-(--ds-text-faint) tabular-nums sm:table-cell"
+                            >
+                                —
+                            </td>
+                            <td
+                                class="px-3 text-right text-(--ds-text-faint) tabular-nums max-sm:pr-4"
+                            >
+                                —
+                            </td>
+                            <td
+                                class="hidden pr-4 pl-3 text-(--ds-text-faint) lg:table-cell"
+                            >
+                                —
+                            </td>
+                        </template>
+                        <template v-else>
+                            <td class="px-3 text-right tabular-nums">
+                                {{ compact(row.lastDay.requests) }}
+                            </td>
+                            <td
+                                class="hidden px-3 text-right tabular-nums sm:table-cell"
+                                :class="
+                                    row.lastDay.requests > 0 &&
+                                    row.lastDay.errors / row.lastDay.requests >=
+                                        0.05
+                                        ? 'text-(--ds-red)'
+                                        : 'text-(--ds-text-muted)'
+                                "
+                            >
+                                {{
+                                    rate(
+                                        row.lastDay.errors,
+                                        row.lastDay.requests,
+                                    )
+                                }}
+                            </td>
+                            <td
+                                class="px-3 text-right tabular-nums max-sm:pr-4"
+                            >
+                                {{ compact(row.lastDay.visitors) }}
+                            </td>
+                            <td
+                                class="hidden pr-4 pl-3 text-(--ds-text-muted) lg:table-cell"
+                            >
+                                {{
+                                    row.existing?.timed
+                                        ? $t('Recorded')
+                                        : $t('Not recorded')
+                                }}
+                            </td>
+                        </template>
                     </tr>
                 </tbody>
             </table>
@@ -294,10 +448,28 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
         >
             {{
                 $t(
-                    'Counted on :name from the access logs :server already writes, which ServerOS only reads. Errors are the share of server errors (5xx).',
-                    { name: machineName, server },
+                    'Counted on :name from the access logs already written, which ServerOS only reads. Errors are the share of server errors (5xx).',
+                    { name: machineName },
                 )
             }}
+            <template v-if="unloggedCount > 0">
+                {{
+                    $t(
+                        unloggedCount === 1
+                            ? 'One site writes no access log, so it has no numbers.'
+                            : ':count sites write no access log, so they have no numbers.',
+                        { count: String(unloggedCount) },
+                    )
+                }}
+            </template>
         </p>
+
+        <TrafficFileDialog
+            v-if="canManage && traffic.canAddFile"
+            v-model:open="adding"
+            :machine-id="machineId"
+            :name="serviceName ?? ''"
+            @added="reload"
+        />
     </div>
 </template>

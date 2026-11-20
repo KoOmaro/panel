@@ -152,21 +152,26 @@ class MachineServiceController extends Controller
     }
 
     /**
-     * The Traffic tab of a web server (or an app it adopted that one passes
-     * requests to): the sites of the machine's own nginx or Apache config,
-     * or null when there's no such tab.
+     * The Traffic tab of any service a site is tied to: a web server's own
+     * sites (nginx, Apache, Caddy, Traefik, on the machine or in a
+     * container), or the sites that pass requests on to an app. An app
+     * nothing passes requests to gets the tab too, to say so. Null for a
+     * service with no tab (databases and the like, and apps ServerOS
+     * deployed, which have their own).
      *
      * @param  array<string, mixed>  $found
-     * @return array{server: string|null, collecting: bool, blocked: string|null, sites: list<array<string, mixed>>}|null
+     * @return array{server: string|null, role: string, collecting: bool, blocked: string|null, update: string|null, canAddFile: bool, ports: list<int>, sites: list<array<string, mixed>>}|null
      */
     private static function siteTraffic(Machine $machine, array $found): ?array
     {
-        if (! ExistingSites::available($machine) || is_string($found['app'] ?? null)) {
+        if (is_string($found['app'] ?? null)) {
             return null;
         }
         $server = ExistingSites::serverOf($found);
-        $sites = ExistingSites::forService($machine, $found);
-        if ($sites === [] && $server === null) {
+        ['serves' => $serves, 'sites' => $sites] = ExistingSites::forService($machine, $found);
+        $appLike = in_array($found['kind'] ?? null, ['app', 'container', 'runtime', 'web_server', 'proxy'], true)
+            && ((array) ($found['ports'] ?? []) !== [] || is_string($found['working_dir'] ?? null));
+        if (! $serves && $sites === [] && ! $appLike && $server === null) {
             return null;
         }
         $numbers = SiteTraffic::lastDay($machine);
@@ -174,15 +179,28 @@ class MachineServiceController extends Controller
         $rows = array_map(fn (array $site) => [
             ...ExistingSites::state($machine, $site),
             'label' => ExistingSites::label($site),
+            'where' => ExistingSites::where($site),
             'lastDay' => $numbers[$site['site']] ?? $zero,
         ], $sites);
-        // Busiest first, as the machine's traffic table has them.
-        usort($rows, fn (array $a, array $b) => [$b['lastDay']['requests'], $a['label']] <=> [$a['lastDay']['requests'], $b['label']]);
+        // Busiest first, as the machine's traffic table has them; no log last.
+        usort($rows, fn (array $a, array $b) => [$a['existing']['unlogged'] !== null, $b['lastDay']['requests'], $a['label']] <=> [$b['existing']['unlogged'] !== null, $a['lastDay']['requests'], $b['label']]);
+        $current = DaemonJobQueue::canCountAnySite($machine);
+        // Host nginx and Apache came first; everything else needs the newer daemon.
+        $hostClassic = $serves && in_array($server, ['nginx', 'apache'], true) && ExistingSites::containerOf($found) === null;
+        $needs = $hostClassic ? (string) config('daemon.existing_sites_traffic_since') : (string) config('daemon.any_site_traffic_since');
+        $older = ! ($hostClassic ? ExistingSites::available($machine) : $current);
+        $update = $older && $rows === [] && TrafficSwitch::blocked($machine) === null
+            ? __('Update the ServerOS daemon on :name to :version or later to count this service’s traffic.', ['name' => $machine->name, 'version' => 'v'.$needs])
+            : null;
 
         return [
-            'server' => $server === null ? null : ExistingSites::SERVERS[$server],
+            'server' => $serves && $server !== null ? ExistingSites::SERVERS[$server] : null,
+            'role' => $serves ? 'server' : 'app',
             'collecting' => TrafficSwitch::on($machine),
             'blocked' => TrafficSwitch::blocked($machine),
+            'update' => is_string($update) ? $update : null,
+            'canAddFile' => $current && ! $serves,
+            'ports' => array_values(array_filter((array) ($found['ports'] ?? []), 'is_int')),
             'sites' => $rows,
         ];
     }

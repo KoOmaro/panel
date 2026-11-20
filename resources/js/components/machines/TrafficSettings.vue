@@ -23,10 +23,13 @@ type SiteRow = {
     kind: 'app' | 'existing';
     name: string;
     server: string;
+    container?: string | null;
     names: string[];
     logs: string[];
     shared: boolean;
     timed: boolean | null;
+    catchAll?: boolean;
+    unlogged?: 'off' | 'elsewhere' | null;
     url: string | null;
     requests: number;
     errors: number;
@@ -97,7 +100,10 @@ function rate(part: number, whole: number): string {
 /** A row's second line: the app's domain, or the site's other names or its log. */
 function detail(row: SiteRow): string {
     if (row.kind === 'app') return row.names[0] ?? trans('No domain');
+    if (row.unlogged === 'off') return trans('Writes no access log');
+    if (row.unlogged) return trans('Logs to syslog or the journal');
     if (row.shared) return row.names.join(', ');
+    if (row.catchAll) return trans('Every host no other site answers');
     if (row.names.length > 1) return row.names.slice(1).join(', ');
 
     // The log's file name: the folder is on the site's own page.
@@ -105,6 +111,9 @@ function detail(row: SiteRow): string {
     const own =
         row.logs.find((log) => !log.startsWith('/var/log/serveros-traffic/')) ??
         row.logs[0];
+    if (own === '/dev/stdout' || own === '/dev/stderr') {
+        return trans('The container’s output');
+    }
 
     return own?.split('/').pop() ?? '';
 }
@@ -263,7 +272,7 @@ onMounted(() => {
                     {{
                         traffic.existing !== null
                             ? $t(
-                                  'Counts visits to the sites on :name from their access logs: the apps ServerOS runs, and the sites in your own nginx or Apache config, whose logs ServerOS only reads. Visitor IPs never leave the machine.',
+                                  'Counts visits to the sites on :name from their access logs: the apps ServerOS runs, and the sites your own web servers serve, whose logs ServerOS only reads. Visitor IPs never leave the machine.',
                                   { name: machineName },
                               )
                             : $t(
@@ -338,7 +347,7 @@ onMounted(() => {
                             {{ $t('Site') }}
                         </th>
                         <th
-                            class="hidden w-28 border-l border-(--ds-divider) px-3 font-normal sm:table-cell"
+                            class="hidden w-36 border-l border-(--ds-divider) px-3 font-normal sm:table-cell"
                         >
                             {{ $t('Served by') }}
                         </th>
@@ -382,27 +391,56 @@ onMounted(() => {
                             >
                         </td>
                         <td
-                            class="hidden px-3 text-(--ds-text-muted) sm:table-cell"
+                            class="hidden min-w-0 px-3 text-(--ds-text-muted) sm:table-cell"
                         >
-                            {{ row.server }}
+                            <span class="block truncate">{{ row.server }}</span>
+                            <span
+                                v-if="row.container"
+                                class="block truncate text-xs text-(--ds-text-faint)"
+                                :title="row.container"
+                                >{{
+                                    $t('in :container', {
+                                        container: row.container,
+                                    })
+                                }}</span
+                            >
                         </td>
-                        <td class="px-3 text-right tabular-nums">
-                            {{ compact(row.requests) }}
-                        </td>
-                        <td
-                            class="hidden px-3 text-right tabular-nums sm:table-cell"
-                            :class="
-                                row.requests > 0 &&
-                                row.errors / row.requests >= 0.05
-                                    ? 'text-(--ds-red)'
-                                    : 'text-(--ds-text-muted)'
-                            "
-                        >
-                            {{ rate(row.errors, row.requests) }}
-                        </td>
-                        <td class="px-3 text-right tabular-nums">
-                            {{ compact(row.visitors) }}
-                        </td>
+                        <template v-if="row.unlogged">
+                            <td
+                                class="px-3 text-right text-(--ds-text-faint) tabular-nums"
+                            >
+                                —
+                            </td>
+                            <td
+                                class="hidden px-3 text-right text-(--ds-text-faint) tabular-nums sm:table-cell"
+                            >
+                                —
+                            </td>
+                            <td
+                                class="px-3 text-right text-(--ds-text-faint) tabular-nums"
+                            >
+                                —
+                            </td>
+                        </template>
+                        <template v-else>
+                            <td class="px-3 text-right tabular-nums">
+                                {{ compact(row.requests) }}
+                            </td>
+                            <td
+                                class="hidden px-3 text-right tabular-nums sm:table-cell"
+                                :class="
+                                    row.requests > 0 &&
+                                    row.errors / row.requests >= 0.05
+                                        ? 'text-(--ds-red)'
+                                        : 'text-(--ds-text-muted)'
+                                "
+                            >
+                                {{ rate(row.errors, row.requests) }}
+                            </td>
+                            <td class="px-3 text-right tabular-nums">
+                                {{ compact(row.visitors) }}
+                            </td>
+                        </template>
                         <td class="pr-4 text-right">
                             <Link
                                 v-if="row.url"
@@ -426,7 +464,7 @@ onMounted(() => {
             >
                 {{
                     $t(
-                        'The last 24 hours. Errors are the share of server errors (5xx).',
+                        'The last 24 hours. Errors are the share of server errors (5xx). A site that writes no access log has no numbers; its page says how to start one.',
                     )
                 }}
             </p>

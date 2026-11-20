@@ -105,16 +105,24 @@ test('telemetry keeps the reported list of web server sites, cleaned, and their 
     ]);
 
     $machine->refresh();
+    $empty = ['container' => null, 'apps' => [], 'catchAll' => false, 'roots' => [], 'sockets' => [], 'unlogged' => null];
     expect(ExistingSites::all($machine))->toBe([[
         'site' => 'nginx.shop.example.com', 'server' => 'nginx', 'names' => ['shop.example.com'],
         'logs' => ['/var/log/nginx/access.log'], 'timed' => false, 'shared' => false, 'copy' => false,
         'configs' => ['/etc/nginx/sites-enabled/default'], 'ports' => [3000],
+        // Daemons before Caddy and containers only ever changed host nginx and Apache.
+        ...$empty, 'editable' => true, 'manual' => false,
+    ], [
+        'site' => 'caddy.shop.example.com', 'server' => 'caddy', 'names' => ['shop.example.com'],
+        'logs' => ['/var/log/nginx/access.log'], 'timed' => false, 'shared' => false, 'copy' => false,
+        'configs' => ['/etc/nginx/sites-enabled/default'], 'ports' => [],
+        ...$empty, 'editable' => false, 'manual' => false,
     ]])
         ->and(TrafficRollup::query()->orderBy('site')->pluck('site')->all())->toBe(['nginx.shop.example.com', 'shop']);
 
     // A batch without the list leaves it be; an empty list empties it.
     sendSiteEnvelopes($machine, ['traffic' => [siteMinute('shop', 2)]]);
-    expect(ExistingSites::all($machine->fresh()))->toHaveCount(1);
+    expect(ExistingSites::all($machine->fresh()))->toHaveCount(2);
     sendSiteEnvelopes($machine, ['traffic_sites' => []]);
     expect(ExistingSites::all($machine->fresh()))->toBe([]);
 });
@@ -157,13 +165,17 @@ test('a web server’s page lists its sites with their last day, and each one op
     $this->actingAs($other->owner)->getJson('https://'.$other->host()."/machines/{$machine->id}/sites/nginx.shop.example.com/traffic")->assertNotFound();
 });
 
-test('machines whose daemon doesn’t count web server sites show none of it', function () {
+test('machines whose daemon doesn’t count web server sites say so on the tab and show no numbers', function () {
     [$workspace, $machine, $base] = webServerMachine();
     withSites($machine);
     $machine->forceFill(['daemon_version' => '0.1.1-pre.46', 'proxy' => 'caddy'])->save();
 
     $this->actingAs($workspace->owner)->get($base."/machines/{$machine->id}/services/systemd:nginx.service")
-        ->assertInertia(fn ($page) => $page->where('siteTraffic', null));
+        ->assertInertia(fn ($page) => $page->where('siteTraffic.role', 'server')
+            ->where('siteTraffic.server', 'nginx')
+            ->where('siteTraffic.blocked', null)
+            ->where('siteTraffic.update', 'Update the ServerOS daemon on web-1 to v0.1.1-pre.47 or later to count this service’s traffic.')
+            ->where('siteTraffic.sites', []));
     $this->actingAs($workspace->owner)->getJson($base."/machines/{$machine->id}/sites/nginx.shop.example.com/traffic")->assertNotFound();
     expect(TrafficSwitch::props($machine)['existing'])->toBeNull();
 });

@@ -23,13 +23,26 @@ type Plan = {
     changes: Change[];
     check: string;
     reload: string;
+    verify: string;
 };
 
-const props = defineProps<{
-    machineId: number;
-    site: string;
-    label: string;
-}>();
+/**
+ * timing: a copy of the log with response times (nginx, Apache). add: a
+ * log of ServerOS's own for a site that writes none. remove: takes out the
+ * lines either added.
+ */
+export type TrafficChange = 'timing' | 'add' | 'remove';
+
+const props = withDefaults(
+    defineProps<{
+        machineId: number;
+        site: string;
+        label: string;
+        mode?: TrafficChange;
+        server?: string;
+    }>(),
+    { mode: 'timing', server: '' },
+);
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ applied: [] }>();
 
@@ -54,8 +67,80 @@ function csrf(): string {
 
 const base = computed(
     () =>
-        `/machines/${props.machineId}/sites/${encodeURIComponent(props.site)}/timing`,
+        `/machines/${props.machineId}/sites/${encodeURIComponent(props.site)}/${props.mode === 'timing' ? 'timing' : 'logging'}`,
 );
+
+const copy = computed(() => {
+    const site = props.label;
+    const server = props.server || trans('The web server');
+    if (props.mode === 'add') {
+        return {
+            title: trans('Start logging this site'),
+            intro: trans(
+                ':server writes no access log for :site, so there’s nothing to count. ServerOS can add a log of its own to this site’s config, which it reads and empties. Nothing else changes.',
+                { server, site },
+            ),
+            one: trans('It adds this line and changes nothing else:'),
+            many: trans('It adds these :count lines and changes nothing else:'),
+            button: trans('Add the lines'),
+            busy: trans('Adding them…'),
+            done: trans(
+                'ServerOS logs :site now. Visits show up within a couple of minutes.',
+                { site },
+            ),
+        };
+    }
+    if (props.mode === 'remove') {
+        return {
+            title: trans('Take out ServerOS’s lines'),
+            intro: trans(
+                'This takes the lines ServerOS added out of :site’s config, and nothing else. ServerOS stops counting what they logged.',
+                { site },
+            ),
+            one: trans('It takes out this line and changes nothing else:'),
+            many: trans(
+                'It takes out these :count lines and changes nothing else:',
+            ),
+            button: trans('Take them out'),
+            busy: trans('Taking them out…'),
+            done: trans('ServerOS’s lines are out of :site’s config.', {
+                site,
+            }),
+        };
+    }
+
+    return {
+        title: trans('Record response times'),
+        intro: trans(
+            'The access log of :site doesn’t say how long requests took. ServerOS can add a second access log with times, which it reads instead. Your current log keeps working as it does now.',
+            { site },
+        ),
+        one: trans('It adds this line and changes nothing else:'),
+        many: trans('It adds these :count lines and changes nothing else:'),
+        button: trans('Add the lines'),
+        busy: trans('Adding them…'),
+        done: trans(
+            'Response times are on for :site. They show up for new visits within a couple of minutes.',
+            { site },
+        ),
+    };
+});
+
+const safety = computed(() => {
+    const p = plan.value;
+    if (!p) return '';
+    if (!p.check && p.verify) {
+        return trans(
+            'Each file is backed up on the machine first. Then ServerOS runs :reload and checks it comes back up. If it doesn’t, every file goes back as it was.',
+            { reload: p.reload },
+        );
+    }
+
+    return trans(
+        'Each file is backed up on the machine first. Then ServerOS runs :check, and if that fails, every file goes back as it was. If it passes, it runs :reload.',
+        { check: p.check, reload: p.reload },
+    );
+});
 
 async function ask(apply: boolean): Promise<Record<string, unknown>> {
     const response = await fetch(base.value, {
@@ -66,7 +151,9 @@ async function ask(apply: boolean): Promise<Record<string, unknown>> {
             'Content-Type': 'application/json',
             'X-CSRF-TOKEN': csrf(),
         },
-        body: JSON.stringify({ apply }),
+        body: JSON.stringify(
+            props.mode === 'timing' ? { apply } : { apply, action: props.mode },
+        ),
     });
     const body = await response.json().catch(() => ({}));
     if (response.status !== 202) {
@@ -151,6 +238,7 @@ async function load(): Promise<void> {
                 : [],
             check: String(result.check ?? ''),
             reload: String(result.reload ?? ''),
+            verify: String(result.verify ?? ''),
         };
         step.value = 'ready';
     } catch (e) {
@@ -166,12 +254,7 @@ async function apply(): Promise<void> {
     output.value = [];
     try {
         await ask(true);
-        toast.success(
-            trans(
-                'Response times are on for :site. They show up for new visits within a couple of minutes.',
-                { site: props.label },
-            ),
-        );
+        toast.success(copy.value.done);
         emit('applied');
         open.value = false;
     } catch (e) {
@@ -197,17 +280,12 @@ watch(open, (isOpen) => {
         >
             <div class="flex flex-col gap-1 p-5 pb-4">
                 <DialogTitle class="text-base/6 font-semibold">{{
-                    $t('Record response times')
+                    copy.title
                 }}</DialogTitle>
                 <DialogDescription
                     class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
                 >
-                    {{
-                        $t(
-                            'The access log of :site doesn’t say how long requests took. ServerOS can add a second access log with times, which it reads instead. Your current log keeps working as it does now.',
-                            { site: label },
-                        )
-                    }}
+                    {{ copy.intro }}
                 </DialogDescription>
             </div>
 
@@ -228,12 +306,9 @@ watch(open, (isOpen) => {
             >
                 <p class="text-[13px]/5 text-(--ds-text-secondary)">
                     {{
-                        $t(
-                            lineCount === 1
-                                ? 'It adds this line and changes nothing else:'
-                                : 'It adds these :count lines and changes nothing else:',
-                            { count: String(lineCount) },
-                        )
+                        lineCount === 1
+                            ? copy.one
+                            : copy.many.replace(':count', String(lineCount))
                     }}
                 </p>
                 <section
@@ -259,15 +334,10 @@ watch(open, (isOpen) => {
                     }}</span>
                     <pre
                         class="overflow-x-auto rounded-md border border-(--ds-border) bg-(--ds-field) px-3 py-2 font-ui-mono text-[12px]/5 text-(--ds-text-secondary)"
-                    ><code v-for="(line, n) in change.lines" :key="n" class="block" :class="line.startsWith('#') && 'text-(--ds-text-faint)'">{{ line }}</code></pre>
+                    ><code v-for="(line, n) in change.lines" :key="n" class="block whitespace-pre" :class="line.trimStart().startsWith('#') && 'text-(--ds-text-faint)'">{{ line }}</code></pre>
                 </section>
                 <p class="text-[13px]/5 text-(--ds-text-muted)">
-                    {{
-                        $t(
-                            'Each file is backed up on the machine first. Then ServerOS runs :check, and if that fails, every file goes back as it was. If it passes, it runs :reload.',
-                            { check: plan.check, reload: plan.reload },
-                        )
-                    }}
+                    {{ safety }}
                 </p>
             </div>
 
@@ -306,11 +376,7 @@ watch(open, (isOpen) => {
                         class="size-3.5 animate-spin"
                         aria-hidden="true"
                     />
-                    {{
-                        step === 'applying'
-                            ? $t('Adding them…')
-                            : $t('Add the lines')
-                    }}
+                    {{ step === 'applying' ? copy.busy : copy.button }}
                 </button>
             </div>
         </DialogContent>

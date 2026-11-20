@@ -37,6 +37,10 @@ return [
     // Traffic for the sites the machine's own nginx and Apache configs serve,
     // and response times for one of them on request.
     'existing_sites_traffic_since' => env('DAEMON_EXISTING_SITES_TRAFFIC_SINCE', '0.1.1-pre.47'),
+    // Traffic for every site the machine serves: Caddy and Traefik, servers
+    // in containers, sites with no access log listed (and their log started
+    // on request), and log files set by hand.
+    'any_site_traffic_since' => env('DAEMON_ANY_SITE_TRAFFIC_SINCE', '0.1.1-pre.48'),
     // CPU and memory limits per app, and registry logins for private images.
     'resource_limits_since' => env('DAEMON_RESOURCE_LIMITS_SINCE', '0.1.1-pre.46'),
     'registry_logins_since' => env('DAEMON_REGISTRY_LOGINS_SINCE', '0.1.1-pre.46'),
