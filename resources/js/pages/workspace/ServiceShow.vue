@@ -46,6 +46,8 @@ import type { FilePlace } from '@/components/machines/FileBrowser.vue';
 import JobStatusBadge from '@/components/machines/JobStatusBadge.vue';
 import type { Machine } from '@/components/machines/machines';
 import ServiceLogo from '@/components/machines/ServiceLogo.vue';
+import SiteTraffic from '@/components/machines/SiteTraffic.vue';
+import type { SiteTrafficState } from '@/components/machines/SiteTraffic.vue';
 import type {
     Service,
     ServiceStat,
@@ -149,6 +151,7 @@ const props = defineProps<{
         snapshotBefore: boolean;
         deployOnPush: { on: boolean; branch: string } | null;
         site: SiteSwitches;
+        traffic: SiteTrafficState;
         database: {
             setting: string;
             current: { name: string; display: string } | null;
@@ -245,6 +248,7 @@ const actionUrl = computed(
 
 const tab = usePathTab(serviceUrl.value, [
     'overview',
+    'traffic',
     'logs',
     'console',
     'files',
@@ -256,6 +260,7 @@ const tabs = computed(() =>
     (
         [
             'overview',
+            ...(props.app ? (['traffic'] as const) : []),
             'logs',
             'files',
             ...(props.database ? (['database'] as const) : []),
@@ -2333,6 +2338,15 @@ const focusRing =
                           'ServerOS can open the files of services it deployed or adopted. Adopt this service to browse its files here.',
                       )
             "
+        />
+
+        <SiteTraffic
+            v-else-if="tab === 'traffic' && app"
+            :machine-id="machine.id ?? 0"
+            :machine-name="machine.name"
+            :app="app.service"
+            :state="app.traffic"
+            :can-manage="canManage"
         />
 
         <DatabaseBrowser

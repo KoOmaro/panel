@@ -136,6 +136,7 @@ final class ApiRoutes
                 ['POST', 'machines/{machine}/deploys/git', 'deploy_from_git'],
                 ['GET', 'machines/{machine}/domains/check', 'check_domain'],
                 ['GET', 'machines/{machine}/apps/{app}', 'get_app'],
+                ['GET', 'machines/{machine}/apps/{app}/traffic', 'get_site_traffic'],
                 ['GET', 'machines/{machine}/connections/{service}', 'get_connection'],
                 ['POST', 'machines/{machine}/apps/{app}/deploy', 'deploy_new_version'],
                 ['POST', 'machines/{machine}/apps/{app}/redeploy', 'redeploy_app'],

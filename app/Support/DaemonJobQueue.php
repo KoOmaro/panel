@@ -436,6 +436,11 @@ class DaemonJobQueue
         return self::atLeast($machine, (string) config('daemon.site_options_since'));
     }
 
+    public static function canCollectTraffic(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.traffic_since'));
+    }
+
     public static function canWildcard(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.wildcard_domains_since'));

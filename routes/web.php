@@ -36,6 +36,7 @@ use App\Http\Controllers\MachineMetadataController;
 use App\Http\Controllers\MachineScanController;
 use App\Http\Controllers\MachineServiceController;
 use App\Http\Controllers\MachineSettingsController;
+use App\Http\Controllers\MachineTrafficController;
 use App\Http\Controllers\MachineTunnelController;
 use App\Http\Controllers\MachineUpdatesController;
 use App\Http\Controllers\MaintenanceController;
@@ -246,6 +247,7 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('machines/{machine}/apps/{service}/rollback', [AppVersionController::class, 'rollback'])->middleware('throttle:10,1')->name('workspace.apps.rollback');
         Route::put('machines/{machine}/apps/{service}/settings', [AppVersionController::class, 'settings'])->middleware('throttle:20,1')->name('workspace.apps.settings');
         Route::put('machines/{machine}/apps/{service}/site', [AppSiteController::class, 'update'])->middleware('throttle:20,1')->name('workspace.apps.site');
+        Route::get('machines/{machine}/apps/{service}/traffic', [MachineTrafficController::class, 'report'])->middleware('throttle:120,1')->name('workspace.apps.traffic');
         Route::get('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'variables'])->middleware('throttle:60,1')->name('workspace.apps.variables');
         Route::put('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'updateVariables'])->middleware('throttle:20,1')->name('workspace.apps.variables.update');
         Route::post('machines/{machine}/deploy', MachineDeployController::class)->middleware('throttle:10,1')->name('workspace.machines.deploy');
@@ -273,7 +275,7 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
             ->name('workspace.machines.services.show');
         Route::get('machines/{machine}/services/{service}/{tab}', [MachineServiceController::class, 'show'])
             ->where('service', '[A-Za-z0-9:._@-]+')
-            ->whereIn('tab', ['overview', 'logs', 'console', 'files', 'database', 'details']);
+            ->whereIn('tab', ['overview', 'traffic', 'logs', 'console', 'files', 'database', 'details']);
         Route::post('machines/{machine}/services/{service}/database', [MachineServiceController::class, 'database'])
             ->where('service', '[A-Za-z0-9:._@-]+')
             ->middleware('throttle:60,1')
@@ -319,6 +321,8 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('machines/{machine}/tunnel', [MachineTunnelController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.tunnel.store');
         Route::delete('machines/{machine}/tunnel', [MachineTunnelController::class, 'destroy'])->middleware('throttle:10,1')->name('workspace.machines.tunnel.destroy');
         Route::get('machines/{machine}/tunnel/{job}', [MachineTunnelController::class, 'show'])->name('workspace.machines.tunnel.show');
+        Route::put('machines/{machine}/traffic', [MachineTrafficController::class, 'update'])->middleware('throttle:10,1')->name('workspace.machines.traffic.update');
+        Route::get('machines/{machine}/traffic/{job}', [MachineTrafficController::class, 'show'])->name('workspace.machines.traffic.show');
         Route::post('machines/{machine}/reboot', [MachineUpdatesController::class, 'reboot'])->middleware('throttle:3,1')->name('workspace.machines.reboot');
         Route::get('machines/{machine}/scan', [MachineScanController::class, 'show'])->name('workspace.machines.scan.show');
         Route::post('machines/{machine}/jobs/{job}/retry', [DaemonJobController::class, 'retry'])->middleware('throttle:10,1')->name('workspace.machines.jobs.retry');
