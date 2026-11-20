@@ -76,6 +76,7 @@ use App\Http\Controllers\WorkspaceMcpController;
 use App\Http\Controllers\WorkspaceMemberController;
 use App\Http\Controllers\WorkspaceOnboardingController;
 use App\Http\Controllers\WorkspacePinController;
+use App\Http\Controllers\WorkspaceRegistryController;
 use App\Http\Controllers\WorkspaceSettingsController;
 use App\Http\Controllers\WorkspaceStatusPageController;
 use App\Http\Controllers\WorkspaceSwitchController;
@@ -343,6 +344,8 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('settings/panel-update', [PanelUpdateController::class, 'store'])->middleware('throttle:10,1')->name('workspace.panel-update.store');
         Route::post('settings/panel-update/check', [PanelUpdateController::class, 'check'])->middleware('throttle:10,1')->name('workspace.panel-update.check');
         Route::delete('settings/github/{installation}', [GitHubConnectionController::class, 'destroy'])->withoutScopedBindings()->name('workspace.github.destroy');
+        Route::post('settings/registries', [WorkspaceRegistryController::class, 'store'])->middleware('throttle:20,1')->name('workspace.registries.store');
+        Route::delete('settings/registries/{registry}', [WorkspaceRegistryController::class, 'destroy'])->withoutScopedBindings()->name('workspace.registries.destroy');
         Route::patch('settings/general', [WorkspaceSettingsController::class, 'update'])->name('workspace.settings.update');
         Route::delete('settings/workspace', [WorkspaceSettingsController::class, 'destroy'])->name('workspace.settings.destroy');
         Route::post('settings/logo', [WorkspaceSettingsController::class, 'updateLogo'])->name('workspace.settings.logo.update');

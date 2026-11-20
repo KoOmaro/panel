@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Events\DeployQueued;
 use App\Models\Activity;
+use App\Models\ContainerRegistry;
 use App\Models\DaemonJob;
 use App\Models\DaemonRelease;
 use App\Models\DeploySource;
@@ -350,6 +351,28 @@ class DaemonJobQueue
         return $command;
     }
 
+    // Added as the job is sent, never stored, like the repository token: the
+    // workspace's registry logins, for a deploy that pulls private images.
+    /**
+     * @param  array<string, mixed>  $command
+     * @return array<string, mixed>
+     */
+    private function withRegistryLogins(Machine $machine, array $command): array
+    {
+        if (($command['job']['type'] ?? null) !== 'deploy' || ! self::canUseRegistryLogins($machine)) {
+            return $command;
+        }
+        $logins = $machine->workspace->containerRegistries()->orderBy('host')->get()
+            ->map(fn (ContainerRegistry $registry) => ['host' => $registry->host, 'username' => $registry->username, 'password' => $registry->password])
+            ->values()
+            ->all();
+        if ($logins !== []) {
+            $command['job']['registries'] = $logins;
+        }
+
+        return $command;
+    }
+
     public static function canFetchPrivate(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.repo_token_since'));
@@ -516,7 +539,7 @@ class DaemonJobQueue
     private function send(Machine $machine, DaemonJob $record, array $command): void
     {
         try {
-            $this->gateway->dispatch($machine, $record->id, $this->withRepoToken($machine, self::withMaps($command)));
+            $this->gateway->dispatch($machine, $record->id, $this->withRegistryLogins($machine, $this->withRepoToken($machine, self::withMaps($command))));
         } catch (RuntimeException $e) {
             $record->forceFill([
                 'state' => 'refused',

@@ -44,6 +44,7 @@ class WorkspaceSettingsController extends Controller
             'canDelete' => $request->user()->can('delete', $workspace),
             'canManageAlerts' => $canAlerts,
             'alerts' => AlertKinds::props($workspace, $canAlerts),
+            'registries' => $canAlerts ? WorkspaceRegistryController::props($workspace) : null,
             'github' => $canAlerts && (GitHubApp::enabled() || Edition::selfHosted()) ? $workspace->githubInstallations()
                 ->orderBy('account_login')
                 ->get()

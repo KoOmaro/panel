@@ -294,6 +294,12 @@ class Workspace extends Model
         return $this->hasMany(GitHubInstallation::class);
     }
 
+    /** @return HasMany<ContainerRegistry, $this> */
+    public function containerRegistries(): HasMany
+    {
+        return $this->hasMany(ContainerRegistry::class);
+    }
+
     /**
      * @return HasMany<BackupDestination, $this>
      */
