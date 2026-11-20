@@ -101,7 +101,12 @@ function detail(row: SiteRow): string {
     if (row.names.length > 1) return row.names.slice(1).join(', ');
 
     // The log's file name: the folder is on the site's own page.
-    return row.logs[0]?.split('/').pop() ?? '';
+    // The site's own log, not the copy with times ServerOS may have added.
+    const own =
+        row.logs.find((log) => !log.startsWith('/var/log/serveros-traffic/')) ??
+        row.logs[0];
+
+    return own?.split('/').pop() ?? '';
 }
 
 const counted = computed(() =>

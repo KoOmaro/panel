@@ -71,6 +71,14 @@ function rate(part: number, whole: number): string {
 }
 
 /** What a site's second line says: its other names, or where it's set up. */
+/** The site's own log, not the copy with times ServerOS may have added. */
+function ownLog(logs: string[]): string | undefined {
+    return (
+        logs.find((log) => !log.startsWith('/var/log/serveros-traffic/')) ??
+        logs[0]
+    );
+}
+
 function detail(row: ExistingSiteRow): string {
     const site = row.existing;
     if (!site) return '';
@@ -243,7 +251,8 @@ const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
                             <span
                                 class="block truncate text-left font-ui-mono text-[12px] text-(--ds-text-secondary) [direction:rtl]"
                                 >{{
-                                    '\u200E' + (row.existing?.logs[0] ?? '—')
+                                    '\u200E' +
+                                    (ownLog(row.existing?.logs ?? []) ?? '—')
                                 }}</span
                             >
                         </td>
