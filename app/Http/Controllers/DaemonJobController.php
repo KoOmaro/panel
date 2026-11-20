@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Activity;
 use App\Models\DaemonJob;
-use App\Support\Deploys\DeployOnPush;
 use App\Models\Machine;
 use App\Models\Workspace;
 use App\Support\Audit\Audited;
 use App\Support\DaemonJobQueue;
+use App\Support\Deploys\DeployOnPush;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;

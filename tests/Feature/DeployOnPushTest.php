@@ -1,11 +1,13 @@
 <?php
 
 use App\Enums\Plan;
+use App\Mcp\Tools\DeployTools;
 use App\Models\Activity;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\Workspace;
 use App\Support\Activity\ActivityLine;
+use App\Support\DaemonJobQueue;
 use App\Support\Deploys\DeployOnPush;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Collection;
@@ -181,7 +183,7 @@ test('pushes that come in while the app deploys wait, and only the newest of the
 test('people, AI apps and rollbacks are never replaced, and a push waits for them too', function () {
     [$workspace, $machine, $base] = pushDeployApp();
     $this->actingAs($workspace->owner)->putJson($base."/machines/{$machine->id}/apps/shop/settings", ['deploy_on_push' => true])->assertOk();
-    $manual = app(\App\Support\DaemonJobQueue::class)->deploy($machine, $workspace->owner, ['type' => 'deploy', 'service' => 'shop', 'repo' => 'https://github.com/acme/shop', 'commit' => str_repeat('d', 40)]);
+    $manual = app(DaemonJobQueue::class)->deploy($machine, $workspace->owner, ['type' => 'deploy', 'service' => 'shop', 'repo' => 'https://github.com/acme/shop', 'commit' => str_repeat('d', 40)]);
     $rollback = DaemonJob::query()->create(['id' => (string) Str::uuid(), 'machine_id' => $machine->id, 'user_id' => $workspace->owner_id, 'kind' => 'rollback', 'service' => 'shop', 'state' => 'running', 'command' => ['job' => ['type' => 'rollback']]]);
 
     pushTo(commit: str_repeat('a', 40));
@@ -250,7 +252,7 @@ test('a waiting push can be cancelled before it’s sent', function () {
 });
 
 test('MCP turns only the newest push off and on without deploying', function () {
-    config()->set('mcp.groups', [\App\Mcp\Tools\DeployTools::class]);
+    config()->set('mcp.groups', [DeployTools::class]);
     [$workspace, $machine] = pushDeployApp();
     $key = mcpKey($workspace);
 
