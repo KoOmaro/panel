@@ -8,6 +8,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { SelectMenu } from '@/components/ui/select';
 import { appButtonClasses } from '@/lib/appButton';
 import { toast } from '@/lib/toast';
 import { describe, networkMessage } from '@/lib/errors';
@@ -32,6 +33,17 @@ const memory = ref('');
 const unit = ref<'MB' | 'GB'>('MB');
 const busy = ref(false);
 const error = ref<string | null>(null);
+const unitOptions = [
+    { value: 'MB', label: 'MB' },
+    { value: 'GB', label: 'GB' },
+];
+
+/** 8192 as "8 GB", 1536 as "1.5 GB", 512 as "512 MB". */
+function size(mb: number): string {
+    if (mb < 1024) return `${mb} MB`;
+
+    return `${Number((mb / 1024).toFixed(1))} GB`;
+}
 
 const memoryMb = computed<number | null>(() => {
     const value = Number.parseFloat(memory.value);
@@ -103,7 +115,7 @@ async function save(): Promise<void> {
 <template>
     <Dialog v-model:open="open">
         <DialogContent
-            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
         >
             <form class="flex flex-col" @submit.prevent="save">
                 <div class="flex flex-col gap-1 p-5 pb-4">
@@ -116,77 +128,75 @@ async function save(): Promise<void> {
                         {{
                             ' ' +
                             $t(
-                                'The most :name may use. Leave one empty for no limit. Saving deploys the app again with them.',
+                                'The most :name may use. Leave a field empty for no limit. Saving deploys the app again.',
                                 { name: app },
                             ) +
                             ' '
                         }}
                     </DialogDescription>
                 </div>
-                <div class="flex flex-col gap-4 px-5">
-                    <label class="flex flex-col gap-1.5">
-                        <span class="text-[13px]/5 font-medium">{{
-                            $t('CPUs')
-                        }}</span>
-                        <Input
-                            v-model="cpus"
-                            type="number"
-                            inputmode="decimal"
-                            min="0.01"
-                            step="0.01"
-                            :max="limits.max.cpus ?? undefined"
-                            :placeholder="$t('No limit, like 0.5 or 2')"
-                            class="font-ui-mono text-[13px]"
-                        />
-                        <span
-                            v-if="limits.max.cpus"
-                            class="text-xs/4 text-(--ds-text-muted)"
-                            >{{
-                                $t('The machine has :count.', {
-                                    count: String(limits.max.cpus),
-                                })
-                            }}</span
+                <div class="grid gap-4 px-5 sm:grid-cols-2">
+                    <div class="flex flex-col gap-1.5">
+                        <label
+                            for="app-limits-cpus"
+                            class="text-xs font-medium text-(--ds-text-muted)"
+                            >{{ $t('CPUs') }}</label
                         >
-                    </label>
+                        <div class="relative">
+                            <Input
+                                id="app-limits-cpus"
+                                v-model="cpus"
+                                inputmode="decimal"
+                                autocomplete="off"
+                                :placeholder="$t('No limit')"
+                                class="h-9 pr-14 text-[13px] tabular-nums"
+                            />
+                            <span
+                                class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-(--ds-text-faint)"
+                                >{{ $t('cores') }}</span
+                            >
+                        </div>
+                        <span class="text-xs/4 text-(--ds-text-faint)">{{
+                            limits.max.cpus
+                                ? $t('The machine has :count cores.', {
+                                      count: String(limits.max.cpus),
+                                  })
+                                : $t('Like 0.5 or 2.')
+                        }}</span>
+                    </div>
                     <div class="flex flex-col gap-1.5">
                         <label
                             for="app-limits-memory"
-                            class="text-[13px]/5 font-medium"
+                            class="text-xs font-medium text-(--ds-text-muted)"
                             >{{ $t('Memory') }}</label
                         >
                         <div class="flex gap-2">
                             <Input
                                 id="app-limits-memory"
                                 v-model="memory"
-                                type="number"
                                 inputmode="decimal"
-                                min="0"
-                                step="any"
-                                :placeholder="$t('No limit, like 512')"
-                                class="min-w-0 grow font-ui-mono text-[13px]"
+                                autocomplete="off"
+                                :placeholder="$t('No limit')"
+                                class="h-9 min-w-0 grow text-[13px] tabular-nums"
                             />
-                            <select
+                            <SelectMenu
                                 v-model="unit"
-                                class="ds-raised-button h-9 rounded-md px-2 text-[13px]"
+                                class="ds-raised-button h-9 w-18 shrink-0 text-[13px]"
+                                :options="unitOptions"
                                 :aria-label="$t('Unit')"
-                            >
-                                <option value="MB">MB</option>
-                                <option value="GB">GB</option>
-                            </select>
+                            />
                         </div>
-                        <span
-                            v-if="limits.max.memoryMb"
-                            class="text-xs/4 text-(--ds-text-muted)"
-                            >{{
-                                $t('The machine has :value MB.', {
-                                    value: String(limits.max.memoryMb),
-                                })
-                            }}</span
-                        >
+                        <span class="text-xs/4 text-(--ds-text-faint)">{{
+                            limits.max.memoryMb
+                                ? $t('The machine has :value.', {
+                                      value: size(limits.max.memoryMb),
+                                  })
+                                : $t('Like 512 MB.')
+                        }}</span>
                     </div>
                     <p
                         v-if="error"
-                        class="text-[13px] text-(--ds-red)"
+                        class="text-[13px] text-(--ds-red) sm:col-span-2"
                         role="alert"
                     >
                         {{ error }}
