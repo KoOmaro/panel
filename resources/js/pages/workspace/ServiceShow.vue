@@ -1878,7 +1878,7 @@ const focusRing =
                             <ShieldCheck class="size-4" />
                         </span>
                         <div class="flex min-w-0 grow flex-col gap-0.5">
-                            <span class="text-sm font-medium">{{
+                            <span class="text-[13px] text-(--ds-text-muted)">{{
                                 $t('Site settings')
                             }}</span>
                             <span
