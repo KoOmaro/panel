@@ -19,6 +19,7 @@ use App\Support\Deploys\ServiceLabels;
 use App\Support\Files\FileJobs;
 use App\Support\Fixes\FixRunner;
 use App\Support\Health\JobAlerts;
+use App\Support\Images\ImageUpdates;
 use App\Support\Logs\LogIngest;
 use App\Support\Logs\LogSkipRules;
 use App\Support\Machines\CloudflareTunnel;
@@ -42,7 +43,7 @@ class DaemonGatewayController extends Controller
 {
     private const FINISHED_JOB_STATES = ['succeeded', 'failed', 'cancelled', 'timed_out', 'refused'];
 
-    private const RESCAN_AFTER = ['deploy', 'rollback', 'service_remove', 'service_repair', 'service_action', 'service_clone', 'adopt'];
+    private const RESCAN_AFTER = ['deploy', 'rollback', 'service_remove', 'service_repair', 'service_action', 'service_clone', 'adopt', 'image_update', 'docker_prune'];
 
     private function authorised(Request $request): bool
     {
@@ -254,6 +255,9 @@ class DaemonGatewayController extends Controller
                         $this->afterJob($job);
                         if ($state === 'succeeded' && in_array($job->kind, PackageUpdates::KINDS, true)) {
                             PackageUpdates::ingest($job);
+                        }
+                        if ($job->kind === 'image_update') {
+                            ImageUpdates::finished($job);
                         }
                     }
 

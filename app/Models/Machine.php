@@ -164,6 +164,18 @@ class Machine extends Model
         return $this->hasMany(MachineVulnerability::class);
     }
 
+    /** @return HasMany<ContainerImage, $this> */
+    public function containerImages(): HasMany
+    {
+        return $this->hasMany(ContainerImage::class);
+    }
+
+    /** @return HasMany<ImageVulnerability, $this> */
+    public function imageVulnerabilities(): HasMany
+    {
+        return $this->hasMany(ImageVulnerability::class);
+    }
+
     /** @return BelongsTo<MachineGroup, $this> */
     public function group(): BelongsTo
     {

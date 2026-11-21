@@ -19,6 +19,8 @@ return [
 
     'log_skip_since' => env('DAEMON_LOG_SKIP_SINCE', '0.1.1-pre.22'),
     'disk_usage_since' => env('DAEMON_DISK_USAGE_SINCE', '0.1.1-pre.19'),
+    // Lists, cleans up and updates container images, and reads their packages.
+    'images_since' => env('DAEMON_IMAGES_SINCE', '0.1.1-pre.49'),
     'clone_since' => env('DAEMON_CLONE_SINCE', '0.1.1-pre.23'),
     'wildcard_domains_since' => env('DAEMON_WILDCARD_DOMAINS_SINCE', '0.1.1-pre.34'),
     'policy_since' => env('DAEMON_POLICY_SINCE', '0.1.1-pre.24'),

@@ -24,7 +24,7 @@ class DaemonJobQueue
 
     public const array NEEDS_PLAN = ['deploy', 'release', 'rollback', 'service_exec', 'service_clone', 'database_query'];
 
-    private const array READS = ['database_query', 'service_logs', 'service_inspect', 'discover', 'file_list', 'file_read', 'package_updates', 'disk_usage'];
+    private const array READS = ['database_query', 'service_logs', 'service_inspect', 'discover', 'file_list', 'file_read', 'package_updates', 'disk_usage', 'docker_resources', 'image_packages'];
 
     public function __construct(private readonly DaemonGatewayClient $gateway) {}
 
@@ -188,6 +188,7 @@ class DaemonJobQueue
             'service_remove' => 'service.remove',
             'service_repair' => 'service.repair',
             'service_clone' => 'service.clone',
+            'image_update' => 'service.image_update',
             'file_write' => 'file.write',
             'file_delete' => 'file.delete',
             default => null,
@@ -237,6 +238,9 @@ class DaemonJobQueue
         }
         if ($kind === 'release') {
             $meta['commit'] = substr((string) ($job['commit'] ?? ''), 0, 7);
+        }
+        if ($kind === 'image_update' && is_string($found['details']['image'] ?? null)) {
+            $meta['image'] = $found['details']['image'];
         }
         if ($kind === 'service_exec') {
             $meta['command'] = mb_substr((string) ($job['command'] ?? ''), 0, 500);
@@ -359,7 +363,7 @@ class DaemonJobQueue
      */
     private function withRegistryLogins(Machine $machine, array $command): array
     {
-        if (($command['job']['type'] ?? null) !== 'deploy' || ! self::canUseRegistryLogins($machine)) {
+        if (! in_array($command['job']['type'] ?? null, ['deploy', 'image_update'], true) || ! self::canUseRegistryLogins($machine)) {
             return $command;
         }
         $logins = $machine->workspace->containerRegistries()->orderBy('host')->get()
@@ -529,6 +533,12 @@ class DaemonJobQueue
     public static function canScanDisk(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.disk_usage_since'));
+    }
+
+    /** Whether the daemon lists, cleans up and updates container images, and reads their packages. */
+    public static function canManageImages(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.images_since'));
     }
 
     public static function inspectReleased(): bool
