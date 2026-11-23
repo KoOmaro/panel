@@ -10,6 +10,7 @@ use App\Models\Machine;
 use App\Models\User;
 use App\Support\DaemonJobQueue;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
@@ -81,40 +82,51 @@ class ImageUpdates
     {
         $containers = self::containers($machine);
         $logins = $machine->workspace->containerRegistries()->get()->keyBy('host');
-        $existing = $machine->containerImages()->get()->keyBy('container');
-        $now = now();
-        $available = 0;
 
-        foreach ($containers as $container) {
-            $row = $existing->get($container['name']) ?? new ContainerImage(['machine_id' => $machine->id, 'container' => $container['name']]);
-            [$state, $remote, $error] = $this->compare($container, $logins);
+        // Asking the registries is the slow part, so it happens before
+        // anything is written: a machine removed meanwhile is skipped.
+        $found = array_map(fn (array $container) => $this->compare($container, $logins), $containers);
 
-            $imageChanged = $row->image_id !== $container['image_id'];
-            $row->fill([
-                'service_key' => $container['key'],
-                'image' => mb_substr($container['image'], 0, 512),
-                'image_id' => $container['image_id'],
-                'state' => $state,
-                'remote_digest' => $remote ?? ($state === 'unknown' ? $row->remote_digest : null),
-                'error' => $error === null ? null : mb_substr($error, 0, 300),
-                'checked_at' => $now,
-                'available_since' => $state === 'available'
-                    ? ($row->state === 'available' && ! $imageChanged ? $row->available_since : $now)
-                    : ($state === 'unknown' && ! $imageChanged ? $row->available_since : null),
-                'scanned_at' => $imageChanged ? null : $row->scanned_at,
-            ])->save();
-            $available += $state === 'available' ? 1 : 0;
-        }
+        return DB::transaction(function () use ($machine, $containers, $found) {
+            if (! Machine::query()->whereKey($machine->id)->lockForUpdate()->exists()) {
+                return 0;
+            }
 
-        // Containers that are gone, and findings for images nothing runs any more.
-        $names = array_column($containers, 'name');
-        $machine->containerImages()->whereNotIn('container', $names === [] ? [''] : $names)->delete();
-        $ids = array_values(array_unique(array_column($containers, 'image_id')));
-        ImageVulnerability::query()->where('machine_id', $machine->id)->whereNull('resolved_at')
-            ->whereNotIn('image_id', $ids === [] ? [''] : $ids)
-            ->update(['resolved_at' => $now, 'updated_at' => $now]);
+            $existing = $machine->containerImages()->get()->keyBy('container');
+            $now = now();
+            $available = 0;
 
-        return $available;
+            foreach ($containers as $i => $container) {
+                $row = $existing->get($container['name']) ?? new ContainerImage(['machine_id' => $machine->id, 'container' => $container['name']]);
+                [$state, $remote, $error] = $found[$i];
+
+                $imageChanged = $row->image_id !== $container['image_id'];
+                $row->fill([
+                    'service_key' => $container['key'],
+                    'image' => mb_substr($container['image'], 0, 512),
+                    'image_id' => $container['image_id'],
+                    'state' => $state,
+                    'remote_digest' => $remote ?? ($state === 'unknown' ? $row->remote_digest : null),
+                    'error' => $error === null ? null : mb_substr($error, 0, 300),
+                    'checked_at' => $now,
+                    'available_since' => $state === 'available'
+                        ? ($row->state === 'available' && ! $imageChanged ? $row->available_since : $now)
+                        : ($state === 'unknown' && ! $imageChanged ? $row->available_since : null),
+                    'scanned_at' => $imageChanged ? null : $row->scanned_at,
+                ])->save();
+                $available += $state === 'available' ? 1 : 0;
+            }
+
+            // Containers that are gone, and findings for images nothing runs any more.
+            $names = array_column($containers, 'name');
+            $machine->containerImages()->whereNotIn('container', $names === [] ? [''] : $names)->delete();
+            $ids = array_values(array_unique(array_column($containers, 'image_id')));
+            ImageVulnerability::query()->where('machine_id', $machine->id)->whereNull('resolved_at')
+                ->whereNotIn('image_id', $ids === [] ? [''] : $ids)
+                ->update(['resolved_at' => $now, 'updated_at' => $now]);
+
+            return $available;
+        });
     }
 
     /**

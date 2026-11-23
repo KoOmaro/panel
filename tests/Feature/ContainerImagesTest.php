@@ -113,6 +113,20 @@ test('a check says which containers have a newer image, signing in where the reg
         ->and($machine->containerImages()->first()->available_since->equalTo($since))->toBeTrue();
 });
 
+test('a machine removed while its check asks the registries is skipped, not written to', function () {
+    [, $machine] = imageMachine();
+    // Asked first, so it wins over the usual registries below.
+    Http::fake(['registry-1.docker.io/v2/library/nginx/manifests/alpine' => function () use ($machine) {
+        Machine::query()->whereKey($machine->id)->delete();
+
+        return Http::response('', 200, ['Docker-Content-Digest' => NGINX]);
+    }]);
+    fakeRegistries();
+
+    expect(app(ImageUpdates::class)->check($machine))->toBe(0)
+        ->and(ContainerImage::query()->count())->toBe(0);
+});
+
 test('private images are checked with the workspace’s registry login, and never on a private network', function () {
     fakeRegistries();
     [$workspace, $machine] = imageMachine([
