@@ -228,6 +228,8 @@ final class ActivityLine
             'project.preview_update' => $set('updated the preview for pull request', isset($meta['commit']) ? $t('to :commit', ['commit' => $meta['commit']]) : null),
             'project.preview_closed' => $set('removed the preview for pull request', null, 'warn'),
             'project.preview_skipped' => $set('skipped a preview for pull request', $meta['reason'] ?? null, 'warn'),
+            'github.code_repository' => $set('chose where the workspace’s code goes:', isset($meta['branch']) ? $t('on :branch', ['branch' => (string) $meta['branch']]) : null),
+            'github.code_pull_request' => $set(($meta['updated'] ?? false) ? 'updated the workspace’s code in' : 'sent the workspace’s code to', isset($meta['number']) ? $t('as pull request #:number', ['number' => (string) $meta['number']]) : null),
             'member.join' => ($meta['via'] ?? null) === 'scim'
                 ? $set('added', isset($meta['role']) ? $t('to the workspace as :role', ['role' => $t($meta['role'])]) : 'to the workspace', 'good')
                 : $set('joined the workspace', match (true) {

@@ -2,14 +2,20 @@
 import { computed } from 'vue';
 import type { DiffLine } from '@/components/code/yaml';
 
-const { file, lines } = defineProps<{
+const { file, lines, additions, deletions } = defineProps<{
     file: string;
     lines: DiffLine[];
+    additions?: number;
+    deletions?: number;
 }>();
 
-const added = computed(() => lines.filter((line) => line.sign === '+').length);
+defineSlots<{ default?: () => unknown }>();
+
+const added = computed(
+    () => additions ?? lines.filter((line) => line.sign === '+').length,
+);
 const removed = computed(
-    () => lines.filter((line) => line.sign === '-').length,
+    () => deletions ?? lines.filter((line) => line.sign === '-').length,
 );
 </script>
 
@@ -20,12 +26,12 @@ const removed = computed(
         <div
             class="flex items-center gap-2 border-b-[0.5px] border-edge-tabs px-3 py-[7px] text-[11px]/4"
         >
-            <span class="text-fg-secondary">{{ file }}</span>
+            <span class="min-w-0 truncate text-fg-secondary">{{ file }}</span>
             <span class="grow" />
             <span v-if="added" class="text-status-live">+{{ added }}</span>
             <span v-if="removed" class="text-status-down">−{{ removed }}</span>
         </div>
-        <div class="overflow-x-auto py-1.5">
+        <div v-if="lines.length" class="overflow-x-auto py-1.5">
             <div class="flex min-w-max flex-col">
                 <div
                     v-for="(line, index) in lines"
@@ -34,12 +40,13 @@ const removed = computed(
                     :class="{
                         'bg-[rgb(240_105_90/0.09)]': line.sign === '-',
                         'bg-[rgb(62_196_109/0.09)]': line.sign === '+',
+                        'mt-1 first:mt-0': line.sign === '@',
                     }"
                 >
                     <span
                         class="flex w-9 shrink-0 justify-end pr-2.5 text-[11px]/4 text-fg-faint select-none"
                         aria-hidden="true"
-                        >{{ line.no }}</span
+                        >{{ line.no ?? '' }}</span
                     >
                     <span
                         class="flex w-4 shrink-0 justify-center text-[12px]/4 select-none"
@@ -50,19 +57,28 @@ const removed = computed(
                                   ? 'text-status-down'
                                   : 'text-fg-faint'
                         "
-                        >{{ line.sign === '-' ? '−' : line.sign }}</span
+                        >{{
+                            line.sign === '-'
+                                ? '−'
+                                : line.sign === '@'
+                                  ? ''
+                                  : line.sign
+                        }}</span
                     >
                     <span
                         class="text-[12px]/4 whitespace-pre"
                         :class="
-                            line.sign === ' '
-                                ? 'text-fg-tertiary'
-                                : 'text-fg-primary'
+                            line.sign === '@'
+                                ? 'text-fg-faint'
+                                : line.sign === ' '
+                                  ? 'text-fg-tertiary'
+                                  : 'text-fg-primary'
                         "
                         >{{ line.text }}</span
                     >
                 </div>
             </div>
         </div>
+        <slot />
     </div>
 </template>

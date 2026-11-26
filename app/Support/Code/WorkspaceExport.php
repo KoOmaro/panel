@@ -28,7 +28,7 @@ final class WorkspaceExport
 
     /**
      * @param  array<string, list<string>>  $notes  comment lines to add at the end of a file, by path
-     * @return array{files: list<array{path: string, lines: list<string>}>, machines: int, services: int, monitors: int, projects: int, secrets: int, projectPaths: array<string, string>}
+     * @return array{files: list<array{path: string, lines: list<string>}>, machines: int, services: int, monitors: int, projects: int, secrets: int, projectPaths: array<string, string>, machinePaths: array<int, string>, machineModels: Collection<int, Machine>, projectModels: Collection<int, Project>}
      */
     public static function build(Workspace $workspace, array $notes = []): array
     {
@@ -52,10 +52,12 @@ final class WorkspaceExport
         };
 
         $services = 0;
+        $machinePaths = [];
         foreach ($machines as $machine) {
             $running = self::services($machine);
             $services += count($running);
-            $files[] = ['path' => $path('machines', $machine->name), 'lines' => self::machineFile($machine, $running, $default)];
+            $machinePaths[$machine->id] = $path('machines', $machine->name);
+            $files[] = ['path' => $machinePaths[$machine->id], 'lines' => self::machineFile($machine, $running, $default)];
         }
 
         $secrets = [];
@@ -77,21 +79,36 @@ final class WorkspaceExport
         $files[] = ['path' => 'policies.yml', 'lines' => self::policiesFile($policies)];
         $files[] = ['path' => 'serveros.yml', 'lines' => self::rootFile($workspace)];
 
-        foreach ($files as $index => $file) {
-            if (($extra = $notes[$file['path']] ?? []) !== []) {
-                $files[$index]['lines'] = [...$file['lines'], '', ...$extra];
-            }
-        }
-
         return [
-            'files' => $files,
+            'files' => self::annotate($files, $notes),
             'machines' => $machines->count(),
             'services' => $services,
             'monitors' => $monitors->count(),
             'projects' => $projects->count(),
             'secrets' => count($secrets),
             'projectPaths' => $projectPaths,
+            'machinePaths' => $machinePaths,
+            'machineModels' => $machines,
+            'projectModels' => $projects,
         ];
+    }
+
+    /**
+     * Adds comment lines at the end of files, by path.
+     *
+     * @param  list<array{path: string, lines: list<string>}>  $files
+     * @param  array<string, list<string>>  $notes
+     * @return list<array{path: string, lines: list<string>}>
+     */
+    public static function annotate(array $files, array $notes): array
+    {
+        foreach ($files as $index => $file) {
+            if (($extra = $notes[$file['path']] ?? []) !== []) {
+                $files[$index]['lines'] = [...$file['lines'], '', ...$extra];
+            }
+        }
+
+        return $files;
     }
 
     /** @return Collection<int, Project> */

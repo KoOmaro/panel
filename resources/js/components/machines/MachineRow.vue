@@ -248,7 +248,12 @@ watch(
         <div :class="columns.memory" role="cell">{{ machine.memory }}</div>
 
         <div :class="columns.cpu" class="flex items-center" role="cell">
-            <CpuBar :cpu="machine.cpu" :themed="dashboard" />
+            <CpuBar
+                v-if="machine.cpu !== null"
+                :cpu="machine.cpu"
+                :themed="dashboard"
+            />
+            <span v-else class="text-(--ds-text-faint)">–</span>
         </div>
 
         <div

@@ -140,7 +140,8 @@ export type WorkspaceStats = {
     machines: number;
     environments: Record<'production' | 'staging' | 'development', number>;
     services: number;
-    averageCpu: number;
+    running: number;
+    averageCpu: number | null;
     busy: number;
     backedUp: number;
     cpuHistory: (number | null)[];

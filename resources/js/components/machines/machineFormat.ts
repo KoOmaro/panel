@@ -1,3 +1,4 @@
+import { trans } from 'laravel-vue-i18n';
 import type { Machine } from '@/components/machines/machines';
 
 const GB = 1024 ** 3;
@@ -37,6 +38,45 @@ export function bytesLabel(bytes: number): string {
     if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
 
     return `${Math.max(0, Math.round(bytes / 1024))} KB`;
+}
+
+export function rateParts(bytesPerSecond: number): {
+    value: string;
+    unit: string;
+} {
+    const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    let value = Math.max(0, bytesPerSecond);
+    let step = 0;
+    while (value >= 1000 && step < units.length - 1) {
+        value /= 1024;
+        step += 1;
+    }
+
+    return {
+        value:
+            step === 0 || value >= 100
+                ? String(Math.round(value))
+                : trim(value, 1),
+        unit: units[step],
+    };
+}
+
+export function uptimeLabel(seconds: number): string {
+    const days = Math.floor(seconds / 86_400);
+    if (days >= 1)
+        return days === 1
+            ? trans('1 day')
+            : trans(':count days', { count: String(days) });
+    const hours = Math.floor(seconds / 3600);
+    if (hours >= 1)
+        return hours === 1
+            ? trans('1 hour')
+            : trans(':count hours', { count: String(hours) });
+    const minutes = Math.max(1, Math.floor(seconds / 60));
+
+    return minutes === 1
+        ? trans('1 minute')
+        : trans(':count minutes', { count: String(minutes) });
 }
 
 export function memoryOf(

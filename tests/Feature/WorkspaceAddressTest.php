@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Support\Workspaces\Dashboard;
@@ -162,7 +163,7 @@ test('a bare workspace path from a workspace page resolves inside that workspace
 
     $this->actingAs($workspace->owner)->withHeaders($from)->get(cloudUrl('/projects?tab=apps'))
         ->assertRedirect('/northwind/projects?tab=apps');
-    $this->actingAs($workspace->owner)->withHeaders([...$from, 'X-Inertia' => 'true', 'X-Requested-With' => 'XMLHttpRequest'])->get(cloudUrl('/projects'))
+    $this->actingAs($workspace->owner)->withHeaders([...$from, 'X-Inertia' => 'true', 'X-Inertia-Version' => (string) app(HandleInertiaRequests::class)->version(request()), 'X-Requested-With' => 'XMLHttpRequest'])->get(cloudUrl('/projects'))
         ->assertOk()
         ->assertJsonPath('component', 'workspace/Projects')
         ->assertJsonPath('url', '/northwind/projects');

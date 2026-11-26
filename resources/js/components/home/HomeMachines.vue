@@ -173,20 +173,23 @@ function providerLabel(provider: string): string {
                             }}</span>
                         </DashTd>
                         <DashTd>
-                            <DotMeter
-                                :value="machine.cpu"
-                                :warn-at="BUSY"
-                                :dots="8"
-                            />
-                            <span
-                                class="ml-auto font-ui-mono text-[12px]/4 tabular-nums"
-                                :class="
-                                    machine.cpu >= BUSY
-                                        ? 'text-status-pending'
-                                        : 'text-fg-secondary'
-                                "
-                                >{{ machine.cpu }}%</span
-                            >
+                            <template v-if="machine.cpu !== null">
+                                <DotMeter
+                                    :value="machine.cpu"
+                                    :warn-at="BUSY"
+                                    :dots="8"
+                                />
+                                <span
+                                    class="ml-auto font-ui-mono text-[12px]/4 tabular-nums"
+                                    :class="
+                                        machine.cpu >= BUSY
+                                            ? 'text-status-pending'
+                                            : 'text-fg-secondary'
+                                    "
+                                    >{{ machine.cpu }}%</span
+                                >
+                            </template>
+                            <span v-else class="text-fg-faint">–</span>
                         </DashTd>
                         <DashTd>
                             <template
@@ -210,7 +213,7 @@ function providerLabel(provider: string): string {
                                     >{{ machine.diskPercent }}%</span
                                 >
                             </template>
-                            <span v-else class="text-fg-faint">-</span>
+                            <span v-else class="text-fg-faint">–</span>
                         </DashTd>
                         <DashTd>
                             <span

@@ -9,6 +9,7 @@ use App\Support\Edition;
 use App\Support\ServiceTemplates\RepositoryDetector;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -143,12 +144,23 @@ final class GitHubApp
 
     public function tokenFor(Workspace $workspace, string $owner, string $repo): ?string
     {
-        return $this->installationToken($workspace, $owner, $repo, false);
+        return $this->installationToken($workspace, $owner, $repo, 'read');
     }
 
     public function writeTokenFor(Workspace $workspace, string $owner, string $repo): ?string
     {
-        return $this->installationToken($workspace, $owner, $repo, true);
+        return $this->installationToken($workspace, $owner, $repo, 'write');
+    }
+
+    /** Reads a repository's pull requests and their reviews too, when the installation allows it. */
+    public function reviewTokenFor(Workspace $workspace, string $owner, string $repo): ?string
+    {
+        return $this->installationToken($workspace, $owner, $repo, 'review') ?? $this->tokenFor($workspace, $owner, $repo);
+    }
+
+    public function rest(string $token): PendingRequest
+    {
+        return $this->client()->withToken($token);
     }
 
     /** @return array{name: string, email: string}|null */
@@ -177,7 +189,8 @@ final class GitHubApp
         return ['name' => $login, 'email' => "{$id}+{$login}@users.noreply.github.com"];
     }
 
-    private function installationToken(Workspace $workspace, string $owner, string $repo, bool $write): ?string
+    /** @param  'read'|'review'|'write'  $mode */
+    private function installationToken(Workspace $workspace, string $owner, string $repo, string $mode): ?string
     {
         if (! self::enabled()) {
             return null;
@@ -188,7 +201,7 @@ final class GitHubApp
             ->get();
 
         foreach ($installations as $installation) {
-            $token = $this->repositoryToken($installation, $repo, $write);
+            $token = $this->repositoryToken($installation, $repo, $mode);
             if ($token !== null) {
                 return $token;
             }
@@ -249,6 +262,114 @@ final class GitHubApp
         }
 
         return $url;
+    }
+
+    /**
+     * Writes files to a branch and keeps one pull request from it open. The
+     * branch starts from the default branch, later runs commit on top of it,
+     * and nothing is committed when no file changed. Files on the branch that
+     * match $prune and aren't in $files are deleted.
+     *
+     * @param  array<string, string>  $files  path => content
+     * @return array{state: 'opened'|'updated'|'current'|'unchanged', number: int|null, url: string|null, base: string}
+     *
+     * @throws RuntimeException
+     */
+    public function syncPullRequest(string $token, string $owner, string $repo, string $branch, array $files, ?string $prune, string $message, string $title, string $body): array
+    {
+        $client = $this->client()->timeout(30)->withToken($token);
+        $api = self::API.'/repos/'.rawurlencode($owner).'/'.rawurlencode($repo);
+        $name = "{$owner}/{$repo}";
+        $send = function (string $method, string $path, array $data = [], array $allow = []) use ($client, $api, $name): ?array {
+            try {
+                $response = match ($method) {
+                    'GET' => $client->get($api.$path, $data),
+                    'PATCH' => $client->patch($api.$path, $data),
+                    default => $client->post($api.$path, $data),
+                };
+            } catch (ConnectionException) {
+                throw new RuntimeException(__('GitHub didn’t answer. Try again in a minute.'));
+            }
+            if (in_array($response->status(), $allow, true)) {
+                return null;
+            }
+            $json = $response->json();
+            if (! $response->successful() || ! is_array($json)) {
+                throw new RuntimeException(self::failure($response, $name));
+            }
+
+            return $json;
+        };
+        $ref = fn (string $name): string => implode('/', array_map('rawurlencode', explode('/', $name)));
+
+        $default = (string) ($send('GET', '')['default_branch'] ?? '');
+        if (strcasecmp($default, $branch) === 0) {
+            throw new RuntimeException(__(':branch is the default branch of :repo. Pick another branch, so the files go in through a pull request.', ['branch' => $branch, 'repo' => $name]));
+        }
+        $existing = $send('GET', '/git/ref/heads/'.$ref($branch), [], [404])['object']['sha'] ?? null;
+        $existing = is_string($existing) ? $existing : null;
+        $base = $existing ?? ($default === '' ? null : ($send('GET', '/git/ref/heads/'.$ref($default), [], [404, 409])['object']['sha'] ?? null));
+        if (! is_string($base)) {
+            throw new RuntimeException(__(':repo is empty. Add a first commit on GitHub, then try again.', ['repo' => $name]));
+        }
+        $tree = $send('GET', '/git/commits/'.$base)['tree']['sha'] ?? null;
+        $current = [];
+        foreach ((array) ($send('GET', '/git/trees/'.$tree, ['recursive' => '1'])['tree'] ?? []) as $entry) {
+            if (is_array($entry) && ($entry['type'] ?? null) === 'blob' && is_string($entry['path'] ?? null)) {
+                $current[$entry['path']] = (string) ($entry['sha'] ?? '');
+            }
+        }
+
+        $entries = [];
+        foreach ($files as $path => $content) {
+            if (($current[$path] ?? null) !== sha1('blob '.strlen($content)."\0".$content)) {
+                $blob = $send('POST', '/git/blobs', ['content' => base64_encode($content), 'encoding' => 'base64'])['sha'] ?? null;
+                $entries[] = ['path' => $path, 'mode' => '100644', 'type' => 'blob', 'sha' => $blob];
+            }
+        }
+        foreach (array_keys($current) as $path) {
+            if ($prune !== null && ! isset($files[$path]) && preg_match($prune, $path) === 1) {
+                $entries[] = ['path' => $path, 'mode' => '100644', 'type' => 'blob', 'sha' => null];
+            }
+        }
+        if ($entries !== []) {
+            $newTree = $send('POST', '/git/trees', ['base_tree' => $tree, 'tree' => $entries])['sha'] ?? null;
+            $commit = $send('POST', '/git/commits', ['message' => $message, 'tree' => $newTree, 'parents' => [$base]])['sha'] ?? null;
+            $existing === null
+                ? $send('POST', '/git/refs', ['ref' => 'refs/heads/'.$branch, 'sha' => $commit])
+                : $send('PATCH', '/git/refs/heads/'.$ref($branch), ['sha' => $commit, 'force' => false]);
+        }
+
+        $open = $send('GET', '/pulls', ['head' => $owner.':'.$branch, 'state' => 'open', 'per_page' => 1]) ?? [];
+        $pull = is_array($open[0] ?? null) ? $open[0] : null;
+        $state = $entries === [] ? 'current' : 'updated';
+        if ($pull === null) {
+            $pull = $entries === [] && $existing === null ? null
+                : $send('POST', '/pulls', ['title' => $title, 'head' => $branch, 'base' => $default, 'body' => $body], [422]);
+            $state = $pull === null ? 'unchanged' : 'opened';
+        }
+        $url = $pull['html_url'] ?? null;
+        if ($pull !== null && (! is_string($url) || preg_match('#^https://github\.com/\S+/pull/\d+$#', $url) !== 1 || ! is_int($pull['number'] ?? null))) {
+            throw new RuntimeException(__('GitHub opened the pull request but didn’t say where.'));
+        }
+
+        return ['state' => $state, 'number' => $pull['number'] ?? null, 'url' => $url, 'base' => $default];
+    }
+
+    /** What went wrong, from GitHub's answer, in words for a person. */
+    public static function failure(Response $response, string $repo): string
+    {
+        $message = is_string($response->json('message')) ? $response->json('message') : '';
+        if ($response->status() === 429 || ($response->status() === 403 && ($response->header('X-RateLimit-Remaining') === '0' || str_contains(strtolower($message), 'rate limit')))) {
+            return __('GitHub’s rate limit was hit. Try again in a few minutes.');
+        }
+
+        return match ($response->status()) {
+            401, 403 => __('ServerOS’s GitHub App isn’t allowed to do that in :repo. Check what it can reach in Settings › GitHub.', ['repo' => $repo]),
+            404 => __('ServerOS can’t find :repo. It may have been renamed or deleted, or taken out of ServerOS’s GitHub App.', ['repo' => $repo]),
+            409 => __(':repo is empty. Add a first commit on GitHub, then try again.', ['repo' => $repo]),
+            default => __('GitHub answered :status: :message', ['status' => (string) $response->status(), 'message' => mb_substr($message !== '' ? $message : 'no reason given', 0, 200)]),
+        };
     }
 
     public static function signed(string $body, ?string $signature): bool
@@ -482,9 +603,11 @@ final class GitHubApp
         return null;
     }
 
-    private function repositoryToken(GitHubInstallation $installation, string $repo, bool $write = false): ?string
+    /** @param  'read'|'review'|'write'  $mode */
+    private function repositoryToken(GitHubInstallation $installation, string $repo, string $mode = 'read'): ?string
     {
-        $key = "github:token:{$installation->id}:".strtolower($repo);
+        $write = $mode === 'write';
+        $key = 'github:token:'.($mode === 'review' ? 'review:' : '')."{$installation->id}:".strtolower($repo);
         $cached = $write ? null : Cache::get($key);
         if (is_string($cached)) {
             return $cached;
@@ -493,9 +616,11 @@ final class GitHubApp
         try {
             $response = $this->asApp()->post(self::API."/app/installations/{$installation->installation_id}/access_tokens", [
                 'repositories' => [$repo],
-                'permissions' => $write
-                    ? ['contents' => 'write', 'pull_requests' => 'write', 'metadata' => 'read']
-                    : ['contents' => 'read', 'metadata' => 'read'],
+                'permissions' => match ($mode) {
+                    'write' => ['contents' => 'write', 'pull_requests' => 'write', 'metadata' => 'read'],
+                    'review' => ['contents' => 'read', 'pull_requests' => 'read', 'metadata' => 'read'],
+                    default => ['contents' => 'read', 'metadata' => 'read'],
+                },
             ]);
         } catch (ConnectionException) {
             return null;

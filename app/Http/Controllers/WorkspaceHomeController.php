@@ -11,6 +11,7 @@ use App\Models\MachineSample;
 use App\Models\Workspace;
 use App\Support\Audit\AuditContext;
 use App\Support\Audit\Audited;
+use App\Support\Deploys\ServiceLabels;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
 use App\Support\Health\WorkspaceHealth;
@@ -71,11 +72,12 @@ class WorkspaceHomeController extends Controller
 
     /**
      * @param  Collection<int, Machine>  $machines
-     * @return array{machines: int, environments: array<string, int>, services: int, averageCpu: int, busy: int, backedUp: int, cpuHistory: list<int|null>, cpuTimeline: list<int|null>, cpuRange: string}
+     * @return array{machines: int, environments: array<string, int>, services: int, running: int, averageCpu: int|null, busy: int, backedUp: int, cpuHistory: list<int|null>, cpuTimeline: list<int|null>, cpuRange: string}
      */
     private function stats(Collection $machines, string $range): array
     {
         $recentBackupCutoff = now()->subHours(self::STALE_BACKUP_HOURS);
+        $reporting = $machines->whereNotNull('cpu_percent');
 
         return [
             'machines' => $machines->count(),
@@ -85,7 +87,11 @@ class WorkspaceHomeController extends Controller
                 ])
                 ->all(),
             'services' => (int) $machines->sum('services_count'),
-            'averageCpu' => (int) round((float) ($machines->avg(fn (Machine $machine) => $machine->cpu_percent ?? 0) ?? 0)),
+            'running' => (int) $machines->sum(fn (Machine $machine) => count(array_filter(
+                is_array($machine->inventory['services'] ?? null) ? $machine->inventory['services'] : [],
+                fn ($service) => is_array($service) && ($service['status'] ?? null) === 'running' && ! ServiceLabels::isHidden($machine, $service),
+            ))),
+            'averageCpu' => $reporting->isEmpty() ? null : (int) round((float) $reporting->avg('cpu_percent')),
             'busy' => $machines->filter(fn (Machine $machine) => $machine->cpu_percent >= self::BUSY_CPU_PERCENT)->count(),
             'backedUp' => $machines->filter(fn (Machine $machine) => $machine->last_backup_at?->gte($recentBackupCutoff) ?? false)->count(),
             'cpuHistory' => $this->cpuHistory($machines),

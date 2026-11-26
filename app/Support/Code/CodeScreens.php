@@ -7,53 +7,79 @@ use App\Models\Machine;
 use App\Models\Project;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Support\Deploys\DeployOnPush;
 use App\Support\GitHub\GitHubApp;
 use App\Support\Mcp\OAuth;
+use App\Support\Projects\AppSettings;
+use App\Support\Projects\Previews;
+use App\Support\Projects\ProjectFacts;
+use App\Support\ServiceTemplates\ServiceTemplateCatalog;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 /**
- * Page props for the infrastructure-as-code screens. The panel has no
- * config file, plan or drift check yet, so these screens are a proposal:
- * the files are written from the workspace's real machines, services,
- * projects and monitors, and everything with no source yet (pull requests,
- * plans, reviewers, hand-made changes) is sample data under `sample`.
+ * Page props for the infrastructure-as-code screens, all from the workspace
+ * as it runs and from GitHub: the files, what they can't describe, where
+ * they go, and the open pull requests that change them. The panel can't
+ * apply changes from code, so nothing here offers to.
+ *
+ * @phpstan-import-type Repository from CodeRepository
+ * @phpstan-import-type Item from NeedsLook
  */
 final class CodeScreens
 {
-    public const array STACKS = ['next', 'laravel', 'django', 'node', 'bun', 'astro'];
+    /**
+     * The workspace written out as files, with what they can't describe
+     * written in as comments.
+     *
+     * @return array{files: list<array{path: string, lines: list<string>}>, machines: int, services: int, monitors: int, projects: int, secrets: int, projectPaths: array<string, string>, needsLook: list<Item>, machineModels: Collection<int, Machine>, projectModels: Collection<int, Project>}
+     */
+    public static function export(Workspace $workspace): array
+    {
+        $export = WorkspaceExport::build($workspace);
+        $items = NeedsLook::items($export['machineModels'], $export['machinePaths'], $export['projectModels'], $export['projectPaths']);
+
+        return [
+            'files' => WorkspaceExport::annotate($export['files'], NeedsLook::notes($items)),
+            'machines' => $export['machines'],
+            'services' => $export['services'],
+            'monitors' => $export['monitors'],
+            'projects' => $export['projects'],
+            'secrets' => $export['secrets'],
+            'projectPaths' => $export['projectPaths'],
+            'needsLook' => $items,
+            'machineModels' => $export['machineModels'],
+            'projectModels' => $export['projectModels'],
+        ];
+    }
 
     /** @return array<string, mixed> */
     public static function index(Workspace $workspace, User $user): array
     {
-        $machines = $workspace->countedMachines()->orderBy('name')->get();
-        $needsLook = self::needsLook($machines);
-        $notes = [];
-        foreach ($needsLook as $item) {
-            $notes[$item['path']] = $item['comment'];
-        }
-
-        $export = WorkspaceExport::build($workspace, $notes);
-        $open = self::latestProject($workspace);
-        $projectPaths = $export['projectPaths'];
-        unset($export['projectPaths']);
+        $export = self::export($workspace);
+        $open = $export['projectModels']
+            ->sortByDesc(fn (Project $project) => [$project->created_at?->getTimestamp() ?? 0, $project->id])
+            ->first();
 
         return [
             'code' => [
-                ...$export,
-                'open' => ($open === null ? null : $projectPaths[$open->uid] ?? null) ?? ($export['files'][0]['path'] ?? null),
+                'files' => $export['files'],
+                'machines' => $export['machines'],
+                'services' => $export['services'],
+                'monitors' => $export['monitors'],
+                'projects' => $export['projects'],
+                'secrets' => $export['secrets'],
+                'open' => ($open === null ? null : $export['projectPaths'][$open->uid] ?? null) ?? ($export['files'][0]['path'] ?? null),
             ],
             'github' => self::github($workspace, $user),
-            'sample' => [
-                'repo' => self::githubOwner($workspace).'/infra',
-                'branch' => 'serveros/export',
-                'needsLook' => array_map(fn (array $item) => [
-                    'title' => $item['title'],
-                    'body' => $item['body'],
-                    'icon' => $item['icon'],
-                    'path' => $item['path'],
-                ], $needsLook),
-            ],
+            'repository' => self::repositoryProps(CodeRepository::of($workspace)),
+            'defaults' => ['branch' => CodeRepository::BRANCH, 'folder' => CodeRepository::FOLDER],
+            'canManage' => $user->can('manageMachines', $workspace),
+            'needsLook' => array_map(fn (array $item) => [
+                'title' => $item['title'],
+                'body' => $item['body'],
+                'icon' => $item['icon'],
+                'path' => $item['path'],
+            ], $export['needsLook']),
         ];
     }
 
@@ -62,181 +88,143 @@ final class CodeScreens
     {
         $project = self::pick($workspace, $uid);
         if ($project === null) {
-            return ['project' => null, 'projects' => [], 'sample' => null, 'mcpUrl' => OAuth::resource($workspace)];
+            return ['project' => null, 'projects' => [], 'source' => null, 'mcpUrl' => OAuth::resource($workspace)];
         }
 
         $monitors = $workspace->monitors()->orderBy('name')->get();
-        $repo = WorkspaceExport::repoOf($project);
-        $stack = self::stackOf($project);
 
         return [
             'project' => [
-                ...self::projectProps($workspace, $project),
+                ...self::projectProps($project),
                 'file' => WorkspaceExport::projectFile($workspace, $project, $monitors),
             ],
             'projects' => self::projectList($workspace),
             'mcpUrl' => OAuth::resource($workspace),
-            'sample' => [
-                'repo' => $repo ?? self::githubOwner($workspace).'/'.WorkspaceExport::slug($project->name),
-                'stack' => $stack,
-                'branch' => 'add-serveros',
-            ],
+            'source' => self::source($workspace, $project),
         ];
     }
 
     /** @return array<string, mixed> */
-    public static function review(Workspace $workspace, User $user, ?string $uid): array
+    public static function review(Workspace $workspace, User $user, ?int $number): array
     {
-        $project = self::pick($workspace, $uid);
-        $machines = $workspace->countedMachines()->orderBy('name')->get();
-        if ($project === null || $machines->isEmpty()) {
-            return ['project' => null, 'projects' => [], 'sample' => null];
+        $repository = CodeRepository::of($workspace);
+        $github = self::github($workspace, $user);
+        $props = [
+            'repository' => self::repositoryProps($repository),
+            'github' => $github,
+            'pullRequests' => [],
+            'pullRequest' => null,
+            'error' => null,
+        ];
+        if ($repository === null || ! $github['connected']) {
+            return $props;
         }
 
-        $monitors = $workspace->monitors()->orderBy('name')->get();
-        $slug = WorkspaceExport::slug($project->name);
-        $app = WorkspaceExport::apps($project)->first();
-        $appName = $app->name ?? 'web';
-        $running = $machines->mapWithKeys(fn (Machine $machine) => [$machine->id => WorkspaceExport::services($machine)]);
-        $runs = fn (callable $test) => $machines->first(fn (Machine $machine) => collect($running[$machine->id])->contains($test));
+        $reads = app(CodeGitHub::class);
+        $list = $reads->pullRequests($workspace, $repository);
+        $props['error'] = $list['error'];
+        $props['pullRequests'] = array_map(fn (array $pull) => [
+            'number' => $pull['number'],
+            'title' => $pull['title'],
+            'author' => $pull['author'],
+            'draft' => $pull['draft'],
+            'updated' => $pull['updated'],
+        ], $list['pulls']);
+        $pull = collect($list['pulls'])->firstWhere('number', $number) ?? $list['pulls'][0] ?? null;
+        if ($pull === null) {
+            return $props;
+        }
 
-        $web = $app->machine
-            ?? $runs(fn (array $service) => str_contains(strtolower((string) $service['name']), $slug))
-            ?? $machines->first();
-        $db = $runs(fn (array $service) => ($service['kind'] ?? null) === 'database') ?? $machines->first();
-        $search = $runs(fn (array $service) => str_contains(strtolower((string) $service['name']), 'meili')) ?? $web;
-        $domain = (string) (($app === null ? null : (WorkspaceExport::spec($app)['domains'][0] ?? null))
-            ?: parse_url(WorkspaceExport::monitorsOf($project, $monitors)[0] ?? '', PHP_URL_HOST)
-            ?: $slug.'.'.$workspace->slug.'.dev');
-        $environment = WorkspaceExport::environmentOf($project);
-        $stack = self::stackOf($project);
+        $details = $reads->details($workspace, $repository, $pull);
+        $export = self::export($workspace);
+        $live = [];
+        foreach ($export['files'] as $file) {
+            $live[$file['path']] = $file['lines'];
+        }
+        $proposed = [];
+        $unreadable = [];
+        foreach ($pull['files'] as $file) {
+            if ($file['previous'] !== null && $file['previous'] !== $file['relative']) {
+                $proposed[] = ['path' => $file['previous'], 'content' => null];
+            }
+            if ($file['status'] === 'removed') {
+                $proposed[] = ['path' => $file['relative'], 'content' => null];
 
-        $changes = [
-            [
-                'id' => 'cache',
-                'op' => 'add',
-                'logo' => 'redis',
-                'title' => __('Add Redis on :machine', ['machine' => $db->name]),
-                'short' => __('Add Redis on :machine', ['machine' => $db->name]),
-                'path' => 'services.cache',
-                'machine' => self::machineRef($db),
-                'risk' => null,
-                'diff' => [
-                    ['no' => 11, 'sign' => '+', 'text' => '  cache:'],
-                    ['no' => 12, 'sign' => '+', 'text' => '    template: redis'],
-                    ['no' => 13, 'sign' => '+', 'text' => '    version: "7"'],
-                    ['no' => 14, 'sign' => '+', 'text' => '    machine: '.$db->name],
-                ],
-                'note' => __('Redis starts on :machine and only listens on the private network.', ['machine' => $db->name]),
-            ],
-            [
-                'id' => 'web',
-                'op' => 'change',
-                'logo' => $stack,
-                'title' => __('Change :app from 2 to 3 copies, and set REDIS_URL', ['app' => $appName]),
-                'short' => __('Change :app', ['app' => $appName]),
-                'path' => 'services.'.$appName,
-                'machine' => self::machineRef($web),
-                'risk' => ['tone' => 'amber', 'label' => __('Restarts :app', ['app' => $appName])],
-                'diff' => [
-                    ['no' => 4, 'sign' => ' ', 'text' => '  '.$appName.':'],
-                    ['no' => 5, 'sign' => ' ', 'text' => '    from: repo'],
-                    ['no' => 6, 'sign' => ' ', 'text' => '    machine: '.$web->name],
-                    ['no' => 7, 'sign' => '-', 'text' => '    copies: 2'],
-                    ['no' => 7, 'sign' => '+', 'text' => '    copies: 3'],
-                    ['no' => 8, 'sign' => ' ', 'text' => '    domain: '.$domain],
-                    ['no' => 9, 'sign' => '+', 'text' => '    env:'],
-                    ['no' => 10, 'sign' => '+', 'text' => '      REDIS_URL: ${{ services.cache.url }}'],
-                ],
-                'note' => __(':app restarts on :machine to pick up the extra copy and REDIS_URL.', ['app' => $appName, 'machine' => $web->name]),
-            ],
-            [
-                'id' => 'monitor',
-                'op' => 'add',
-                'logo' => null,
-                'title' => __('Add a monitor for :address', ['address' => $domain.'/health']),
-                'short' => __('Add the health monitor'),
-                'path' => 'monitors[1]',
-                'machine' => null,
-                'risk' => null,
-                'diff' => [
-                    ['no' => 26, 'sign' => ' ', 'text' => 'monitors:'],
-                    ['no' => 27, 'sign' => ' ', 'text' => '  - https://'.$domain],
-                    ['no' => 28, 'sign' => '+', 'text' => '  - https://'.$domain.'/health'],
-                ],
-                'note' => __('ServerOS checks it every minute and tells you when it fails.'),
-            ],
-            [
-                'id' => 'search',
-                'op' => 'remove',
-                'logo' => 'meili',
-                'title' => __('Remove search'),
-                'short' => __('Remove search'),
-                'path' => 'services.search',
-                'machine' => self::machineRef($search),
-                'risk' => ['tone' => 'red', 'label' => __('Deletes meili-data')],
-                'diff' => [
-                    ['no' => 16, 'sign' => '-', 'text' => '  search:'],
-                    ['no' => 17, 'sign' => '-', 'text' => '    template: meilisearch'],
-                    ['no' => 18, 'sign' => '-', 'text' => '    machine: '.$search->name],
-                    ['no' => 19, 'sign' => '-', 'text' => '    volume: meili-data'],
-                ],
-                'note' => __('search stops on :machine and its meili-data volume is deleted.', ['machine' => $search->name]),
-            ],
+                continue;
+            }
+            $content = $details['contents'][$file['path']] ?? null;
+            if ($content === null) {
+                $unreadable[] = $file['relative'];
+
+                continue;
+            }
+            $proposed[] = ['path' => $file['relative'], 'content' => $content];
+        }
+        $plan = CodePlan::make($live, $proposed, $export['machineModels']);
+        $touched = collect($plan['changes'])->pluck('machine.id')->filter()->countBy();
+
+        $props['pullRequest'] = [
+            'number' => $pull['number'],
+            'title' => $pull['title'],
+            'url' => $pull['url'],
+            'author' => $pull['author'],
+            'draft' => $pull['draft'],
+            'from' => $pull['from'],
+            'to' => $pull['to'],
+            'commit' => substr($pull['sha'], 0, 7),
+            'commitUrl' => $repository['url'].'/commit/'.$pull['sha'],
+            'updated' => $pull['updated'],
+            'files' => array_map(fn (array $file) => [
+                'path' => $file['path'],
+                'status' => $file['status'],
+                'additions' => $file['additions'],
+                'deletions' => $file['deletions'],
+                'lines' => $file['patch'] === null ? [] : Diffs::patch($file['patch']),
+            ], $pull['files']),
+            'reviews' => $details['reviews'],
+            'checks' => $details['checks'],
+            'changes' => $plan['changes'],
+            'unreadable' => array_values(array_unique([...$unreadable, ...$plan['unreadable']])),
+            'machines' => $export['machineModels']
+                ->filter(fn (Machine $machine) => $touched->has($machine->id))
+                ->sortByDesc(fn (Machine $machine) => $touched[$machine->id])
+                ->map(fn (Machine $machine) => [
+                    'id' => $machine->id,
+                    'name' => $machine->name,
+                    'provider' => $machine->provider,
+                    'changes' => $touched[$machine->id],
+                ])
+                ->values()
+                ->all(),
         ];
 
-        $touched = collect($changes)->pluck('machine.id')->filter()->countBy();
-
-        return [
-            'project' => [
-                ...self::projectProps($workspace, $project),
-                'file' => WorkspaceExport::projectFile($workspace, $project, $monitors),
-            ],
-            'projects' => self::projectList($workspace),
-            'sample' => [
-                'title' => __('Add Redis and scale :app', ['app' => $appName]),
-                'pullRequest' => 142,
-                'author' => Str::slug($user->name) ?: 'you',
-                'from' => 'add-redis',
-                'to' => 'main',
-                'commit' => 'a3f9c1e',
-                'planned' => __(':count min ago', ['count' => 2]),
-                'stack' => $stack,
-                'changes' => $changes,
-                'checks' => [
-                    ['title' => __('Secrets are set'), 'detail' => __(':names are in :environment', ['names' => 'STRIPE_KEY and APP_KEY', 'environment' => $environment])],
-                    ['title' => __('No public database ports'), 'detail' => __('Redis only listens on the private network')],
-                    ['title' => __('Databases are backed up'), 'detail' => __(':machine backs up daily to :destination', ['machine' => $db->name, 'destination' => 'Cloudflare R2'])],
-                    ['title' => __(':environment needs a review', ['environment' => $environment]), 'detail' => __('Approved by :name :time', ['name' => 'Maya', 'time' => __(':count min ago', ['count' => 4])])],
-                ],
-                'machines' => $machines
-                    ->filter(fn (Machine $machine) => $touched->has($machine->id))
-                    ->sortByDesc(fn (Machine $machine) => $touched[$machine->id])
-                    ->map(fn (Machine $machine) => [
-                        'id' => $machine->id,
-                        'name' => $machine->name,
-                        'provider' => $machine->provider,
-                        'changes' => $touched[$machine->id],
-                    ])
-                    ->values()
-                    ->all(),
-            ],
-        ];
+        return $props;
     }
 
-    /** @return array{id: int, name: string, provider: string|null} */
-    private static function machineRef(Machine $machine): array
+    /**
+     * @param  Repository|null  $repository
+     * @return array{repo: string, branch: string, folder: string, private: bool, url: string, pullRequest: array{number: int, url: string}|null}|null
+     */
+    public static function repositoryProps(?array $repository): ?array
     {
-        return ['id' => $machine->id, 'name' => $machine->name, 'provider' => $machine->provider];
+        return $repository === null ? null : [
+            'repo' => $repository['repo'],
+            'branch' => $repository['branch'],
+            'folder' => $repository['folder'],
+            'private' => $repository['private'],
+            'url' => $repository['url'],
+            'pullRequest' => $repository['pullRequest'],
+        ];
     }
 
-    /** @return array{connected: bool, account: string|null, connectUrl: string|null} */
+    /** @return array{enabled: bool, connected: bool, account: string|null, connectUrl: string|null} */
     private static function github(Workspace $workspace, User $user): array
     {
         $installation = GitHubInstallation::query()->where('workspace_id', $workspace->id)->oldest()->first();
         $canConnect = $user->can('manageMachines', $workspace);
 
         return [
+            'enabled' => GitHubApp::enabled(),
             'connected' => $installation !== null,
             'account' => $installation?->account_login,
             'connectUrl' => ! $canConnect || $installation !== null ? null : (GitHubApp::enabled()
@@ -245,27 +233,71 @@ final class CodeScreens
         ];
     }
 
-    private static function githubOwner(Workspace $workspace): string
+    /**
+     * Where the project's app comes from, as its last deploy recorded it: the
+     * GitHub repository, the branch pushes deploy from (or the repository's
+     * default branch), the commit and the stack ServerOS recognised.
+     *
+     * @return array{app: string|null, repo: string|null, url: string|null, branch: string|null, commit: string|null, upload: bool, deployed: bool, stack: array{slug: string, name: string}|null}
+     */
+    private static function source(Workspace $workspace, Project $project): array
     {
-        return strtolower((string) (GitHubInstallation::query()->where('workspace_id', $workspace->id)->oldest()->value('account_login') ?? $workspace->slug));
+        $chosen = null;
+        foreach (WorkspaceExport::apps($project) as $app) {
+            $deploy = AppSettings::lastDeploy($app->machine, $app->name);
+            $job = (array) ($deploy?->command['job'] ?? []);
+            $candidate = ['app' => $app, 'deploy' => $deploy, 'job' => $job, 'repo' => Previews::repoOf($job)];
+            if ($candidate['repo'] !== null) {
+                $chosen = $candidate;
+
+                break;
+            }
+            $chosen ??= $candidate;
+        }
+        if ($chosen === null) {
+            return ['app' => null, 'repo' => null, 'url' => null, 'branch' => null, 'commit' => null, 'upload' => false, 'deployed' => false, 'stack' => null];
+        }
+
+        $app = $chosen['app'];
+        $repo = $chosen['repo'];
+        $branch = null;
+        if ($repo !== null) {
+            $push = DeployOnPush::setting($app->machine, $app->name);
+            $branch = $push['on'] ? $push['branch'] : null;
+            if ($branch === null) {
+                $listed = collect(app(GitHubApp::class)->repositoriesFor($workspace))->first(fn (array $found) => strcasecmp($found['name'], $repo) === 0);
+                $branch = ($listed['branch'] ?? '') ?: null;
+            }
+        }
+        $template = $app->template === null ? null : app(ServiceTemplateCatalog::class)->find($app->template);
+        $commit = $chosen['job']['commit'] ?? null;
+
+        return [
+            'app' => $app->name,
+            'repo' => $repo,
+            'url' => $repo === null ? null : 'https://github.com/'.$repo,
+            'branch' => $branch,
+            'commit' => is_string($commit) && $commit !== '' ? substr($commit, 0, 7) : null,
+            'upload' => str_contains((string) ($chosen['job']['repo'] ?? ''), '/api/deploy-sources/'),
+            'deployed' => $chosen['deploy'] !== null,
+            'stack' => $template !== null
+                ? ['slug' => $template->slug, 'name' => $template->name]
+                : app(ProjectFacts::class)->kindOf($chosen['deploy']),
+        ];
     }
 
     private static function pick(Workspace $workspace, ?string $uid): ?Project
     {
-        $chosen = $uid === null ? null : WorkspaceExport::projects($workspace)->firstWhere('uid', $uid);
+        $projects = WorkspaceExport::projects($workspace);
+        $chosen = $uid === null ? null : $projects->firstWhere('uid', $uid);
 
-        return $chosen ?? self::latestProject($workspace);
-    }
-
-    private static function latestProject(Workspace $workspace): ?Project
-    {
-        return WorkspaceExport::projects($workspace)
+        return $chosen ?? $projects
             ->sortByDesc(fn (Project $project) => [$project->created_at?->getTimestamp() ?? 0, $project->id])
             ->first();
     }
 
     /** @return array<string, mixed> */
-    private static function projectProps(Workspace $workspace, Project $project): array
+    private static function projectProps(Project $project): array
     {
         return [
             'uid' => $project->uid,
@@ -281,78 +313,5 @@ final class CodeScreens
         return array_values(WorkspaceExport::projects($workspace)
             ->map(fn (Project $project) => ['uid' => $project->uid, 'name' => $project->name])
             ->all());
-    }
-
-    /**
-     * The framework an app was deployed with, read from what its last deploy
-     * shipped. Next.js until there's a deploy to read.
-     */
-    private static function stackOf(Project $project): string
-    {
-        foreach (WorkspaceExport::apps($project) as $app) {
-            $spec = WorkspaceExport::spec($app);
-            $env = implode(' ', array_map('strval', array_keys((array) ($spec['env'] ?? []))));
-            $files = strtolower(implode("\n", array_map('strval', (array) ($spec['files'] ?? []))));
-            $stack = match (true) {
-                str_contains($env, 'NEXT_') => 'next',
-                str_contains($env, 'ASTRO') || str_contains($files, 'astro') => 'astro',
-                str_contains($env, 'DJANGO') || str_contains($files, 'manage.py') => 'django',
-                str_contains($env, 'APP_KEY') && str_contains($env, 'DB_CONNECTION') => 'laravel',
-                str_contains($files, 'oven/bun') || str_contains($files, 'bun install') => 'bun',
-                str_contains($files, 'from node:') => 'node',
-                default => null,
-            };
-            if ($stack !== null) {
-                return $stack;
-            }
-        }
-
-        return 'next';
-    }
-
-    /**
-     * Things set up by hand that the files can't describe cleanly. The panel
-     * can't tell these yet, so they're sample items placed on real machines.
-     *
-     * @param  Collection<int, Machine>  $machines
-     * @return list<array{title: string, body: string, icon: string, path: string, comment: list<string>}>
-     */
-    private static function needsLook(Collection $machines): array
-    {
-        if ($machines->isEmpty()) {
-            return [];
-        }
-        $running = fn (Machine $machine) => collect(WorkspaceExport::services($machine))->pluck('name')->map(fn ($name) => strtolower((string) $name));
-        $cron = $machines->first(fn (Machine $machine) => $running($machine)->contains(fn (string $name) => (bool) preg_match('/cron|schedul/', $name)))
-            ?? $machines->get(1) ?? $machines->first();
-        $proxy = $machines->first(fn (Machine $machine) => $running($machine)->contains('nginx'));
-        $proxyName = 'nginx';
-        if ($proxy === null) {
-            $proxy = $machines->first(fn (Machine $machine) => $running($machine)->contains('caddy')) ?? $machines->first();
-            $proxyName = $running($proxy)->contains('caddy') ? 'caddy' : 'nginx';
-        }
-
-        $items = [[
-            'title' => __('A crontab on :machine', ['machine' => $cron->name]),
-            'body' => __('Set up by hand, so we wrote it as a comment in :path.', ['path' => 'machines/'.WorkspaceExport::fileName($cron->name).'.yml']),
-            'icon' => 'terminal-fill',
-            'path' => 'machines/'.WorkspaceExport::fileName($cron->name).'.yml',
-            'comment' => ['# Needs a look: a crontab was set up by hand here.', '# */15 * * * * /usr/local/bin/sync-stock'],
-        ]];
-        $proxyPath = 'machines/'.WorkspaceExport::fileName($proxy->name).'.yml';
-        $item = [
-            'title' => __(':service on :machine was edited by hand', ['service' => $proxyName, 'machine' => $proxy->name]),
-            'body' => __('We copied the config as is. Look it over before you merge.'),
-            'icon' => 'file-fill',
-            'path' => $proxyPath,
-            'comment' => ['# Needs a look: '.$proxyName.' was edited by hand here.', '# Its config is copied as is.'],
-        ];
-        if ($proxyPath === $items[0]['path']) {
-            $item['comment'] = [...$items[0]['comment'], ...$item['comment']];
-            $items[0]['comment'] = [];
-        }
-        $items[] = $item;
-
-        return $items;
     }
 }

@@ -479,9 +479,9 @@ test('the Updates page says which CVEs each package fixes, which need a restart,
             ['id' => $one->id, 'installed' => '3.0.13-0ubuntu3.4', 'candidate' => '3.0.13-0ubuntu3.5'],
             ['id' => $two->id, 'installed' => '3.0.13-0ubuntu3.3', 'candidate' => '3.0.13-0ubuntu3.5'],
         ])
-        ->where('packages.0.restart', false)
+        ->where('packages.0.restartAfterInstall', false)
         ->where('packages.1.name', 'linux-image-generic')
-        ->where('packages.1.restart', true)
+        ->where('packages.1.restartAfterInstall', true)
         ->where('packages.1.fixes.severity', 'high')
         ->where('packages.2.name', 'curl')
         ->where('packages.2.fixes', null)

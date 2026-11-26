@@ -80,6 +80,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $company_contact_email
  * @property array{segment?: string, servers?: string, team?: bool, recommended?: string, plan?: string, interval?: string, control?: bool, skipped_at?: string|null}|null $welcome
  * @property array<string, string|null>|null $dismissed_issues
+ * @property array<string, mixed>|null $code_repository
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Membership $pivot
@@ -120,6 +121,7 @@ class Workspace extends Model
             'alert_telegram_token' => 'encrypted',
             'alert_muted' => 'array',
             'dismissed_issues' => 'array',
+            'code_repository' => 'array',
             'welcome' => 'array',
             'onboarded_at' => 'datetime',
             'trial_plan' => Plan::class,

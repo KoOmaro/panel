@@ -29,8 +29,9 @@ import MachineConsole from '@/components/machines/MachineConsole.vue';
 import MachineIssues from '@/components/machines/MachineIssues.vue';
 import MachineOverview from '@/components/machines/MachineOverview.vue';
 import type {
+    MachineLive,
     MachineOverviewData,
-    MachinePreview,
+    MachineTraffic,
     UsagePoint,
 } from '@/components/machines/MachineOverview.vue';
 import MachineServicesTab from '@/components/machines/MachineServicesTab.vue';
@@ -96,9 +97,9 @@ const props = defineProps<{
     scheduled: ScheduledTask[];
     recent: UsagePoint[];
     day: UsagePoint[];
-    live: { cpu: number | null; memoryMb: number | null; at: string };
+    live: MachineLive;
+    traffic: MachineTraffic | null;
     overview: MachineOverviewData;
-    preview: MachinePreview;
     range: string;
     history?: UsagePoint[];
     files: { places: FilePlace[]; maxWrite: number; maxRead: number };
@@ -488,10 +489,36 @@ let ticks = 0;
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const whenVisible = useWhenVisible();
 
+const READING_EVERY = 60_000;
+let readingSeenAt = Date.now();
+let readingMoved = false;
+watch(
+    () => props.live?.at,
+    () => {
+        readingSeenAt = Date.now();
+        readingMoved = true;
+    },
+);
+watch(current, (key) => {
+    if (key !== 'overview') return;
+    readingSeenAt = Date.now();
+    readingMoved = false;
+});
+
+function readingDue(): boolean {
+    const waited = Date.now() - readingSeenAt;
+    if (!online.value || waited > 2 * READING_EVERY) return ticks % 6 === 0;
+
+    return !readingMoved || waited >= READING_EVERY - 5_000;
+}
+
 function tick(): void {
     ticks += 1;
     const only = new Set<string>();
-    if (current.value === 'overview') only.add('live');
+    if (current.value === 'overview' && readingDue()) {
+        only.add('live');
+        only.add('traffic');
+    }
     if (jobsMoving.value || ticks % 3 === 0) {
         ['machine', 'jobs', 'overview'].forEach((key) => only.add(key));
     }
@@ -506,7 +533,9 @@ function tick(): void {
 
 function catchUp(): void {
     ticks = 0;
-    router.reload({ only: ['machine', 'jobs', 'overview', 'live', 'day'] });
+    router.reload({
+        only: ['machine', 'jobs', 'overview', 'live', 'traffic', 'day'],
+    });
 }
 
 onMounted(() => {
@@ -692,12 +721,12 @@ onBeforeUnmount(() => {
             :machine="machine"
             :workspace-slug="workspace.slug"
             :live="live"
+            :traffic="traffic"
             :day="day"
             :history="history"
             :range="range"
             :loading-range="loadingHistory"
             :overview="overview"
-            :preview="preview"
             :services="visibleServiceCount"
             :can-manage="canManage"
             :online="online"

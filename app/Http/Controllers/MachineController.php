@@ -24,6 +24,7 @@ use App\Support\Health\WorkspaceHealth;
 use App\Support\Machines\MachinePolicies;
 use App\Support\ScheduledTasks;
 use App\Support\ServiceTemplates\ServiceTemplateCatalog;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -80,13 +81,9 @@ class MachineController extends Controller
             ],
             'recent' => fn () => MachineSample::history($machine, 3600),
             'day' => fn () => MachineSample::history($machine, self::RANGES['24h']),
-            'live' => fn () => [
-                'cpu' => $machine->cpu_percent,
-                'memoryMb' => $machine->memory_used_mb,
-                'at' => now()->toIso8601String(),
-            ],
+            'live' => fn () => $this->live($machine),
+            'traffic' => fn () => MachineSample::monthTraffic($machine),
             'overview' => fn () => $this->overview($machine),
-            'preview' => fn () => $this->preview($machine),
             'range' => $range,
             'history' => Inertia::optional(fn () => MachineSample::history($machine, self::RANGES[$range])),
             'scheduled' => fn () => ScheduledTasks::for($machine),
@@ -179,19 +176,19 @@ class MachineController extends Controller
         ];
     }
 
-    /** @return array<string, mixed> */
-    private function preview(Machine $machine): array
+    /** @return array{cpu: int|null, memoryMb: int|null, load: list<float>|null, processes: int|null, networkIn: int|null, networkOut: int|null, at: string|null} */
+    private function live(Machine $machine): array
     {
-        $seed = crc32((string) $machine->id);
-        $pick = fn (int $shift, int $min, int $max) => $min + (($seed >> $shift) % ($max - $min + 1));
-
         return [
-            'networkIn' => $pick(0, 20, 180) / 10,
-            'networkOut' => $pick(3, 8, 60) / 10,
-            'load' => $pick(6, 10, 160) / 100,
-            'processes' => $pick(9, 120, 320),
-            'uptimeDays' => $pick(12, 3, 90),
-            'traffic' => ['used' => $pick(15, 2, 40) * 50 * 1024 ** 3, 'limit' => 20 * 1024 ** 4],
+            'cpu' => $machine->cpu_percent,
+            'memoryMb' => $machine->memory_used_mb,
+            'load' => $machine->load_1 === null || $machine->load_5 === null || $machine->load_15 === null
+                ? null
+                : [$machine->load_1, $machine->load_5, $machine->load_15],
+            'processes' => $machine->processes,
+            'networkIn' => $machine->net_rx_rate,
+            'networkOut' => $machine->net_tx_rate,
+            'at' => $machine->telemetry_ts === null ? null : CarbonImmutable::createFromTimestamp($machine->telemetry_ts)->toIso8601String(),
         ];
     }
 

@@ -60,6 +60,15 @@ use Illuminate\Support\Facades\Storage;
  * @property array<string, array<string, int|float|null>>|null $service_stats
  * @property list<array{mount: string, used: int, total: int}>|null $disks
  * @property int|null $disk_percent
+ * @property float|null $load_1 load average over 1, 5 and 15 minutes, as last reported
+ * @property float|null $load_5
+ * @property float|null $load_15
+ * @property int|null $processes
+ * @property int|null $net_rx_rate bytes received per second over the last reported minute
+ * @property int|null $net_tx_rate bytes sent per second over the last reported minute
+ * @property int|null $net_rx_bytes the interface counters as last read (they restart at boot)
+ * @property int|null $net_tx_bytes
+ * @property int|null $telemetry_ts when its newest machine reading was taken, unix seconds
  * @property array<string, int>|null $alert_state
  * @property CarbonImmutable|null $maintenance_until
  * @property string|null $maintenance_reason
@@ -118,6 +127,15 @@ class Machine extends Model
             'traffic_sites' => 'array',
             'service_stats' => 'array',
             'disks' => 'array',
+            'load_1' => 'float',
+            'load_5' => 'float',
+            'load_15' => 'float',
+            'processes' => 'integer',
+            'net_rx_rate' => 'integer',
+            'net_tx_rate' => 'integer',
+            'net_rx_bytes' => 'integer',
+            'net_tx_bytes' => 'integer',
+            'telemetry_ts' => 'integer',
             'alert_state' => 'array',
             'maintenance_until' => 'datetime',
             'maintenance_public' => 'boolean',

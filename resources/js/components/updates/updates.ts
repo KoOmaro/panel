@@ -85,7 +85,7 @@ export type UpdatesPackage = {
     installed: string[];
     heldOn: number[];
     on: { id: number; installed: string | null; candidate: string }[];
-    restart: boolean;
+    restartAfterInstall: boolean;
     fixes: PackageFixes | null;
 };
 

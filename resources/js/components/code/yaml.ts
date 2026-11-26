@@ -5,7 +5,11 @@ export type YamlTone = 'comment' | 'key' | 'value' | 'ref';
 
 export type YamlPart = { text: string; tone: YamlTone };
 
-export type DiffLine = { no: number; sign: '+' | '-' | ' '; text: string };
+export type DiffLine = {
+    no: number | null;
+    sign: '+' | '-' | ' ' | '@';
+    text: string;
+};
 
 const PAIR = /^(\s*(?:"[^"]*"|[^\s:#"-][^:#]*?)\s*:)(\s.*|)$/;
 const ITEM = /^(\s*-)(\s.*|)$/;
@@ -55,8 +59,4 @@ export async function copyText(text: string, done: string): Promise<void> {
             trans('Couldn’t copy. Select the text and copy it instead.'),
         );
     }
-}
-
-export function comingSoon(what: string): void {
-    toast.info(trans('Coming soon'), { description: what });
 }

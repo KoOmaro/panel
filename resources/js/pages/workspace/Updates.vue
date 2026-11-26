@@ -108,7 +108,7 @@ const tabs = computed(() => [
 const packageTests: Record<Filter, (p: UpdatesPackage) => boolean> = {
     all: () => true,
     security: (p) => p.security,
-    restart: (p) => p.restart,
+    restart: (p) => p.restartAfterInstall,
     held: (p) => p.heldOn.length > 0,
 };
 
@@ -144,7 +144,10 @@ const pills = computed(() => {
         },
         {
             value: 'restart' as const,
-            label: trans('Restart needed'),
+            label:
+                view.value === 'machines'
+                    ? trans('Restart needed')
+                    : trans('Restart after install'),
             count: count('restart'),
         },
         { value: 'held' as const, label: trans('Held'), count: count('held') },

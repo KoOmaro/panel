@@ -383,17 +383,25 @@ const machineHref = (id: number) => workspacePath(`/machines/${id}`);
                     <span v-else class="font-medium text-fg-faint">–</span>
                 </DashTd>
                 <DashTd class="border-r-0!">
-                    <template v-if="pkg.restart">
+                    <span
+                        v-if="pkg.restartAfterInstall"
+                        class="flex min-w-0 items-center gap-2"
+                        :title="
+                            $t(
+                                'Updates to this package usually take effect only after the machine restarts.',
+                            )
+                        "
+                    >
                         <RotateCw
-                            class="size-[13px] shrink-0 text-status-pending"
+                            class="size-[13px] shrink-0 text-fg-tertiary"
                             :stroke-width="2.2"
                             aria-hidden="true"
                         />
                         <span
-                            class="font-medium tracking-[-0.01em] text-status-pending"
-                            >{{ $t('Restart needed') }}</span
+                            class="truncate font-medium tracking-[-0.01em] text-fg-tertiary"
+                            >{{ $t('Restart after install') }}</span
                         >
-                    </template>
+                    </span>
                     <template v-else-if="pkg.heldOn.length">
                         <Lock
                             class="size-[13px] shrink-0 text-fg-tertiary"

@@ -26,7 +26,7 @@ test('a new workspace gets the empty home, with the setup steps left to the setu
             ->component('workspace/Home')
             ->where('workspace.host', $workspace->host())
             ->where('stats.machines', 0)
-            ->where('stats.averageCpu', 0)
+            ->where('stats.averageCpu', null)
             ->where('providers', [])
             ->missing('onboarding')
             ->missing('onboardingDismissed')
@@ -49,6 +49,7 @@ test('connected machines turn the empty home into fleet stats', function () {
                 'machines' => 3,
                 'environments' => ['production' => 2, 'staging' => 1, 'development' => 0],
                 'services' => 6,
+                'running' => 0,
                 'averageCpu' => 51,
                 'busy' => 1,
                 'backedUp' => 2,
@@ -196,4 +197,18 @@ test('home includes member count, last backup and a few machines', function () {
             ->where('memberCount', 2)
             ->where('lastBackup', '5 minutes ago')
             ->has('machines', 2));
+});
+
+test('the CPU average leaves out machines with no reading yet, and services count only those running', function () {
+    $workspace = Workspace::factory()->create();
+    $service = fn (string $key, string $status) => ['key' => $key, 'name' => $key, 'kind' => 'app', 'manager' => 'docker', 'status' => $status, 'ports' => []];
+    $machine = Machine::factory()->for($workspace)->create(['cpu_percent' => 30, 'services_count' => 3]);
+    $machine->forceFill(['inventory' => ['scanned_at' => 1, 'complete' => true, 'services' => [$service('docker:a', 'running'), $service('docker:b', 'stopped'), $service('docker:c', 'running')], 'listeners' => []]])->save();
+    Machine::factory()->for($workspace)->create(['cpu_percent' => null, 'services_count' => 0]);
+
+    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
+        ->where('stats.averageCpu', 30)
+        ->where('stats.services', 3)
+        ->where('stats.running', 2)
+        ->where('machines', fn ($machines) => collect($machines)->pluck('cpu')->sort()->values()->all() === [null, 30]));
 });

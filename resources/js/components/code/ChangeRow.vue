@@ -3,18 +3,19 @@ import BrandLogo from '@/components/dash/BrandLogo.vue';
 import CodeDiff from '@/components/code/CodeDiff.vue';
 import type { DiffLine } from '@/components/code/yaml';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 
 export type PlanChange = {
     id: string;
     op: 'add' | 'change' | 'remove';
     logo: string | null;
+    icon: FilledIconName;
     title: string;
-    short: string;
+    file: string;
     path: string;
     machine: { id: number; name: string; provider: string | null } | null;
     risk: { tone: 'amber' | 'red'; label: string } | null;
     diff: DiffLine[];
-    note: string;
 };
 
 const { change, open = false } = defineProps<{
@@ -70,16 +71,19 @@ const risks = {
                 class="flex size-6 shrink-0 items-center justify-center rounded-md border-[0.5px] border-[#e2e2e2] bg-white shadow-[0_1px_1.5px_rgb(0_0_0/0.15)] dark:border-[#2d2d2d] dark:bg-surface-raised dark:shadow-[0_1px_1.5px_rgb(0_0_0/0.55)]"
             >
                 <BrandLogo v-if="change.logo" :name="change.logo" :size="14" />
-                <FilledIcon v-else name="monitors-fill" class="text-fg-muted" />
+                <FilledIcon v-else :name="change.icon" class="text-fg-muted" />
             </span>
             <span class="flex min-w-0 flex-col gap-px">
                 <span
                     class="truncate text-[13px]/5 font-medium text-fg-primary"
                     >{{ change.title }}</span
                 >
-                <span class="font-ui-mono text-[11px]/4 text-fg-muted">{{
-                    change.path
-                }}</span>
+                <span class="truncate font-ui-mono text-[11px]/4 text-fg-muted"
+                    >{{ change.file
+                    }}<template v-if="change.path">
+                        › {{ change.path }}</template
+                    ></span
+                >
             </span>
             <span class="grow" />
             <span
@@ -109,11 +113,7 @@ const risks = {
             v-if="open"
             class="flex flex-col gap-2.5 pr-[18px] pb-4 pl-[18px] sm:pl-[86px]"
         >
-            <CodeDiff file="serveros.yml" :lines="change.diff" />
-            <p class="flex items-center gap-2 text-[12px]/4 text-fg-tertiary">
-                <FilledIcon name="update-fill" class="shrink-0 text-fg-muted" />
-                {{ change.note }}
-            </p>
+            <CodeDiff :file="change.file" :lines="change.diff" />
         </div>
     </div>
 </template>

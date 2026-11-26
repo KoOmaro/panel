@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { Copy } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref } from 'vue';
@@ -11,9 +11,17 @@ import CodeLines from '@/components/code/CodeLines.vue';
 import FileTree from '@/components/code/FileTree.vue';
 import RailNote from '@/components/code/RailNote.vue';
 import RailSection from '@/components/code/RailSection.vue';
-import { comingSoon, copyText } from '@/components/code/yaml';
+import RepositoryForm from '@/components/code/RepositoryForm.vue';
+import type { CodeRepository } from '@/components/code/RepositoryForm.vue';
+import { copyText } from '@/components/code/yaml';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { FilledIconName } from '@/components/icons/filledIcons';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import codeRoutes from '@/routes/workspace/code';
 import machinesRoutes from '@/routes/workspace/machines';
@@ -33,21 +41,23 @@ const props = defineProps<{
         open: string | null;
     };
     github: {
+        enabled: boolean;
         connected: boolean;
         account: string | null;
         connectUrl: string | null;
     };
-    sample: {
-        repo: string;
-        branch: string;
-        needsLook: {
-            title: string;
-            body: string;
-            icon: FilledIconName;
-            path: string;
-        }[];
-    };
+    repository: CodeRepository | null;
+    defaults: { branch: string; folder: string };
+    canManage: boolean;
+    needsLook: {
+        title: string;
+        body: string;
+        icon: FilledIconName;
+        path: string;
+    }[];
 }>();
+
+const NEEDS_LOOK_SHOWN = 4;
 
 const paths = computed(() => props.code.files.map((file) => file.path));
 const folderNames = computed(() => [
@@ -57,7 +67,7 @@ const folderNames = computed(() => [
             .map((path) => path.slice(0, path.indexOf('/'))),
     ),
 ]);
-const flagged = computed(() => props.sample.needsLook.map((item) => item.path));
+const flagged = computed(() => props.needsLook.map((item) => item.path));
 
 const selected = ref<string | null>(props.code.open);
 const openFolders = ref<string[]>(
@@ -95,16 +105,48 @@ function copyFile(): void {
     );
 }
 
+const sending = ref(false);
+const allNeedsLook = ref(false);
+const shownNeedsLook = computed(() =>
+    allNeedsLook.value
+        ? props.needsLook
+        : props.needsLook.slice(0, NEEDS_LOOK_SHOWN),
+);
+const blocked = computed(() => {
+    if (!props.canManage)
+        return trans(
+            'Only people who can manage machines can send these files to GitHub.',
+        );
+    if (!props.github.connected) return trans('Connect GitHub first.');
+    if (!props.repository)
+        return trans('Pick a repository under Send to GitHub first.');
+
+    return null;
+});
+
 function openPullRequest(): void {
-    comingSoon(
-        trans(
-            'Sending your workspace to GitHub as a pull request is on the way.',
-        ),
+    router.post(
+        onWorkspace(codeRoutes.pullRequest(props.workspace.slug)).url,
+        {},
+        {
+            preserveScroll: true,
+            onStart: () => (sending.value = true),
+            onFinish: () => (sending.value = false),
+        },
     );
 }
 
 function downloadZip(): void {
-    comingSoon(trans('Downloading these files as a zip is on the way.'));
+    window.location.assign(
+        onWorkspace(codeRoutes.download(props.workspace.slug)).url,
+    );
+}
+
+function lookAt(path: string): void {
+    selected.value = path;
+    openFolders.value = [
+        ...new Set([...openFolders.value, path.split('/')[0]]),
+    ];
 }
 </script>
 
@@ -119,10 +161,38 @@ function downloadZip(): void {
                 @click="downloadZip"
             />
             <DashButton
-                variant="primary"
-                :label="$t('Open pull request')"
-                @click="openPullRequest"
-            />
+                v-if="repository?.pullRequest"
+                :href="repository.pullRequest.url"
+                external
+            >
+                <BrandLogo name="github" :size="16" />
+                {{ $t('View on GitHub') }}
+            </DashButton>
+            <TooltipProvider :delay-duration="100">
+                <Tooltip :disabled="blocked === null">
+                    <TooltipTrigger as-child>
+                        <span
+                            class="inline-flex"
+                            :tabindex="blocked === null ? undefined : 0"
+                        >
+                            <DashButton
+                                variant="primary"
+                                :label="$t('Open pull request')"
+                                :disabled="blocked !== null"
+                                :loading="sending"
+                                @click="openPullRequest"
+                            />
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                        side="bottom"
+                        align="end"
+                        class="max-w-64 px-3 py-2 text-left text-[13px]/5"
+                    >
+                        {{ blocked }}
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
         </template>
     </DashHeader>
 
@@ -273,67 +343,13 @@ function downloadZip(): void {
                         >
                     </template>
 
-                    <div class="flex flex-col gap-1.5">
-                        <span
-                            class="text-[12px]/4 font-medium text-fg-tertiary"
-                            >{{ $t('Repository') }}</span
-                        >
-                        <div
-                            class="flex h-[34px] items-center gap-2 rounded-[7px] border-[0.5px] border-edge-row bg-surface-field px-2.5 shadow-[inset_0_1px_2px_rgb(0_0_0/0.4)]"
-                        >
-                            <BrandLogo name="github" :size="14" />
-                            <span
-                                class="truncate text-[13px]/5 text-fg-primary"
-                                >{{ sample.repo }}</span
-                            >
-                            <FilledIcon
-                                name="lock-fill"
-                                :size="12"
-                                class="text-fg-muted"
-                            />
-                            <span class="grow" />
-                            <FilledIcon
-                                name="chevrons-up-down"
-                                class="text-fg-secondary"
-                            />
-                        </div>
-                    </div>
-
-                    <div class="flex flex-col gap-1.5">
-                        <span
-                            class="text-[12px]/4 font-medium text-fg-tertiary"
-                            >{{ $t('Branch') }}</span
-                        >
-                        <div
-                            class="flex h-[34px] items-center gap-2 rounded-[7px] border-[0.5px] border-edge-row bg-surface-field px-2.5 shadow-[inset_0_1px_2px_rgb(0_0_0/0.4)]"
-                        >
-                            <FilledIcon
-                                name="branch-fill"
-                                :size="14"
-                                class="text-fg-muted"
-                            />
-                            <span
-                                class="truncate font-ui-mono text-[12px]/4 text-fg-primary"
-                                >{{ sample.branch }}</span
-                            >
-                        </div>
-                    </div>
-
-                    <p class="text-[12px]/[18px] text-fg-tertiary">
-                        {{
-                            $t(
-                                'Opens a pull request on :repo. Once it’s merged, changes to these files show up in',
-                                { repo: sample.repo },
-                            ) + ' '
-                        }}<Link
-                            :href="
-                                onWorkspace(codeRoutes.changes(workspace.slug))
-                                    .url
-                            "
-                            class="underline decoration-edge-strong underline-offset-2 transition-colors duration-150 hover:text-fg-secondary"
-                            >{{ $t('Review changes') }}</Link
-                        >{{ ' ' + $t('before they run.') }}
-                    </p>
+                    <RepositoryForm
+                        :slug="workspace.slug"
+                        :repository="repository"
+                        :defaults="defaults"
+                        :can-manage="canManage"
+                        :connected="github.connected"
+                    />
                 </RailSection>
 
                 <RailSection :title="$t('Stays in ServerOS')">
@@ -362,33 +378,41 @@ function downloadZip(): void {
                 </RailSection>
 
                 <RailSection
-                    v-if="sample.needsLook.length"
+                    v-if="needsLook.length"
                     :title="$t('Needs a look')"
                 >
                     <template #aside>
                         <span
                             class="text-[12px]/4 font-medium text-[#c27c12] dark:text-[#f5a833]"
-                            >{{ sample.needsLook.length }}</span
+                            >{{ needsLook.length }}</span
                         >
                     </template>
                     <button
-                        v-for="item in sample.needsLook"
+                        v-for="item in shownNeedsLook"
                         :key="item.title"
                         type="button"
                         class="text-left"
-                        @click="
-                            selected = item.path;
-                            openFolders = [
-                                ...new Set([
-                                    ...openFolders,
-                                    item.path.split('/')[0],
-                                ]),
-                            ];
-                        "
+                        @click="lookAt(item.path)"
                     >
                         <RailNote :icon="item.icon" :title="item.title" amber>
                             {{ item.body }}
                         </RailNote>
+                    </button>
+                    <button
+                        v-if="needsLook.length > NEEDS_LOOK_SHOWN"
+                        type="button"
+                        class="self-start pl-[30px] text-[12px]/4 font-medium text-fg-secondary transition-colors duration-150 hover:text-fg-primary"
+                        @click="allNeedsLook = !allNeedsLook"
+                    >
+                        {{
+                            allNeedsLook
+                                ? $t('Show fewer')
+                                : $t('Show :count more', {
+                                      count: String(
+                                          needsLook.length - NEEDS_LOOK_SHOWN,
+                                      ),
+                                  })
+                        }}
                     </button>
                 </RailSection>
             </aside>

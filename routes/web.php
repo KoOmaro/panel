@@ -224,6 +224,9 @@ Route::domain(Dashboard::host())
         Route::get('code', [WorkspaceCodeController::class, 'index'])->name('workspace.code.index');
         Route::get('code/setup', [WorkspaceCodeController::class, 'setup'])->name('workspace.code.setup');
         Route::get('code/changes', [WorkspaceCodeController::class, 'changes'])->name('workspace.code.changes');
+        Route::get('code/download', [WorkspaceCodeController::class, 'download'])->middleware('throttle:20,1')->name('workspace.code.download');
+        Route::put('code/repository', [WorkspaceCodeController::class, 'repository'])->middleware('throttle:20,1')->name('workspace.code.repository');
+        Route::post('code/pull-request', [WorkspaceCodeController::class, 'pullRequest'])->middleware('throttle:10,1')->name('workspace.code.pull-request');
         Route::get('help', HelpController::class)->name('workspace.help');
         Route::get('machines', [MachineController::class, 'index'])->name('workspace.machines.index');
         Route::post('machine-groups', [MachineGroupController::class, 'store'])->name('workspace.machine-groups.store');

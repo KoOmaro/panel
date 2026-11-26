@@ -25,6 +25,7 @@ use App\Support\Logs\LogSkipRules;
 use App\Support\Machines\CloudflareTunnel;
 use App\Support\Machines\DaemonUpdateNotices;
 use App\Support\Machines\MachineMetadata;
+use App\Support\Machines\MachineVitals;
 use App\Support\Machines\PackageUpdates;
 use App\Support\Projects\ProjectData;
 use App\Support\Projects\ProjectLinks;
@@ -95,6 +96,7 @@ class DaemonGatewayController extends Controller
             'disconnected_at' => null,
             ...(isset($data['hello']['log_skip']) ? ['log_skip' => LogSkipRules::fromDaemon($data['hello']['log_skip'])] : []),
             ...(isset($data['hello']['proxy']) ? ['proxy' => $data['hello']['proxy']] : []),
+            ...(self::rebooted($machine, $data['hello']['facts']) ? ['net_rx_bytes' => null, 'net_tx_bytes' => null] : []),
         ])->save();
 
         if (is_string($versionBefore) && $versionBefore !== $machine->daemon_version) {
@@ -119,6 +121,15 @@ class DaemonGatewayController extends Controller
                 'mode' => config('daemon.commands_enabled') ? 'managed' : 'read_only',
             ],
         ]);
+    }
+
+    /** @param  array<mixed>  $facts */
+    private static function rebooted(Machine $machine, array $facts): bool
+    {
+        $before = $machine->facts['boot_ts'] ?? null;
+        $now = $facts['boot_ts'] ?? null;
+
+        return is_numeric($before) && is_numeric($now) && $before > 0 && $now > 0 && abs((int) $now - (int) $before) > 60;
     }
 
     /** @param  array<mixed>  $facts */
@@ -149,6 +160,7 @@ class DaemonGatewayController extends Controller
         $changes = ['last_seen_at' => now(), 'disconnected_at' => null];
         $traffic = [];
         $firstInventory = $machine->inventory === null;
+        $vitals = MachineVitals::of($machine);
         foreach ($data['envelopes'] as $envelope) {
             $payload = $envelope['payload'];
             switch ($envelope['kind']) {
@@ -190,7 +202,8 @@ class DaemonGatewayController extends Controller
                         }
                         $readings[] = $this->machineReading($sample);
                     }
-                    MachineSample::record($machine, $readings);
+                    MachineSample::record($machine, $vitals->count($readings));
+                    $changes = [...$changes, ...$vitals->changes()];
                     if (is_array($payload['traffic'] ?? null)) {
                         // Each site's minutes, counted from the proxy's access logs: stored together below.
                         $traffic = [...$traffic, ...array_slice(array_values($payload['traffic']), 0, TrafficRollup::MAX_PER_REQUEST - count($traffic))];
@@ -465,19 +478,27 @@ class DaemonGatewayController extends Controller
 
     /**
      * @param  array<string, mixed>  $sample
-     * @return array{ts: int, cpu: float|null, mem: int|null, disk: int|null}
+     * @return array{ts: int, cpu: float|null, mem: int|null, disk: int|null, load: array{0: float, 1: float, 2: float}|null, processes: int|null, rxBytes: int|null, txBytes: int|null}
      */
     private function machineReading(array $sample): array
     {
         $now = now()->getTimestamp();
         $ts = is_numeric($sample['ts'] ?? null) ? (int) $sample['ts'] : $now;
         $disks = is_array($sample['disks'] ?? null) ? self::disks($sample['disks']) : [];
+        $count = fn (string $key) => is_numeric($sample[$key] ?? null) ? max(0, (int) $sample[$key]) : null;
+        $load = is_array($sample['load'] ?? null) ? array_values($sample['load']) : [];
 
         return [
             'ts' => $ts > $now ? $now : $ts,
             'cpu' => is_numeric($sample['cpu_percent'] ?? null) ? round(max(0, min(100, (float) $sample['cpu_percent'])), 2) : null,
             'mem' => is_numeric($sample['mem_used'] ?? null) ? max(0, (int) $sample['mem_used']) : null,
             'disk' => self::fullest($disks),
+            'load' => count($load) === 3 && is_numeric($load[0]) && is_numeric($load[1]) && is_numeric($load[2])
+                ? [round(max(0, (float) $load[0]), 2), round(max(0, (float) $load[1]), 2), round(max(0, (float) $load[2]), 2)]
+                : null,
+            'processes' => $count('process_count'),
+            'rxBytes' => $count('net_rx_bytes'),
+            'txBytes' => $count('net_tx_bytes'),
         ];
     }
 

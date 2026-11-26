@@ -15,7 +15,7 @@ import codeRoutes from '@/routes/workspace/code';
 import projectsRoutes from '@/routes/workspace/projects';
 import type { Workspace } from '@/types';
 
-type Stack = 'next' | 'laravel' | 'django' | 'node' | 'bun' | 'astro';
+type Tile = { key: string; label: string };
 
 const props = defineProps<{
     workspace: Workspace;
@@ -28,10 +28,21 @@ const props = defineProps<{
     } | null;
     projects: { uid: string; name: string }[];
     mcpUrl: string;
-    sample: { repo: string; stack: Stack; branch: string } | null;
+    source: {
+        app: string | null;
+        repo: string | null;
+        url: string | null;
+        branch: string | null;
+        commit: string | null;
+        upload: boolean;
+        deployed: boolean;
+        stack: { slug: string; name: string } | null;
+    } | null;
 }>();
 
-const stacks: { key: Stack; label: string }[] = [
+const NEW_BRANCH = 'add-serveros';
+
+const common: Tile[] = [
     { key: 'next', label: 'Next.js' },
     { key: 'laravel', label: 'Laravel' },
     { key: 'django', label: 'Django' },
@@ -39,32 +50,34 @@ const stacks: { key: Stack; label: string }[] = [
     { key: 'bun', label: 'Bun' },
     { key: 'astro', label: 'Astro' },
 ];
+const found = props.source?.stack ?? null;
+const foundKey = found ? (found.slug === 'nextjs' ? 'next' : found.slug) : null;
+const stacks: Tile[] =
+    found && foundKey && !common.some((tile) => tile.key === foundKey)
+        ? [{ key: foundKey, label: found.name }, ...common.slice(0, 5)]
+        : common;
 
 const modes = computed(() => [
     { key: 'agent' as const, label: trans('Agent setup') },
     { key: 'manual' as const, label: trans('Manual setup') },
 ]);
 
-const stack = ref<Stack>(props.sample?.stack ?? 'next');
+const stack = ref<string | null>(foundKey);
 const mode = ref<'agent' | 'manual'>('agent');
 const expanded = ref(false);
 
 const stackLabel = computed(
     () => stacks.find((entry) => entry.key === stack.value)?.label ?? '',
 );
-const detected = computed(
-    () =>
-        stacks.find((entry) => entry.key === props.sample?.stack)?.label ?? '',
-);
+const repoName = computed(() => props.source?.repo ?? null);
 
 const guide = computed<string[]>(() => {
-    if (!props.project || !props.sample) return [];
+    if (!props.project) return [];
 
     const name = props.project.name;
-    const repo = props.sample.repo;
 
     return [
-        trans('# Set up ServerOS for :repo', { repo }),
+        trans('# Set up ServerOS for :repo', { repo: repoName.value ?? name }),
         '',
         trans(
             'Write serveros.yml at the root of the repo. Describe what :project runs today, not what it should run one day.',
@@ -84,12 +97,19 @@ const guide = computed<string[]>(() => {
         trans('- Add the ServerOS MCP server to your agent: :url', {
             url: props.mcpUrl,
         }),
-        trans('- :project is a :stack app. Leave its build as it is.', {
-            project: name,
-            stack: stackLabel.value,
-        }),
+        ...(stackLabel.value
+            ? [
+                  trans(
+                      '- :project is a :stack app. Leave its build as it is.',
+                      {
+                          project: name,
+                          stack: stackLabel.value,
+                      },
+                  ),
+              ]
+            : []),
         trans('- Work on a new branch: git checkout -b :branch', {
-            branch: props.sample.branch,
+            branch: NEW_BRANCH,
         }),
         '',
         trans('## What to write'),
@@ -97,9 +117,6 @@ const guide = computed<string[]>(() => {
         trans(
             '- serveros.yml, with one entry per service :project runs: its machine, domain, port and environment.',
             { project: name },
-        ),
-        trans(
-            '- .github/workflows/serveros.yml, a GitHub Action that posts the ServerOS plan on every pull request.',
         ),
         '',
         trans('## Start from this'),
@@ -141,7 +158,7 @@ function copyFile(): void {
                           href: onWorkspace(codeRoutes.index(workspace.slug))
                               .url,
                       },
-                      { label: project.name, logo: stack },
+                      { label: project.name, logo: stack ?? undefined },
                   ]
                 : [
                       {
@@ -155,7 +172,7 @@ function copyFile(): void {
     />
 
     <div
-        v-if="!project || !sample"
+        v-if="!project"
         class="flex min-h-full flex-col items-center justify-center gap-5 px-6 py-16 text-center"
     >
         <EmptyArt kind="project-graph" />
@@ -186,19 +203,55 @@ function copyFile(): void {
                 <div class="hidden w-16 shrink-0 sm:block" />
                 <div class="flex min-w-0 flex-1 flex-col gap-2">
                     <div class="flex items-center gap-2 pb-1">
-                        <span
-                            class="size-3.5 shrink-0 animate-spin rounded-full border-[1.7px] border-[#87a3ff]/20 border-t-[#87a3ff] border-r-[#87a3ff] [animation-duration:1.4s] motion-reduce:animate-none"
-                            aria-hidden="true"
-                        />
-                        <p
-                            class="text-[13px]/5 font-medium text-[#3d5ee0] dark:text-[#87a3ff]"
-                        >
-                            {{
-                                $t('Watching :repo for a pull request', {
-                                    repo: sample.repo,
-                                })
-                            }}
-                        </p>
+                        <template v-if="source?.repo && source.url">
+                            <BrandLogo name="github" :size="14" />
+                            <p class="text-[13px]/5 text-fg-tertiary">
+                                {{ $t('Deployed from') + ' '
+                                }}<a
+                                    :href="source.url"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="font-medium text-[#3d5ee0] transition-colors duration-150 hover:underline dark:text-[#87a3ff]"
+                                    >{{ source.repo }}</a
+                                ><template v-if="source.branch">{{
+                                    ' ' +
+                                    $t('on :branch', {
+                                        branch: source.branch,
+                                    })
+                                }}</template
+                                ><template v-if="source.commit">{{
+                                    ' ' +
+                                    $t('at :commit', {
+                                        commit: source.commit,
+                                    })
+                                }}</template>
+                            </p>
+                        </template>
+                        <template v-else>
+                            <FilledIcon
+                                name="info-fill"
+                                :size="14"
+                                class="text-fg-muted"
+                            />
+                            <p class="text-[13px]/5 text-fg-tertiary">
+                                {{
+                                    !source?.deployed
+                                        ? $t(
+                                              ':project hasn’t been deployed yet, so there’s no repository to read.',
+                                              { project: project.name },
+                                          )
+                                        : source.upload
+                                          ? $t(
+                                                ':project was deployed from an upload, not a GitHub repository.',
+                                                { project: project.name },
+                                            )
+                                          : $t(
+                                                ':project wasn’t deployed from a GitHub repository.',
+                                                { project: project.name },
+                                            )
+                                }}
+                            </p>
+                        </template>
                     </div>
                     <h1
                         class="text-[28px]/9 font-medium tracking-[-0.4px] text-fg-primary"
@@ -212,7 +265,7 @@ function copyFile(): void {
                     <p class="text-[14px]/[22px] text-fg-tertiary">
                         {{
                             $t(
-                                'Your agent writes serveros.yml from what :project runs today. You see the plan before anything changes.',
+                                'Your agent writes serveros.yml from what :project runs today. Nothing changes on your servers.',
                                 { project: project.name },
                             )
                         }}
@@ -225,10 +278,16 @@ function copyFile(): void {
                     class="hidden w-16 shrink-0 flex-col items-center pt-11 sm:flex"
                 >
                     <span
+                        v-if="stack"
                         class="flex size-6 items-center justify-center rounded-full bg-[rgb(62_196_109/0.14)] text-status-live"
                     >
                         <FilledIcon name="check" :size="14" />
                     </span>
+                    <span
+                        v-else
+                        class="flex size-6 items-center justify-center rounded-full bg-fg-primary text-[12px]/4 font-medium text-surface-main"
+                        >1</span
+                    >
                     <span class="mt-1.5 w-px grow bg-edge-control" />
                 </div>
                 <div class="flex min-w-0 flex-1 flex-col gap-1.5 pt-11">
@@ -237,10 +296,18 @@ function copyFile(): void {
                     </h2>
                     <p class="text-[14px]/[22px] text-fg-tertiary">
                         {{
-                            $t('We found :stack in :repo.', {
-                                stack: detected,
-                                repo: sample.repo,
-                            })
+                            found && source?.app
+                                ? $t(
+                                      'We found :stack in the last deploy of :app.',
+                                      {
+                                          stack: found.name,
+                                          app: source.app,
+                                      },
+                                  )
+                                : $t(
+                                      'We couldn’t tell from a deploy. Pick the one :project uses.',
+                                      { project: project.name },
+                                  )
                         }}
                     </p>
                     <div
@@ -318,16 +385,21 @@ function copyFile(): void {
                         {{
                             mode === 'agent'
                                 ? $t(
-                                      'Paste it into any AI coding agent. It writes serveros.yml and a GitHub Action for :project.',
+                                      'Paste it into any AI coding agent. It writes serveros.yml for :project.',
                                       { project: project.name },
                                   )
-                                : $t(
-                                      'Add this as serveros.yml at the root of :repo. We wrote it from what :project runs today.',
-                                      {
-                                          repo: sample.repo,
-                                          project: project.name,
-                                      },
-                                  )
+                                : repoName
+                                  ? $t(
+                                        'Add this as serveros.yml at the root of :repo. We wrote it from what :project runs today.',
+                                        {
+                                            repo: repoName,
+                                            project: project.name,
+                                        },
+                                    )
+                                  : $t(
+                                        'Add this as serveros.yml at the root of :project’s repository. We wrote it from what :project runs today.',
+                                        { project: project.name },
+                                    )
                         }}
                     </p>
 
@@ -338,7 +410,7 @@ function copyFile(): void {
                             class="flex items-center gap-2 py-[7px] pr-[3px] pl-[11px]"
                         >
                             <BrandLogo
-                                v-if="mode === 'agent'"
+                                v-if="mode === 'agent' && stack"
                                 :name="stack"
                                 :size="14"
                             />
@@ -352,9 +424,11 @@ function copyFile(): void {
                                 class="font-ui-mono text-[12px]/4 text-fg-secondary"
                                 >{{
                                     mode === 'agent'
-                                        ? $t(':stack guide', {
-                                              stack: stackLabel,
-                                          })
+                                        ? stackLabel
+                                            ? $t(':stack guide', {
+                                                  stack: stackLabel,
+                                              })
+                                            : $t('Agent prompt')
                                         : 'serveros.yml'
                                 }}</span
                             >
@@ -455,18 +529,14 @@ function copyFile(): void {
                         <span>{{ $t('When your agent is done, run') }}</span>
                         <code
                             class="rounded-md border-[0.5px] border-edge-control bg-surface-badge px-[7px] py-px font-ui-mono text-[12px]/5 text-fg-primary"
-                            >git push -u origin {{ sample.branch }}</code
+                            >git push -u origin {{ NEW_BRANCH }}</code
                         >
                         <span>{{ $t('and open a pull request.') }}</span>
                     </div>
                     <p class="text-[14px]/[22px] text-fg-tertiary">
                         {{
                             $t(
-                                'The plan shows up here and on the pull request. :project is in :environment, so it needs a review before it runs.',
-                                {
-                                    project: project.name,
-                                    environment: project.environment,
-                                },
+                                'ServerOS can’t apply changes from code yet, so merging it changes nothing on your servers.',
                             )
                         }}
                     </p>

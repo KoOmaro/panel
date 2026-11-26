@@ -1,26 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { getInitials } from '@/composables/useInitials';
-import { sampleAvatars } from '@/lib/sampleAvatars';
-import type { SampleAvatar } from '@/lib/sampleAvatars';
 
 const {
     src,
     name,
-    sample,
     size = 20,
 } = defineProps<{
     src?: string | null;
     name?: string | null;
-    sample?: SampleAvatar;
     size?: number;
 }>();
 
 const failed = ref(false);
 
-const image = computed(() =>
-    failed.value ? null : (src ?? (sample ? sampleAvatars[sample] : null)),
-);
+const image = computed(() => (failed.value ? null : (src ?? null)));
 
 watch(
     () => src,

@@ -30,7 +30,7 @@ type Kpi = {
 };
 
 const kpis = computed<Kpi[]>(() => {
-    const { machines, services, averageCpu, busy, backedUp } = stats;
+    const { machines, services, running, averageCpu, busy, backedUp } = stats;
     const unprotected = machines - backedUp;
 
     return [
@@ -49,13 +49,16 @@ const kpis = computed<Kpi[]>(() => {
         {
             label: trans('Services'),
             value: String(services),
-            note: trans('running'),
+            note:
+                running === services
+                    ? trans('running')
+                    : trans(':count running', { count: String(running) }),
             tone: 'text-fg-muted',
             href: onWorkspace(servicesRoutes.index(slug.value)).url,
         },
         {
             label: trans('Average CPU'),
-            value: `${averageCpu}%`,
+            value: averageCpu === null ? '–' : `${averageCpu}%`,
             note:
                 busy > 0
                     ? trans(':count busy', { count: String(busy) })

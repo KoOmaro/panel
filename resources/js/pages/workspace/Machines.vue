@@ -249,7 +249,8 @@ const sortLabel = computed(
 );
 
 const comparators: Record<SortKey, (a: Machine, b: Machine) => number> = {
-    cpu: (a, b) => b.cpu - a.cpu || a.name.localeCompare(b.name),
+    cpu: (a, b) =>
+        (b.cpu ?? -1) - (a.cpu ?? -1) || a.name.localeCompare(b.name),
     memory: (a, b) => (b.memoryMb ?? -1) - (a.memoryMb ?? -1),
     name: (a, b) => a.name.localeCompare(b.name),
 };
@@ -346,6 +347,9 @@ function staleBackup(machine: Machine): boolean {
 
 function summarize(list: Machine[]): Summary {
     const live = list.filter((m) => reporting(m) && !settingUp(m));
+    const cpus = live
+        .map((m) => m.cpu)
+        .filter((cpu): cpu is number => cpu !== null);
     const memories = live
         .map(memoryOf)
         .filter((m): m is NonNullable<typeof m> => m !== null);
@@ -373,8 +377,8 @@ function summarize(list: Machine[]): Summary {
         count: list.length,
         providers: new Set(list.map((m) => m.provider)).size,
         online: list.filter((m) => reporting(m)).length,
-        cpu: live.length
-            ? Math.round(live.reduce((sum, m) => sum + m.cpu, 0) / live.length)
+        cpu: cpus.length
+            ? Math.round(cpus.reduce((sum, cpu) => sum + cpu, 0) / cpus.length)
             : null,
         memory,
         disk,
@@ -1360,7 +1364,11 @@ function formatBytes(bytes: number | undefined): string {
                     </DashTd>
                     <DashTd :height="51.5">
                         <UsageMeter
-                            v-if="reporting(row.machine) && !row.machine.setup"
+                            v-if="
+                                reporting(row.machine) &&
+                                !row.machine.setup &&
+                                row.machine.cpu !== null
+                            "
                             :percent="row.machine.cpu"
                             >{{ row.machine.cpu }}%</UsageMeter
                         >

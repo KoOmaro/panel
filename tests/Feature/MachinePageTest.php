@@ -46,9 +46,10 @@ test('the machine page gives the overview its day of usage, updates, backups and
             ->where('overview.backup.schedule', 'daily')
             ->where('overview.backups.0.serviceName', 'shop')
             ->where('overview.backups.0.bytes', 2048)
-            ->has('preview.networkIn')
-            ->has('preview.uptimeDays')
-            ->has('preview.traffic.limit')
+            ->missing('preview')
+            ->where('live.load', null)
+            ->where('live.networkIn', null)
+            ->where('traffic', null)
             ->etc());
 });
 

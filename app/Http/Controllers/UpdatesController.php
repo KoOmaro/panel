@@ -27,7 +27,7 @@ use Inertia\Response;
 
 class UpdatesController extends Controller
 {
-    /** Packages that only take effect after the machine restarts. */
+    /** Packages that usually only take effect after the machine restarts: a guess from the name, not a reading. */
     private const string RESTART_PATTERN = '/^(linux-(image|modules|headers|generic|virtual|kvm|aws|azure|gcp|oracle|lowlatency)|kernel(-core|-modules)?$|libc6$|glibc$|dbus$|dbus-broker$|intel-microcode$|amd64-microcode$|linux-firmware$)/';
 
     public function index(Request $request, Workspace $workspace): Response
@@ -236,14 +236,14 @@ class UpdatesController extends Controller
                     'installed' => $row->installed,
                     'candidate' => $row->candidate,
                 ])->values()->all(),
-                'restart' => preg_match(self::RESTART_PATTERN, $name) === 1,
+                'restartAfterInstall' => preg_match(self::RESTART_PATTERN, $name) === 1,
                 'fixes' => self::fixes(array_values($fixes[$name] ?? [])),
             ];
         });
 
         foreach ($held as $name => $ids) {
             if (! $packages->has($name)) {
-                $packages->put($name, ['name' => $name, 'security' => false, 'machineIds' => [], 'versions' => [], 'installed' => [], 'heldOn' => $ids, 'on' => [], 'restart' => false, 'fixes' => null]);
+                $packages->put($name, ['name' => $name, 'security' => false, 'machineIds' => [], 'versions' => [], 'installed' => [], 'heldOn' => $ids, 'on' => [], 'restartAfterInstall' => false, 'fixes' => null]);
             }
         }
 

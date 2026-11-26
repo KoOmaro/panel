@@ -17,10 +17,11 @@ import {
     bytesLabel,
     memoryOf,
     privateAddress,
-    reporting,
+    rateParts,
     sizeName,
     sizePair,
     systemName,
+    uptimeLabel,
 } from '@/components/machines/machineFormat';
 import type { Machine } from '@/components/machines/machines';
 import { placeOf } from '@/components/machines/regions';
@@ -73,13 +74,20 @@ export type MachineOverviewData = {
     backups: BackupRun[];
 };
 
-export type MachinePreview = {
-    networkIn: number;
-    networkOut: number;
-    load: number;
-    processes: number;
-    uptimeDays: number;
-    traffic: { used: number; limit: number };
+export type MachineLive = {
+    cpu: number | null;
+    memoryMb: number | null;
+    load: [number, number, number] | null;
+    processes: number | null;
+    networkIn: number | null;
+    networkOut: number | null;
+    at: string | null;
+};
+
+export type MachineTraffic = {
+    received: number;
+    sent: number;
+    since: string | null;
 };
 
 type Metric = 'cpu' | 'mem' | 'disk';
@@ -87,13 +95,13 @@ type Metric = 'cpu' | 'mem' | 'disk';
 const props = defineProps<{
     machine: Machine;
     workspaceSlug: string;
-    live: { cpu: number | null; memoryMb: number | null; at: string } | null;
+    live: MachineLive | null;
+    traffic: MachineTraffic | null;
     day: UsagePoint[];
     history?: UsagePoint[];
     range: string;
     loadingRange: boolean;
     overview: MachineOverviewData;
-    preview: MachinePreview;
     services: number;
     canManage: boolean;
     online: boolean;
@@ -122,6 +130,13 @@ const providerName = computed(() =>
         ? trans('Other')
         : props.machine.provider,
 );
+
+const upFor = computed(() => {
+    const booted = props.machine.facts?.boot_ts;
+    if (!props.online || !booted) return '–';
+
+    return uptimeLabel(Date.now() / 1000 - booted);
+});
 
 const summary = computed<
     { label: string; value: string; mono?: boolean; logo?: boolean }[]
@@ -153,15 +168,7 @@ const summary = computed<
             ? `serverosd ${props.machine.daemonVersion}`
             : '–',
     },
-    {
-        label: trans('Up for'),
-        value:
-            props.preview.uptimeDays === 1
-                ? trans('1 day')
-                : trans(':days days', {
-                      days: String(props.preview.uptimeDays),
-                  }),
-    },
+    { label: trans('Up for'), value: upFor.value },
 ]);
 
 const system = computed(() =>
@@ -173,7 +180,7 @@ const system = computed(() =>
     ].map(([label, value]) => ({ label: label ?? '', value: value || '–' })),
 );
 
-const cpuNow = computed(() => props.live?.cpu ?? props.machine.cpu ?? 0);
+const cpuNow = computed(() => props.live?.cpu ?? props.machine.cpu);
 const memory = computed(() =>
     memoryOf({
         ...props.machine,
@@ -185,32 +192,49 @@ const memoryReadout = computed(() =>
     memory.value ? bytesLabel(memory.value.used) : '–',
 );
 
-const metrics = computed(() => [
-    [
-        {
-            label: trans('Network in'),
-            value: props.preview.networkIn.toFixed(1),
-            unit: 'MB/s',
-        },
-        {
-            label: trans('Network out'),
-            value: props.preview.networkOut.toFixed(1),
-            unit: 'MB/s',
-        },
-    ],
-    [
-        {
-            label: trans('Load'),
-            value: props.preview.load.toFixed(2),
-            unit: trans('1 min'),
-        },
-        {
-            label: trans('Processes'),
-            value: String(props.preview.processes),
-            unit: '',
-        },
-    ],
-]);
+function rate(bytesPerSecond: number | null | undefined) {
+    return bytesPerSecond === null || bytesPerSecond === undefined
+        ? { value: '–', unit: '' }
+        : rateParts(bytesPerSecond);
+}
+
+const metrics = computed(() => {
+    const load = props.live?.load ?? null;
+    const processes = props.live?.processes ?? null;
+
+    return [
+        [
+            { label: trans('Network in'), ...rate(props.live?.networkIn) },
+            { label: trans('Network out'), ...rate(props.live?.networkOut) },
+        ],
+        [
+            {
+                label: trans('Load'),
+                value: load ? load[0].toFixed(2) : '–',
+                unit: load ? trans('1 min') : '',
+            },
+            {
+                label: trans('Processes'),
+                value: processes === null ? '–' : String(processes),
+                unit: '',
+            },
+        ],
+    ];
+});
+
+const cadence = computed(() => {
+    switch (props.machine.connection) {
+        case 'online':
+        case 'degraded':
+            return trans('every minute');
+        case 'demo':
+            return '';
+        default:
+            return props.machine.lastSeen
+                ? trans('last seen :ago', { ago: props.machine.lastSeen })
+                : trans('not reporting yet');
+    }
+});
 
 const volumes = computed(() => {
     const devices = new Map(
@@ -350,9 +374,18 @@ const metricLabels: Record<Metric, string> = {
     disk: trans('Disk'),
 };
 
+function sinceLabel(iso: string): string {
+    return trans('since :date', {
+        date: new Date(iso).toLocaleDateString([], {
+            day: 'numeric',
+            month: 'short',
+        }),
+    });
+}
+
 const usage = computed(() => {
     const disk = rootDisk.value;
-    const traffic = props.preview.traffic;
+    const traffic = props.traffic;
 
     return [
         {
@@ -364,11 +397,12 @@ const usage = computed(() => {
                 cpuAvg.value === null
                     ? '–'
                     : trans(':percent% avg', { percent: String(cpuAvg.value) }),
-            of: props.machine.facts?.cpu_cores
-                ? trans('of :count vCPU', {
-                      count: String(props.machine.facts.cpu_cores),
-                  })
-                : '',
+            of:
+                cpuAvg.value !== null && props.machine.facts?.cpu_cores
+                    ? trans('of :count vCPU', {
+                          count: String(props.machine.facts.cpu_cores),
+                      })
+                    : '',
         },
         {
             key: 'memory',
@@ -396,9 +430,19 @@ const usage = computed(() => {
             key: 'traffic',
             title: trans('Traffic'),
             color: '#f0943c',
-            percent: (traffic.used / traffic.limit) * 100,
-            value: bytesLabel(traffic.used),
-            of: trans('out of :total', { total: bytesLabel(traffic.limit) }),
+            percent: null,
+            value: traffic ? bytesLabel(traffic.received + traffic.sent) : '–',
+            of: traffic
+                ? traffic.since
+                    ? sinceLabel(traffic.since)
+                    : trans('this month')
+                : '',
+            hint: traffic
+                ? trans(':in in, :out out', {
+                      in: bytesLabel(traffic.received),
+                      out: bytesLabel(traffic.sent),
+                  })
+                : undefined,
         },
     ];
 });
@@ -557,20 +601,18 @@ function resize(): void {
                             class="font-medium tracking-[-0.01em] text-fg-primary"
                             >{{ $t('Live') }}</span
                         >
-                        <span class="text-[13px] text-fg-tertiary">{{
-                            reporting(machine)
-                                ? $t('every 5 seconds')
-                                : machine.lastSeen
-                                  ? $t('last seen :ago', {
-                                        ago: machine.lastSeen,
-                                    })
-                                  : $t('not reporting yet')
-                        }}</span>
+                        <span
+                            v-if="cadence"
+                            class="text-[13px] text-fg-tertiary"
+                            >{{ cadence }}</span
+                        >
                     </h2>
                     <div class="flex flex-wrap items-center gap-[18px]">
                         <GaugeDial
-                            :value="cpuNow"
-                            :readout="`${Math.round(cpuNow)}%`"
+                            :value="cpuNow ?? 0"
+                            :readout="
+                                cpuNow === null ? '–' : `${Math.round(cpuNow)}%`
+                            "
                             :label="$t('CPU')"
                             tone="blue"
                         />
@@ -923,6 +965,7 @@ function resize(): void {
                     v-for="item in usage"
                     :key="item.key"
                     class="flex items-start gap-3"
+                    :title="'hint' in item ? item.hint : undefined"
                 >
                     <span class="pt-px">
                         <UsageRing
