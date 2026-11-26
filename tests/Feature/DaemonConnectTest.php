@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
 
 function connectUrl(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host().'/machines/connect';
+    return $workspace->url().'/machines/connect';
 }
 
 function daemonCsr(): string

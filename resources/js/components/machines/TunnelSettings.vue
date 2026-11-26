@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -9,6 +9,8 @@ import { appButtonClasses } from '@/lib/appButton';
 import { SolarCopy as Copy } from '@/lib/solarIcons';
 import { toast } from '@/lib/toast';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 export type TunnelSettingsProps = {
     supported: boolean;
@@ -30,6 +32,7 @@ const props = defineProps<{
     tunnel: TunnelSettingsProps;
     canManage: boolean;
 }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const token = ref('');
 const busy = ref<'up' | 'down' | null>(null);
@@ -56,19 +59,30 @@ async function send(action: 'up' | 'down'): Promise<void> {
     error.value = null;
 
     try {
-        const response = await fetch(`/machines/${props.machineId}/tunnel`, {
-            method: action === 'up' ? 'POST' : 'DELETE',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
-            },
-            body:
+        const args = {
+            workspace: page.props.workspace.slug,
+            machine: props.machineId,
+        };
+        const response = await fetch(
+            onWorkspace(
                 action === 'up'
-                    ? JSON.stringify({ token: token.value })
-                    : undefined,
-        });
+                    ? machinesRoutes.tunnel.store(args)
+                    : machinesRoutes.tunnel.destroy(args),
+            ).url,
+            {
+                method: action === 'up' ? 'POST' : 'DELETE',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+                body:
+                    action === 'up'
+                        ? JSON.stringify({ token: token.value })
+                        : undefined,
+            },
+        );
         const body = await response.json().catch(() => ({}));
         if (response.status !== 202) {
             throw new Error(describe(response.status, body));
@@ -90,7 +104,13 @@ function follow(jobId: string, action: 'up' | 'down'): Promise<void> {
         const check = async () => {
             try {
                 const response = await fetch(
-                    `/machines/${props.machineId}/tunnel/${jobId}`,
+                    onWorkspace(
+                        machinesRoutes.tunnel.show({
+                            workspace: page.props.workspace.slug,
+                            machine: props.machineId,
+                            job: jobId,
+                        }),
+                    ).url,
                     {
                         credentials: 'same-origin',
                         headers: { Accept: 'application/json' },

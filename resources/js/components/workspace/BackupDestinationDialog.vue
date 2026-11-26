@@ -26,6 +26,7 @@ import AppButton from '@/components/workspace/AppButton.vue';
 import MorphHeight from '@/components/workspace/MorphHeight.vue';
 import PickerMenu from '@/components/workspace/PickerMenu.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 export type BackupDestination = {
     id: number;
@@ -246,9 +247,13 @@ function submit(): void {
     };
 
     if (editing) {
-        router.put(`/backup-destinations/${editing.id}`, payload, options);
+        router.put(
+            workspacePath(`/backup-destinations/${editing.id}`),
+            payload,
+            options,
+        );
     } else {
-        router.post('/backup-destinations', payload, options);
+        router.post(workspacePath('/backup-destinations'), payload, options);
     }
 }
 

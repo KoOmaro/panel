@@ -26,7 +26,7 @@ function noPlanMachine(): array
         ]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 test('without a plan, deploys and the console are refused but starting and stopping still work', function () {

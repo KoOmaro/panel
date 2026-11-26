@@ -192,6 +192,8 @@ class DeploySourcePacker
             'framework' => $match['framework'] ?? null,
             'type' => $match['type'] ?? null,
             'reasons' => $match['reasons'] ?? [],
+            'php' => $match['php'] ?? null,
+            'healthPath' => $match['healthPath'] ?? null,
             'composeFile' => $match['composeFile'] ?? null,
             'composePort' => $match['composePort'] ?? null,
         ];

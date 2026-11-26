@@ -31,6 +31,7 @@ export type Workspace = {
     name: string;
     slug: string;
     host: string;
+    url: string;
     logoUrl: string | null;
     billing: WorkspaceBilling;
 };
@@ -117,18 +118,6 @@ export type McpCallsUsage = {
     packPrice: number | null;
     currency: string;
     maxPacks: number;
-};
-
-export type OnboardingStepKey =
-    | 'workspace'
-    | 'machine'
-    | 'service'
-    | 'backups'
-    | 'plan';
-
-export type OnboardingStep = {
-    key: OnboardingStepKey;
-    done: boolean;
 };
 
 export type SetupGuide = {

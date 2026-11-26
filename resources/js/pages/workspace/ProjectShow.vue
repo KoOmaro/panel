@@ -8,30 +8,44 @@ import {
     ArrowUpRight,
     Check,
     ChevronDown,
+    Code,
     DatabaseBackup,
-    Database,
     Ellipsis,
     GitPullRequest,
-    FolderClosed,
     Pencil,
     Plus,
-    RadioTower,
     RefreshCw,
-    Server,
-    SlidersHorizontal,
     Trash2,
-    X,
-    Zap,
 } from '@lucide/vue';
-import type { Component } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import AppVariablesDialog from '@/components/machines/AppVariablesDialog.vue';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTab from '@/components/dash/DashTab.vue';
+import DashTabs from '@/components/dash/DashTabs.vue';
+import StatusBadge from '@/components/dash/StatusBadge.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
 import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
-    ref,
-    watch,
-} from 'vue';
+    kindLabels,
+    listSentence,
+    logoName,
+    softwareName,
+    stackLabel,
+    ago,
+} from '@/components/projects/format';
+import ProjectMap from '@/components/projects/ProjectMap.vue';
+import ProjectRail from '@/components/projects/ProjectRail.vue';
+import ProjectServices from '@/components/projects/ProjectServices.vue';
+import type {
+    Environment,
+    MachineGroup,
+    Member,
+    NodeKind,
+    ProjectLink,
+    ProjectNode,
+    Summary,
+} from '@/components/projects/types';
 import {
     Dialog,
     DialogContent,
@@ -48,58 +62,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { SelectMenu } from '@/components/ui/select';
-import AppVariablesDialog from '@/components/machines/AppVariablesDialog.vue';
 import DangerButton from '@/components/workspace/DangerButton.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
-import { appButtonClasses } from '@/lib/appButton';
-import { docsUrl } from '@/lib/docs';
-import { timeUnits } from '@/lib/formatting';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import codeRoutes from '@/routes/workspace/code';
+import githubRoutes from '@/routes/workspace/github';
+import projectRoutes from '@/routes/workspace/projects';
 import type { Workspace, WorkspaceAccess } from '@/types';
 
-type Kind = 'app' | 'database' | 'cache' | 'storage' | 'websockets';
-type ProjectNode = {
-    id: number;
-    environment: number;
-    origin: number | null;
-    data: {
-        state: 'waiting' | 'copying' | 'copied' | 'failed';
-        error: string | null;
-        at: string | null;
-    } | null;
-    name: string;
-    kind: Kind;
-    template: string | null;
-    machine: { id: number; name: string };
-    status: 'running' | 'stopped' | null;
-    failed: boolean;
-    href: string | null;
-    port: number | null;
-};
-type ProjectLink = {
-    id: number;
-    app: number;
-    resource: number;
-    state: 'pending' | 'applied' | 'failed';
-    error: string | null;
-    env: string[];
-};
-type Member = {
-    machine: number;
-    address: string;
-    state: 'pending' | 'up' | 'failed' | 'offline';
-    error: string | null;
-};
-type Environment = {
-    id: number;
-    name: string;
-    source: number | null;
-    pullRequest: number | null;
-    head: string | null;
-    refresh: 'daily' | 'weekly' | null;
-    refreshedAt: string | null;
-};
+type Kind = NodeKind;
 type PromotionRow = {
     app: string;
     machine: string;
@@ -122,10 +94,11 @@ const props = defineProps<{
     project: { uid: string; name: string; cidr: string };
     environments: Environment[];
     nodes: ProjectNode[];
+    overview: Record<string, Summary>;
     links: ProjectLink[];
     members: Member[];
     candidates?: Candidate[];
-    machines: { id: number; name: string }[];
+    machines: { id: number; name: string; provider: string | null }[];
     resourceKinds: { kind: Exclude<Kind, 'app'>; template: string }[];
     copyable: string[];
     notes: string[];
@@ -136,6 +109,7 @@ const props = defineProps<{
         copyData: boolean;
         domain: string | null;
         limit: number;
+        open: number;
         max: number;
         github: boolean;
     };
@@ -149,25 +123,29 @@ const canManage = computed(
         page.props.workspaceAccess?.permissions.includes('manage-machines') ??
         false,
 );
-const base = computed(() => `/projects/${props.project.uid}`);
-
-const kinds: Record<Kind, { label: string; icon: Component }> = {
-    app: { label: 'App', icon: AppWindow },
-    database: { label: 'Database', icon: Database },
-    cache: { label: 'Cache', icon: Zap },
-    storage: { label: 'Object storage', icon: FolderClosed },
-    websockets: { label: 'WebSockets', icon: RadioTower },
-};
-const templateNames: Record<string, string> = {
-    postgres: 'PostgreSQL',
-    mysql: 'MySQL',
-    mariadb: 'MariaDB',
-    mongodb: 'MongoDB',
-    redis: 'Redis',
-    valkey: 'Valkey',
-    minio: 'MinIO',
-    soketi: 'Soketi',
-};
+const base = computed(
+    () =>
+        onWorkspace(
+            projectRoutes.show({
+                workspace: props.workspace.slug,
+                project: props.project.uid,
+            }),
+        ).url,
+);
+const listUrl = computed(
+    () => onWorkspace(projectRoutes.index(props.workspace.slug)).url,
+);
+const codeUrl = computed(
+    () =>
+        onWorkspace(
+            codeRoutes.setup(props.workspace.slug, {
+                query: { project: props.project.uid },
+            }),
+        ).url,
+);
+const githubUrl = computed(
+    () => onWorkspace(githubRoutes.app(props.workspace.slug)).url,
+);
 
 const envId = ref<number>(
     (() => {
@@ -199,6 +177,14 @@ const envLinks = computed(() => {
 
     return props.links.filter((l) => ids.has(l.app));
 });
+const summary = computed<Summary | null>(() =>
+    env.value ? (props.overview[String(env.value.id)] ?? null) : null,
+);
+const production = computed<Summary | null>(() =>
+    props.environments[0]
+        ? (props.overview[String(props.environments[0].id)] ?? null)
+        : null,
+);
 
 function showEnv(id: number): void {
     envId.value = id;
@@ -208,16 +194,17 @@ function showEnv(id: number): void {
     window.history.replaceState(window.history.state, '', url);
 }
 
-const groups = computed(() => {
-    const byMachine = new Map<
-        number,
-        { id: number; name: string; nodes: ProjectNode[] }
-    >();
+const groups = computed<MachineGroup[]>(() => {
+    const byMachine = new Map<number, MachineGroup>();
     for (const node of envNodes.value) {
         const group = byMachine.get(node.machine.id) ?? {
             id: node.machine.id,
             name: node.machine.name,
+            provider: node.machine.provider,
             nodes: [],
+            member:
+                props.members.find((m) => m.machine === node.machine.id) ??
+                null,
         };
         group.nodes.push(node);
         byMachine.set(node.machine.id, group);
@@ -229,56 +216,79 @@ const groups = computed(() => {
             nodes: [...group.nodes].sort(
                 (a, b) =>
                     Number(b.kind === 'app') - Number(a.kind === 'app') ||
-                    a.name.localeCompare(b.name),
+                    a.id - b.id,
             ),
-            member: props.members.find((m) => m.machine === group.id) ?? null,
         }))
         .sort(
             (a, b) =>
-                Number(b.nodes.some((n) => n.kind === 'app')) -
-                    Number(a.nodes.some((n) => n.kind === 'app')) ||
-                a.name.localeCompare(b.name),
+                Math.min(...a.nodes.map((n) => n.id)) -
+                Math.min(...b.nodes.map((n) => n.id)),
         );
 });
 
-const nodeById = computed(
-    () => new Map(props.nodes.map((node) => [node.id, node])),
+const mainLogo = computed(() =>
+    logoName(
+        (summary.value ?? production.value)?.kind ?? null,
+        null,
+        (summary.value ?? production.value)?.image ?? null,
+    ),
 );
-const resources = computed(() =>
-    envNodes.value.filter((n) => n.kind !== 'app'),
-);
+const domain = computed(() => summary.value?.domain ?? null);
 
-function linksOf(node: ProjectNode): ProjectLink[] {
-    return envLinks.value.filter((l) =>
-        node.kind === 'app' ? l.app === node.id : l.resource === node.id,
+const description = computed(() => {
+    const s = summary.value;
+    if (!s || s.app === null) return null;
+    const main = envNodes.value.find((n) => n.id === s.app);
+    const what = softwareName(s.kind) ?? null;
+    const parts = s.stack.map((item) =>
+        item.kind === 'storage' ? trans('storage') : stackLabel(item),
     );
-}
+    const unique = [...new Set(parts)];
+    if (main?.kind !== 'app') {
+        return unique.length
+            ? trans(':what with :rest', {
+                  what: what ?? main?.name ?? '',
+                  rest: listSentence(unique),
+              })
+            : what;
+    }
+    if (!unique.length) {
+        return what ? trans(':what app', { what }) : null;
+    }
 
-function unlinked(app: ProjectNode): ProjectNode[] {
-    const used = new Set(
-        envLinks.value.filter((l) => l.app === app.id).map((l) => l.resource),
-    );
+    return what
+        ? trans(':what app with :rest', { what, rest: listSentence(unique) })
+        : trans('An app with :rest', { rest: listSentence(unique) });
+});
 
-    return resources.value.filter((r) => !used.has(r.id));
-}
+const network = computed(() => {
+    const count = props.members.length;
+    if (count === 0) return null;
 
-const memberTone: Record<Member['state'], string> = {
-    pending: 'bg-(--ds-blue)',
-    up: 'bg-(--ds-green)',
-    failed: 'bg-(--ds-red)',
-    offline: 'bg-(--ds-text-faint)',
-};
-const memberLabel: Record<Member['state'], string> = {
-    pending: 'Joining',
-    up: 'On the network',
-    failed: 'Couldn’t join',
-    offline: 'Offline',
-};
-const linkLabel: Record<ProjectLink['state'], string> = {
-    pending: 'Waiting for the network',
-    applied: 'Connected',
-    failed: 'Couldn’t connect',
-};
+    return count === 1
+        ? trans('Private network :cidr on 1 machine', {
+              cidr: props.project.cidr,
+          })
+        : trans('Private network :cidr across :count machines', {
+              cidr: props.project.cidr,
+              count: String(count),
+          });
+});
+
+const titleParts = computed(() => {
+    const parts: { text: string; tone: string }[] = [];
+    if (domain.value) {
+        parts.push({ text: domain.value, tone: 'text-fg-secondary' });
+    }
+    if (description.value) {
+        parts.push({ text: description.value, tone: 'text-fg-tertiary' });
+    }
+    if (network.value) {
+        parts.push({ text: network.value, tone: 'text-fg-tertiary' });
+    }
+
+    return parts;
+});
 
 let poll: number | undefined;
 
@@ -287,99 +297,18 @@ const settling = computed(
         props.members.some((m) => m.state === 'pending') ||
         props.links.some((l) => l.state === 'pending') ||
         props.nodes.some(
-            (n) => n.data?.state === 'waiting' || n.data?.state === 'copying',
+            (n) =>
+                n.state === 'deploying' ||
+                n.data?.state === 'waiting' ||
+                n.data?.state === 'copying',
         ),
 );
 
-function column(kind: 'apps' | 'resources') {
-    return groups.value
-        .map((group) => ({
-            ...group,
-            nodes: group.nodes.filter((n) =>
-                kind === 'apps' ? n.kind === 'app' : n.kind !== 'app',
-            ),
-        }))
-        .filter((group) => group.nodes.length);
-}
-const appColumn = computed(() => column('apps'));
-const resourceColumn = computed(() => column('resources'));
-const apps = computed(() => envNodes.value.filter((n) => n.kind === 'app'));
-const sides = computed(() => [
-    { key: 'apps' as const, groups: appColumn.value },
-    { key: 'resources' as const, groups: resourceColumn.value },
-]);
-const slot =
-    'flex h-[54px] w-[256px] cursor-pointer items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-(color:--ds-border-strong) text-[13px] text-(--ds-text-muted) transition-colors hover:border-(color:--ds-text-faint) hover:bg-(--ds-card) hover:text-(--ds-text) disabled:pointer-events-none disabled:opacity-50';
-
-const board = ref<HTMLElement | null>(null);
-const gutter = ref<HTMLElement | null>(null);
-function setGutter(el: unknown): void {
-    gutter.value = el instanceof HTMLElement ? el : null;
-}
-const cards = new Map<number, HTMLElement>();
-const edges = ref<{ id: number; d: string; state: ProjectLink['state'] }[]>([]);
-const boardSize = ref({ width: 0, height: 0 });
-
-function cardRef(id: number) {
-    return (el: unknown) => {
-        if (el instanceof HTMLElement) cards.set(id, el);
-        else cards.delete(id);
-    };
-}
-
-function curve(x1: number, y1: number, x2: number, y2: number): string {
-    const mid = (x1 + x2) / 2;
-
-    return `M ${x1} ${y1} C ${mid} ${y1} ${mid} ${y2} ${x2} ${y2}`;
-}
-
-function measure(): void {
-    const root = board.value;
-    if (!root || !gutter.value) return;
-    const box = root.getBoundingClientRect();
-    boardSize.value = { width: box.width, height: box.height };
-
-    const ordered = [...envLinks.value].sort(
-        (a, b) => Number(a.state === 'applied') - Number(b.state === 'applied'),
-    );
-    edges.value = ordered.flatMap((link) => {
-        const from = cards.get(link.app)?.getBoundingClientRect();
-        const to = cards.get(link.resource)?.getBoundingClientRect();
-        if (!from || !to) return [];
-        const y1 = from.top - box.top + from.height / 2;
-        const y2 = to.top - box.top + to.height / 2;
-
-        return [
-            {
-                id: link.id,
-                d: curve(from.right - box.left, y1, to.left - box.left, y2),
-                state: link.state,
-            },
-        ];
-    });
-}
-
-let observer: ResizeObserver | null = null;
-
-watch(
-    () => [envNodes.value, envLinks.value],
-    () => nextTick(measure),
-    { deep: true },
-);
-
 onMounted(() => {
-    nextTick(measure);
-    observer = new ResizeObserver(() => measure());
-    if (board.value) observer.observe(board.value);
-    watch(board, (el, old) => {
-        if (old) observer?.unobserve(old);
-        if (el) observer?.observe(el);
-        nextTick(measure);
-    });
     poll = window.setInterval(() => {
         if (settling.value && document.visibilityState === 'visible') {
             router.reload({
-                only: ['nodes', 'links', 'members', 'environments'],
+                only: ['nodes', 'links', 'members', 'environments', 'overview'],
             });
         }
     }, 8000);
@@ -393,10 +322,7 @@ watch(
     { immediate: true },
 );
 
-onBeforeUnmount(() => {
-    observer?.disconnect();
-    window.clearInterval(poll);
-});
+onBeforeUnmount(() => window.clearInterval(poll));
 
 const busy = ref(false);
 
@@ -546,8 +472,6 @@ function rename(): void {
 function destroy(): void {
     send('delete', base.value);
 }
-
-const machineCount = computed(() => groups.value.length);
 
 const making = ref(false);
 const envName = ref('');
@@ -732,9 +656,9 @@ const previewForm = ref({
     limit: 3,
 });
 
-function openPreviews(): void {
+function openPreviews(enabled?: boolean): void {
     previewForm.value = {
-        enabled: props.previews.enabled || !props.previews.repo,
+        enabled: enabled ?? (props.previews.enabled || !props.previews.repo),
         repo: props.previews.repo,
         machine: props.previews.machine ?? props.machines[0]?.id ?? null,
         copy_data: props.previews.copyData,
@@ -778,116 +702,228 @@ function savePreviews(): void {
     );
 }
 
+function togglePreviews(on: boolean): void {
+    if (on && (!props.previews.repo || props.previews.machine === null)) {
+        openPreviews(true);
+
+        return;
+    }
+    send(
+        'patch',
+        `${base.value}/previews`,
+        {
+            enabled: on,
+            repo: props.previews.repo,
+            machine: props.previews.machine,
+            copy_data: props.previews.copyData,
+            domain: props.previews.domain ?? '',
+            limit: props.previews.limit,
+        },
+        () =>
+            toast.success(
+                on
+                    ? trans('Pull requests on :repo get a preview now.', {
+                          repo: props.previews.repo,
+                      })
+                    : trans('Previews are off.'),
+            ),
+    );
+}
+
 const pullRequestUrl = computed(() =>
     env.value?.pullRequest && props.previews.repo
         ? `https://github.com/${props.previews.repo}/pull/${env.value.pullRequest}`
         : null,
 );
-
-function ago(iso: string | null): string {
-    if (!iso) return '';
-    const { minutes, hours, days } = timeUnits(
-        Date.now() - new Date(iso).getTime(),
-    );
-    if (minutes < 1) return trans('just now');
-    if (minutes < 60)
-        return trans(':count min ago', { count: String(minutes) });
-    if (hours < 24) return trans(':count h ago', { count: String(hours) });
-
-    return trans(':count d ago', { count: String(days) });
-}
 </script>
 
 <template>
     <Head :title="project.name" />
 
-    <WorkspacePage :title="project.name" toolbar>
-        <template #description>
-            {{
-                ' ' +
-                (machineCount === 0
-                    ? $t(
-                          'Add an app, then what it uses. They’ll share a private network: :cidr.',
-                          { cidr: project.cidr },
-                      )
-                    : $t('Private network :cidr across :count.', {
-                          cidr: project.cidr,
-                          count:
-                              machineCount === 1
-                                  ? $t('1 machine')
-                                  : $t(':count machines', {
-                                        count: String(machineCount),
-                                    }),
-                      })) +
-                ' '
-            }}
-            <a
-                :href="docsUrl($page.props.docsUrl, '/guides/projects')"
-                target="_blank"
-                rel="noopener"
-                class="font-medium text-(--ds-blue) hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
-                >{{ ' ' + $t('Learn more') + ' ' }}</a
-            >
-        </template>
-
-        <template #tabs>
-            <div class="flex max-w-full items-center gap-2 overflow-x-auto">
-                <div
-                    class="ds-segments"
-                    role="group"
-                    :aria-label="$t('Environments')"
+    <DashHeader
+        :crumbs="[
+            { label: $t('Projects'), href: listUrl },
+            { label: project.name, logo: mainLogo || undefined },
+        ]"
+    >
+        <template #actions>
+            <DropdownMenu v-if="canManage">
+                <DropdownMenuTrigger as-child>
+                    <DashButton :icon="Ellipsis" :aria-label="$t('More')" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    class="ds-modal min-w-48 font-ui"
+                    align="end"
                 >
-                    <button
-                        v-for="e in environments"
-                        :key="e.id"
-                        type="button"
-                        class="cursor-pointer gap-1.5"
-                        :aria-pressed="e.id === env?.id"
-                        @click="showEnv(e.id)"
+                    <DropdownMenuItem @select="openPreviews()">
+                        <GitPullRequest class="size-4" :stroke-width="1.75" />
+                        {{ $t('Pull request previews…') }}
+                        <span
+                            v-if="previews.enabled"
+                            class="ml-auto text-xs text-status-live"
+                            >{{ $t('On') }}</span
+                        >
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="router.visit(codeUrl)">
+                        <Code class="size-4" :stroke-width="1.75" />
+                        {{ $t('Manage with code') }}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="renaming = true">
+                        <Pencil class="size-4" :stroke-width="1.75" />
+                        {{ $t('Rename project') }}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        variant="destructive"
+                        @select="deleting = true"
                     >
-                        <GitPullRequest
-                            v-if="e.pullRequest"
-                            class="size-3.5 text-(--ds-text-muted)"
-                            :stroke-width="1.75"
-                        />
-                        {{ e.name }}
-                    </button>
-                </div>
-                <button
-                    v-if="canManage"
-                    type="button"
-                    :class="appButtonClasses('quiet', 'sm')"
-                    @click="openMake"
+                        <Trash2 class="size-4" :stroke-width="1.75" />
+                        {{ $t('Delete project') }}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <DashButton
+                :icon="ArrowUpRight"
+                :label="$t('Open site')"
+                :href="domain ? `https://${domain}` : undefined"
+                :external="!!domain"
+                :disabled="!domain"
+                :title="
+                    domain
+                        ? undefined
+                        : $t('This environment has no domain yet.')
+                "
+            />
+            <DropdownMenu v-if="canManage">
+                <DropdownMenuTrigger as-child>
+                    <DashButton
+                        variant="primary"
+                        :icon="Plus"
+                        :label="$t('Add to project')"
+                        :disabled="busy"
+                    />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    class="ds-modal min-w-60 font-ui"
+                    align="end"
                 >
-                    <Plus class="size-3.5" />
-                    {{ $t('New environment') }}
-                </button>
-            </div>
+                    <DropdownMenuItem @select="openAdd('app')">
+                        <AppWindow class="size-4" :stroke-width="1.75" />
+                        {{ $t('An app you’ve deployed') }}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="openAdd('resource')">
+                        <FilledIcon name="layers-fill" class="text-fg-muted" />
+                        {{ $t('A service you’ve deployed') }}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel
+                        class="text-xs font-normal text-fg-muted"
+                        >{{
+                            $t('Deploy a new one and connect it')
+                        }}</DropdownMenuLabel
+                    >
+                    <DropdownMenuItem
+                        v-for="option in resourceKinds"
+                        :key="option.kind"
+                        :disabled="!machines.length"
+                        @select="addResource(option.kind)"
+                    >
+                        <BrandLogo :name="option.template" />
+                        {{ $t(kindLabels[option.kind]) }}
+                        <span class="ml-auto text-xs text-fg-muted">{{
+                            softwareName(null, option.template)
+                        }}</span>
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         </template>
+    </DashHeader>
 
-        <template v-if="canManage" #actions>
-            <template v-if="sourceEnv">
-                <DropdownMenu>
+    <div class="flex min-h-full flex-col">
+        <div class="flex items-center gap-3.5 px-6 pt-5 pb-[18px]">
+            <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-[10px] border-[0.5px] border-edge-strong bg-surface-raised shadow-tile"
+            >
+                <BrandLogo :name="mainLogo" :size="22" />
+            </span>
+            <div class="flex min-w-0 flex-col gap-0.5">
+                <div class="flex items-center gap-2.5">
+                    <h1
+                        class="truncate text-[18px]/6 font-medium tracking-[-0.015em] text-fg-primary"
+                    >
+                        {{ project.name }}
+                    </h1>
+                    <StatusBadge
+                        v-if="summary?.state"
+                        :status="summary.state"
+                    />
+                </div>
+                <p
+                    class="flex min-w-0 items-center gap-2 overflow-hidden text-[13px]/5 tracking-[-0.005em] whitespace-nowrap"
+                >
+                    <template v-for="(part, i) in titleParts" :key="i">
+                        <span v-if="i > 0" class="font-medium text-fg-faint"
+                            >·</span
+                        >
+                        <span class="truncate" :class="part.tone">{{
+                            part.text
+                        }}</span>
+                    </template>
+                    <span v-if="!titleParts.length" class="text-fg-tertiary">{{
+                        $t(
+                            'Add an app, then what it uses. They’ll share a private network: :cidr.',
+                            { cidr: project.cidr },
+                        )
+                    }}</span>
+                </p>
+            </div>
+        </div>
+
+        <div class="flex items-center border-b-[0.5px] border-edge-tabs">
+            <DashTabs class="min-w-0 grow border-b-0!">
+                <DashTab
+                    v-for="(e, i) in environments"
+                    :key="e.id"
+                    :label="e.name"
+                    :icon="i === 0 ? 'globe-fill' : 'branch-fill'"
+                    :active="e.id === env?.id"
+                    @click="showEnv(e.id)"
+                />
+                <template v-if="canManage" #after>
+                    <button
+                        type="button"
+                        class="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] pr-2 pl-0.5 text-[13px]/5 font-medium tracking-[-0.01em] whitespace-nowrap text-fg-faint transition-colors hover:text-fg-secondary focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
+                        @click="openMake"
+                    >
+                        <FilledIcon name="plus-fill" />
+                        {{ $t('New environment') }}
+                    </button>
+                </template>
+            </DashTabs>
+            <div
+                v-if="canManage && (sourceEnv || !isFirst)"
+                class="flex shrink-0 items-center gap-2 pr-5 pl-3"
+            >
+                <DropdownMenu v-if="sourceEnv">
                     <DropdownMenuTrigger as-child>
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
+                        <DashButton
+                            size="sm"
+                            :icon="DatabaseBackup"
                             :disabled="busy"
                         >
-                            <DatabaseBackup
-                                class="size-3.5"
+                            {{ $t('Data') }}
+                            <ChevronDown
+                                class="-mr-0.5 size-3.5 opacity-60"
                                 :stroke-width="1.75"
                             />
-                            {{ $t('Data') }}
-                            <ChevronDown class="-mr-0.5 size-3.5 opacity-60" />
-                        </button>
+                        </DashButton>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                         class="ds-modal min-w-64 font-ui"
                         align="end"
                     >
                         <DropdownMenuLabel
-                            class="text-xs font-normal text-pretty text-(--ds-text-muted)"
+                            class="text-xs font-normal text-pretty text-fg-muted"
                         >
                             {{
                                 env?.refreshedAt
@@ -914,7 +950,7 @@ function ago(iso: string | null): string {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel
-                            class="text-xs font-normal text-(--ds-text-muted)"
+                            class="text-xs font-normal text-fg-muted"
                             >{{
                                 $t('Copy it again automatically')
                             }}</DropdownMenuLabel
@@ -944,98 +980,46 @@ function ago(iso: string | null): string {
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
-                <a
-                    v-if="pullRequestUrl"
+                <DashButton
+                    v-if="sourceEnv && pullRequestUrl"
+                    size="sm"
+                    :icon="GitPullRequest"
                     :href="pullRequestUrl"
-                    target="_blank"
-                    rel="noopener"
-                    :class="appButtonClasses('secondary')"
+                    external
                 >
-                    <GitPullRequest class="size-3.5" :stroke-width="1.75" />
                     {{
                         $t('Pull request #:n', { n: String(env?.pullRequest) })
                     }}
                     <span
                         v-if="env?.head"
-                        class="font-ui-mono text-xs text-(--ds-text-muted)"
+                        class="font-ui-mono text-[11px] text-fg-muted"
                         >{{ env.head }}</span
                     >
-                </a>
-                <button
-                    v-else
-                    type="button"
-                    :class="appButtonClasses('secondary')"
+                </DashButton>
+                <DashButton
+                    v-else-if="sourceEnv"
+                    size="sm"
+                    :icon="ArrowUpFromLine"
+                    :label="$t('Promote to :name', { name: sourceEnv.name })"
                     :disabled="busy"
                     @click="openPromote"
-                >
-                    <ArrowUpFromLine class="size-3.5" :stroke-width="1.75" />
-                    {{ $t('Promote to :name', { name: sourceEnv.name }) }}
-                </button>
-            </template>
-            <DropdownMenu>
-                <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        :class="appButtonClasses('primary')"
-                        :disabled="busy"
-                    >
-                        <Plus class="size-3.5" />
-                        {{ $t('Add') }}
-                        <ChevronDown class="-mr-0.5 size-3.5 opacity-70" />
-                    </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                    class="ds-modal min-w-60 font-ui"
-                    align="end"
-                >
-                    <DropdownMenuItem @select="openAdd('app')">
-                        <AppWindow class="size-4" :stroke-width="1.75" />
-                        {{ $t('An app you’ve deployed') }}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem @select="openAdd('resource')">
-                        <Server class="size-4" :stroke-width="1.75" />
-                        {{ $t('A service you’ve deployed') }}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel
-                        class="text-xs font-normal text-(--ds-text-muted)"
-                        >{{
-                            $t('Deploy a new one and connect it')
-                        }}</DropdownMenuLabel
-                    >
-                    <DropdownMenuItem
-                        v-for="option in resourceKinds"
-                        :key="option.kind"
-                        :disabled="!machines.length"
-                        @select="addResource(option.kind)"
-                    >
-                        <component
-                            :is="kinds[option.kind].icon"
-                            class="size-4"
-                            :stroke-width="1.75"
+                />
+                <DropdownMenu v-if="!isFirst">
+                    <DropdownMenuTrigger as-child>
+                        <DashButton
+                            size="sm"
+                            :icon="Ellipsis"
+                            :aria-label="
+                                $t('Options for :name', {
+                                    name: env?.name ?? '',
+                                })
+                            "
                         />
-                        {{ $t(kinds[option.kind].label) }}
-                        <span class="ml-auto text-xs text-(--ds-text-muted)">{{
-                            templateNames[option.template]
-                        }}</span>
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-                <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        :class="appButtonClasses('secondary', 'md', 'px-2')"
-                        :aria-label="$t('More')"
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                        class="ds-modal min-w-44 font-ui"
+                        align="end"
                     >
-                        <Ellipsis class="size-4" />
-                    </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                    class="ds-modal min-w-44 font-ui"
-                    align="end"
-                >
-                    <template v-if="!isFirst">
                         <DropdownMenuItem
                             @select="
                                 () => {
@@ -1048,7 +1032,7 @@ function ago(iso: string | null): string {
                             {{ $t('Rename :name', { name: env?.name ?? '' }) }}
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                            class="text-(--ds-red) focus:bg-(--ds-red)/10 focus:text-(--ds-red)"
+                            class="text-status-down focus:bg-status-down/10 focus:text-status-down"
                             @select="
                                 () => {
                                     removeServices = true;
@@ -1059,480 +1043,157 @@ function ago(iso: string | null): string {
                             <Trash2 class="size-4" :stroke-width="1.75" />
                             {{ $t('Delete :name', { name: env?.name ?? '' }) }}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                    </template>
-                    <DropdownMenuItem @select="openPreviews">
-                        <GitPullRequest class="size-4" :stroke-width="1.75" />
-                        {{ $t('Pull request previews…') }}
-                        <span
-                            v-if="previews.enabled"
-                            class="ml-auto text-xs text-(--ds-green)"
-                            >{{ $t('On') }}</span
-                        >
-                    </DropdownMenuItem>
-                    <DropdownMenuItem @select="renaming = true">
-                        <Pencil class="size-4" :stroke-width="1.75" />
-                        {{ $t('Rename project') + ' ' }}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                        class="text-(--ds-red) focus:bg-(--ds-red)/10 focus:text-(--ds-red)"
-                        @select="deleting = true"
-                    >
-                        <Trash2 class="size-4" :stroke-width="1.75" />
-                        {{ $t('Delete project') + ' ' }}
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </template>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+        </div>
 
-        <div
-            class="ds-tile relative overflow-hidden bg-[radial-gradient(var(--ds-divider)_1px,transparent_1px)] [background-size:18px_18px]"
-        >
-            <div
-                v-if="!envNodes.length"
-                class="flex min-h-[max(340px,calc(100dvh-19.5rem))] flex-col items-center justify-center px-6 py-12 text-center"
-            >
-                <p class="text-sm/6 font-semibold">
-                    {{
+        <div class="flex flex-col gap-4 px-5 pt-[18px] pb-6">
+            <div class="flex flex-col gap-4 xl:flex-row xl:items-start">
+                <ProjectMap
+                    class="min-w-0 grow"
+                    :groups="groups"
+                    :links="envLinks"
+                    :can-manage="canManage"
+                    :busy="busy"
+                    :can-deploy="machines.length > 0"
+                    :resource-kinds="resourceKinds"
+                    :empty-title="
                         isFirst
                             ? $t('Nothing in this project yet')
                             : $t('Nothing in :name yet', {
                                   name: env?.name ?? '',
                               })
-                    }}
-                </p>
-                <p
-                    class="mt-1 max-w-sm text-[13px]/5 text-pretty text-(--ds-text-muted)"
+                    "
+                    @settings="openSettings"
+                    @connect="connect"
+                    @disconnect="disconnect"
+                    @remove="remove"
+                    @delete="openDelete"
+                    @add-app="openAdd('app')"
+                    @add-existing="openAdd('resource')"
+                    @add-resource="addResource"
+                />
+                <ProjectRail
+                    class="shrink-0 xl:w-[300px]"
+                    :cidr="project.cidr"
+                    :members="members"
+                    :previews="previews"
+                    :production="environments[0]?.name ?? $t('Production')"
+                    :can-manage="canManage"
+                    :busy="busy"
+                    @toggle="togglePreviews"
+                    @configure="openPreviews()"
+                />
+            </div>
+
+            <section v-if="envNodes.length" class="flex flex-col gap-2.5">
+                <h2
+                    class="flex items-center gap-2 text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
                 >
+                    {{ $t('Services') }}
+                    <span class="text-fg-faint">{{ envNodes.length }}</span>
+                </h2>
+                <ProjectServices
+                    :nodes="envNodes"
+                    :links="envLinks"
+                    :members="members"
+                    :can-manage="canManage"
+                    @settings="openSettings"
+                    @connect="connect"
+                    @disconnect="disconnect"
+                    @remove="remove"
+                    @delete="openDelete"
+                />
+            </section>
+        </div>
+    </div>
+
+    <Dialog v-model:open="adding">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
+        >
+            <div class="flex flex-col gap-1 px-5 pt-5 pb-3">
+                <DialogTitle class="text-base/6 font-semibold">{{
+                    addFilter === 'resource'
+                        ? $t('Add a service you’ve deployed')
+                        : $t('Add an app you’ve deployed')
+                }}</DialogTitle>
+                <DialogDescription class="text-[13px]/5 text-(--ds-text-muted)">
                     {{
                         ' ' +
                         $t(
-                            'Start with an app you’ve deployed, then add a database, a cache or storage.',
+                            'It keeps running where it is. Its machine joins the project’s private network.',
                         ) +
                         ' '
                     }}
+                </DialogDescription>
+            </div>
+            <div class="max-h-[50vh] overflow-y-auto px-2 pb-3">
+                <p
+                    v-if="candidates === undefined"
+                    class="px-3 py-6 text-center text-[13px] text-(--ds-text-muted)"
+                >
+                    {{ $t('Loading…') }}
+                </p>
+                <p
+                    v-else-if="!shownCandidates.length"
+                    class="px-3 py-6 text-center text-[13px] text-pretty text-(--ds-text-muted)"
+                >
+                    {{
+                        addFilter === 'resource'
+                            ? $t(
+                                  'No databases, caches or storage deployed from ServerOS are left to add. Use New in the bar to deploy one.',
+                              )
+                            : $t(
+                                  'No deployed apps are left to add. Deploy one from Services first.',
+                              )
+                    }}
                 </p>
                 <button
-                    v-if="canManage"
+                    v-for="c in shownCandidates"
+                    :key="`${c.machine.id}/${c.name}`"
                     type="button"
-                    class="mt-5"
-                    :class="appButtonClasses('secondary')"
-                    @click="openAdd('app')"
+                    class="flex w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2.5 text-left text-[13px]/5 hover:bg-(--ds-hover) disabled:opacity-50"
+                    :disabled="busy"
+                    @click="addExisting(c)"
                 >
-                    <Plus class="size-3.5" /> {{ $t('Add an app') }}
+                    <BrandLogo :name="c.template ?? c.name" />
+                    <span class="min-w-0 truncate font-medium">{{
+                        c.name
+                    }}</span>
+                    <span class="text-(--ds-text-muted)">{{
+                        c.template
+                            ? (softwareName(null, c.template) ?? c.template)
+                            : $t('App')
+                    }}</span>
+                    <span
+                        class="ml-auto shrink-0 text-xs text-(--ds-text-muted)"
+                        >{{ c.machine.name }}</span
+                    >
                 </button>
             </div>
+        </DialogContent>
+    </Dialog>
 
-            <div v-else class="overflow-x-auto">
-                <div
-                    ref="board"
-                    class="relative mx-auto flex min-h-[max(340px,calc(100dvh-19.5rem))] w-max items-center justify-center px-12 py-14"
-                >
-                    <svg
-                        class="pointer-events-none absolute top-0 left-0"
-                        :width="boardSize.width"
-                        :height="boardSize.height"
-                        aria-hidden="true"
-                    >
-                        <path
-                            v-for="edge in edges"
-                            :key="edge.id"
-                            :d="edge.d"
-                            fill="none"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            :stroke-dasharray="
-                                edge.state === 'pending' ? '2 5' : undefined
-                            "
-                            :class="[
-                                edge.state === 'failed'
-                                    ? 'stroke-(--ds-red)'
-                                    : edge.state === 'pending'
-                                      ? 'stroke-(--ds-blue)'
-                                      : 'stroke-(--ds-text-faint)',
-                                edge.state === 'pending' &&
-                                    'animate-[dash-flow_1.4s_linear_infinite] motion-reduce:animate-none',
-                            ]"
-                        />
-                    </svg>
-
-                    <template v-for="side in sides" :key="side.key">
-                        <div
-                            v-if="side.key === 'resources'"
-                            :ref="setGutter"
-                            class="w-[136px] shrink-0 self-stretch"
-                        />
-
-                        <div class="flex flex-col gap-8">
-                            <div
-                                v-for="group in side.groups"
-                                :key="group.id"
-                                class="flex flex-col gap-2"
-                            >
-                                <p
-                                    class="flex items-center gap-1.5 px-0.5 text-xs/4"
-                                    :title="
-                                        group.member
-                                            ? (group.member.error ??
-                                              $t(
-                                                  memberLabel[
-                                                      group.member.state
-                                                  ],
-                                              ))
-                                            : undefined
-                                    "
-                                >
-                                    <span
-                                        class="font-medium text-(--ds-text-secondary)"
-                                        >{{ group.name }}</span
-                                    >
-                                    <span
-                                        v-if="group.member"
-                                        class="font-ui-mono text-[11px] text-(--ds-text-faint)"
-                                        >{{ group.member.address }}</span
-                                    >
-                                    <span
-                                        v-if="
-                                            group.member &&
-                                            group.member.state !== 'up'
-                                        "
-                                        class="ml-0.5 size-1.5 rounded-full"
-                                        :class="[
-                                            memberTone[group.member.state],
-                                            group.member.state === 'pending' &&
-                                                'animate-pulse',
-                                        ]"
-                                    />
-                                </p>
-                                <article
-                                    v-for="node in group.nodes"
-                                    :key="node.id"
-                                    :ref="cardRef(node.id)"
-                                    class="group/card flex w-[256px] items-center gap-3 rounded-[10px] bg-(--ds-card) py-2.5 pr-2 pl-2.5 shadow-[0_0_0_1px_var(--ds-divider),0_1px_2px_rgb(0_0_0/0.04)] transition-shadow hover:shadow-[0_0_0_1px_var(--ds-border-strong),0_1px_2px_rgb(0_0_0/0.04)]"
-                                >
-                                    <span
-                                        class="grid size-8 shrink-0 place-items-center rounded-[8px] bg-(--ds-hover) text-(--ds-text-secondary)"
-                                    >
-                                        <component
-                                            :is="kinds[node.kind].icon"
-                                            class="size-4"
-                                            :stroke-width="1.75"
-                                        />
-                                    </span>
-                                    <div class="min-w-0 flex-1">
-                                        <p
-                                            class="flex items-center gap-1.5 text-[13px]/5 font-semibold"
-                                        >
-                                            <span class="truncate">{{
-                                                node.name
-                                            }}</span>
-                                            <span
-                                                class="size-1.5 shrink-0 rounded-full"
-                                                :class="
-                                                    node.status === 'running'
-                                                        ? 'bg-(--ds-green)'
-                                                        : node.status ===
-                                                            'stopped'
-                                                          ? 'bg-(--ds-amber)'
-                                                          : node.failed
-                                                            ? 'bg-(--ds-red)'
-                                                            : 'bg-(--ds-text-faint)'
-                                                "
-                                                :title="
-                                                    node.status === 'running'
-                                                        ? $t('Running')
-                                                        : node.status ===
-                                                            'stopped'
-                                                          ? $t('Stopped')
-                                                          : node.failed
-                                                            ? $t(
-                                                                  'Its deploy failed',
-                                                              )
-                                                            : $t('Starting')
-                                                "
-                                            />
-                                        </p>
-                                        <p
-                                            class="truncate text-xs/4 text-(--ds-text-muted)"
-                                        >
-                                            {{
-                                                node.template
-                                                    ? (templateNames[
-                                                          node.template
-                                                      ] ?? node.template)
-                                                    : $t(
-                                                          kinds[node.kind]
-                                                              .label,
-                                                      )
-                                            }}<template v-if="node.port">
-                                                ·
-                                                <span class="font-ui-mono">{{
-                                                    node.port
-                                                }}</span></template
-                                            >
-                                        </p>
-                                        <p
-                                            v-if="node.data"
-                                            class="mt-0.5 flex items-center gap-1 truncate text-[11px]/4"
-                                            :class="
-                                                node.data.state === 'failed'
-                                                    ? 'text-(--ds-red)'
-                                                    : 'text-(--ds-text-faint)'
-                                            "
-                                            :title="
-                                                node.data.error ?? undefined
-                                            "
-                                        >
-                                            <DatabaseBackup
-                                                class="size-3 shrink-0"
-                                                :stroke-width="1.75"
-                                            />
-                                            <span class="truncate">{{
-                                                node.data.state === 'copied'
-                                                    ? $t('Data copied :when', {
-                                                          when: ago(
-                                                              node.data.at,
-                                                          ),
-                                                      })
-                                                    : node.data.state ===
-                                                        'copying'
-                                                      ? $t('Copying data…')
-                                                      : node.data.state ===
-                                                          'waiting'
-                                                        ? $t(
-                                                              'Data copy waiting',
-                                                          )
-                                                        : $t(
-                                                              'Couldn’t copy data',
-                                                          )
-                                            }}</span>
-                                        </p>
-                                    </div>
-                                    <DropdownMenu v-if="canManage">
-                                        <DropdownMenuTrigger as-child>
-                                            <button
-                                                type="button"
-                                                class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-[6px] text-(--ds-text-faint) opacity-0 transition-opacity group-hover/card:opacity-100 hover:bg-(--ds-hover) hover:text-(--ds-text) focus-visible:opacity-100 data-[state=open]:opacity-100"
-                                                :aria-label="
-                                                    $t('Options for :name', {
-                                                        name: node.name,
-                                                    })
-                                                "
-                                            >
-                                                <Ellipsis class="size-3.5" />
-                                            </button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent
-                                            class="ds-modal min-w-52 font-ui"
-                                            align="start"
-                                        >
-                                            <DropdownMenuItem
-                                                v-if="node.href"
-                                                @select="
-                                                    router.visit(node.href)
-                                                "
-                                            >
-                                                <ArrowUpRight
-                                                    class="size-4"
-                                                    :stroke-width="1.75"
-                                                />
-                                                {{ $t('Open') }}
-                                            </DropdownMenuItem>
-                                            <DropdownMenuSeparator
-                                                v-if="
-                                                    node.href &&
-                                                    node.kind !== 'app'
-                                                "
-                                            />
-                                            <template
-                                                v-if="node.kind === 'app'"
-                                            >
-                                                <DropdownMenuItem
-                                                    @select="openSettings(node)"
-                                                >
-                                                    <SlidersHorizontal
-                                                        class="size-4"
-                                                        :stroke-width="1.75"
-                                                    />
-                                                    {{ $t('Settings…') }}
-                                                </DropdownMenuItem>
-                                                <DropdownMenuSeparator />
-                                            </template>
-                                            <template
-                                                v-if="
-                                                    node.kind === 'app' &&
-                                                    unlinked(node).length
-                                                "
-                                            >
-                                                <DropdownMenuLabel
-                                                    class="text-xs font-normal text-(--ds-text-muted)"
-                                                    >{{
-                                                        $t('Connect to')
-                                                    }}</DropdownMenuLabel
-                                                >
-                                                <DropdownMenuItem
-                                                    v-for="resource in unlinked(
-                                                        node,
-                                                    )"
-                                                    :key="resource.id"
-                                                    @select="
-                                                        connect(node, resource)
-                                                    "
-                                                >
-                                                    <component
-                                                        :is="
-                                                            kinds[resource.kind]
-                                                                .icon
-                                                        "
-                                                        class="size-4"
-                                                        :stroke-width="1.75"
-                                                    />
-                                                    {{ resource.name }}
-                                                </DropdownMenuItem>
-                                            </template>
-                                            <template
-                                                v-if="linksOf(node).length"
-                                            >
-                                                <DropdownMenuLabel
-                                                    class="text-xs font-normal text-(--ds-text-muted)"
-                                                    >{{
-                                                        $t('Disconnect')
-                                                    }}</DropdownMenuLabel
-                                                >
-                                                <DropdownMenuItem
-                                                    v-for="link in linksOf(
-                                                        node,
-                                                    )"
-                                                    :key="link.id"
-                                                    @select="disconnect(link)"
-                                                >
-                                                    <X
-                                                        class="size-4"
-                                                        :stroke-width="1.75"
-                                                    />
-                                                    {{
-                                                        nodeById.get(
-                                                            node.kind === 'app'
-                                                                ? link.resource
-                                                                : link.app,
-                                                        )?.name
-                                                    }}
-                                                </DropdownMenuItem>
-                                            </template>
-                                            <DropdownMenuSeparator
-                                                v-if="
-                                                    linksOf(node).length ||
-                                                    (node.kind === 'app' &&
-                                                        unlinked(node).length)
-                                                "
-                                            />
-                                            <DropdownMenuItem
-                                                @select="remove(node)"
-                                            >
-                                                <X
-                                                    class="size-4"
-                                                    :stroke-width="1.75"
-                                                />
-                                                {{
-                                                    $t(
-                                                        'Take out of the project',
-                                                    )
-                                                }}
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem
-                                                class="text-(--ds-red) focus:bg-(--ds-red)/10 focus:text-(--ds-red)"
-                                                @select="openDelete(node)"
-                                            >
-                                                <Trash2
-                                                    class="size-4 text-current"
-                                                    :stroke-width="1.75"
-                                                />
-                                                {{ $t('Delete…') }}
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </article>
-                            </div>
-
-                            <template v-if="canManage && !side.groups.length">
-                                <button
-                                    v-if="side.key === 'apps'"
-                                    type="button"
-                                    :class="slot"
-                                    @click="openAdd('app')"
-                                >
-                                    <Plus class="size-3.5" />
-                                    {{ $t('Add an app') }}
-                                </button>
-                                <DropdownMenu v-else>
-                                    <DropdownMenuTrigger as-child>
-                                        <button
-                                            type="button"
-                                            :class="slot"
-                                            :disabled="busy || !machines.length"
-                                        >
-                                            <Plus class="size-3.5" />
-                                            {{
-                                                $t(
-                                                    'Add a database, cache or storage',
-                                                )
-                                            }}
-                                        </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent
-                                        class="ds-modal min-w-56 font-ui"
-                                        align="start"
-                                    >
-                                        <DropdownMenuItem
-                                            v-for="option in resourceKinds"
-                                            :key="option.kind"
-                                            @select="addResource(option.kind)"
-                                        >
-                                            <component
-                                                :is="kinds[option.kind].icon"
-                                                class="size-4"
-                                                :stroke-width="1.75"
-                                            />
-                                            {{ $t(kinds[option.kind].label) }}
-                                            <span
-                                                class="ml-auto text-xs text-(--ds-text-muted)"
-                                                >{{
-                                                    templateNames[
-                                                        option.template
-                                                    ]
-                                                }}</span
-                                            >
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                            @select="openAdd('resource')"
-                                        >
-                                            <Server
-                                                class="size-4"
-                                                :stroke-width="1.75"
-                                            />
-                                            {{
-                                                $t('A service you’ve deployed')
-                                            }}
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </template>
-                        </div>
-                    </template>
-                </div>
-            </div>
-        </div>
-
-        <Dialog v-model:open="adding">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
+    <Dialog
+        :open="placing !== null"
+        @update:open="(open) => !open && (placing = null)"
+    >
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        >
+            <form
+                class="flex flex-col gap-4 p-5"
+                @submit.prevent="confirmPlace"
             >
-                <div class="flex flex-col gap-1 px-5 pt-5 pb-3">
+                <div class="flex flex-col gap-1">
                     <DialogTitle class="text-base/6 font-semibold">{{
-                        addFilter === 'resource'
-                            ? $t('Add a service you’ve deployed')
-                            : $t('Add an app you’ve deployed')
+                        placing
+                            ? $t('New :kind', {
+                                  kind: $t(kindLabels[placing]),
+                              })
+                            : ''
                     }}</DialogTitle>
                     <DialogDescription
                         class="text-[13px]/5 text-(--ds-text-muted)"
@@ -1540,827 +1201,700 @@ function ago(iso: string | null): string {
                         {{
                             ' ' +
                             $t(
-                                'It keeps running where it is. Its machine joins the project’s private network.',
+                                'Pick the machine it runs on. Every app in the project is connected to it once it’s up, wherever they run.',
                             ) +
                             ' '
                         }}
                     </DialogDescription>
                 </div>
-                <div class="max-h-[50vh] overflow-y-auto px-2 pb-3">
-                    <p
-                        v-if="candidates === undefined"
-                        class="px-3 py-6 text-center text-[13px] text-(--ds-text-muted)"
+                <div class="flex flex-col gap-1">
+                    <label
+                        v-for="m in machines"
+                        :key="m.id"
+                        class="flex cursor-pointer items-center gap-2.5 rounded-[8px] px-3 py-2 text-[13px] hover:bg-(--ds-hover)"
                     >
-                        {{ $t('Loading…') }}
-                    </p>
-                    <p
-                        v-else-if="!shownCandidates.length"
-                        class="px-3 py-6 text-center text-[13px] text-pretty text-(--ds-text-muted)"
+                        <input
+                            v-model="placeOn"
+                            type="radio"
+                            name="machine"
+                            :value="m.id"
+                            class="accent-(--ds-blue)"
+                        />
+                        <BrandLogo :name="m.provider" :fallback="false" />
+                        {{ m.name }}
+                    </label>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="placing = null"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="primary"
+                        type="submit"
+                        :disabled="busy || placeOn === null"
+                        :label="$t('Deploy and connect')"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="renaming">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        >
+            <form class="flex flex-col gap-4 p-5" @submit.prevent="rename">
+                <DialogTitle class="text-base/6 font-semibold">{{
+                    $t('Rename project')
+                }}</DialogTitle>
+                <DialogDescription class="sr-only">{{
+                    $t('Rename project')
+                }}</DialogDescription>
+                <Input
+                    v-model="newName"
+                    maxlength="80"
+                    required
+                    :aria-label="$t('Project name')"
+                />
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="renaming = false"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="primary"
+                        type="submit"
+                        :disabled="busy || !newName.trim()"
+                        :label="$t('Save')"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="deleting">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        >
+            <div class="flex flex-col gap-4 p-5">
+                <div class="flex flex-col gap-1">
+                    <DialogTitle class="text-base/6 font-semibold">{{
+                        $t('Delete :name?', { name: project.name })
+                    }}</DialogTitle>
+                    <DialogDescription
+                        class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
                     >
                         {{
-                            addFilter === 'resource'
-                                ? $t(
-                                      'No databases, caches or storage deployed from ServerOS are left to add. Use New in the bar to deploy one.',
-                                  )
-                                : $t(
-                                      'No deployed apps are left to add. Deploy one from Services first.',
-                                  )
+                            ' ' +
+                            $t(
+                                'Everything in it keeps running, and apps keep the settings they were given. The private network is taken down, so apps on other machines lose the way to reach these services.',
+                            ) +
+                            ' '
+                        }}
+                    </DialogDescription>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="deleting = false"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="danger"
+                        type="button"
+                        :disabled="busy"
+                        @click="destroy"
+                        :label="$t('Delete project')"
+                    />
+                </div>
+            </div>
+        </DialogContent>
+    </Dialog>
+    <Dialog v-model:open="making">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
+        >
+            <form class="flex flex-col gap-5 p-5" @submit.prevent="makeEnv">
+                <div class="flex flex-col gap-1">
+                    <DialogTitle class="text-base/6 font-semibold">{{
+                        $t('New environment')
+                    }}</DialogTitle>
+                    <DialogDescription
+                        class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
+                    >
+                        {{
+                            ' ' +
+                            $t(
+                                'A copy to try things in before they reach your users. Its apps run the same code with no domain, and its databases, caches and storage are new ones with passwords of their own.',
+                            ) +
+                            ' '
+                        }}
+                    </DialogDescription>
+                </div>
+
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <label class="flex flex-col gap-1.5 text-[13px]">
+                        <span class="font-medium">{{ $t('Name') }}</span>
+                        <Input
+                            v-model="envName"
+                            maxlength="40"
+                            required
+                            :placeholder="$t('Staging')"
+                        />
+                    </label>
+                    <label class="flex flex-col gap-1.5 text-[13px]">
+                        <span class="font-medium">{{ $t('A copy of') }}</span>
+                        <SelectMenu
+                            v-model="envSource"
+                            :options="environmentOptions"
+                            class="ds-raised-button h-9 w-full text-[13px]"
+                        />
+                    </label>
+                </div>
+
+                <div v-if="sourceMachines.length" class="flex flex-col gap-2">
+                    <p class="text-[13px] font-medium">
+                        {{ $t('Where it runs') }}
+                    </p>
+                    <div
+                        class="flex flex-col divide-y divide-(--ds-divider) rounded-[8px] border border-(color:--ds-divider)"
+                    >
+                        <div
+                            v-for="m in sourceMachines"
+                            :key="m.id"
+                            class="flex items-center gap-3 px-3 py-2 text-[13px]"
+                        >
+                            <span
+                                class="min-w-0 flex-1 truncate text-(--ds-text-secondary)"
+                                >{{
+                                    $t('What’s on :name goes on', {
+                                        name: m.name,
+                                    })
+                                }}</span
+                            >
+                            <SelectMenu
+                                v-model="envMachines[m.id]"
+                                :options="machineOptions"
+                                :aria-label="
+                                    $t('What’s on :name goes on', {
+                                        name: m.name,
+                                    })
+                                "
+                                class="ds-raised-button h-8 max-w-[45%] text-[13px]"
+                            />
+                        </div>
+                    </div>
+                    <p class="text-xs/4 text-(--ds-text-muted)">
+                        {{
+                            $t(
+                                'A cheaper machine is fine: it only runs what you test.',
+                            )
                         }}
                     </p>
-                    <button
-                        v-for="c in shownCandidates"
-                        :key="`${c.machine.id}/${c.name}`"
-                        type="button"
-                        class="flex w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2.5 text-left text-[13px]/5 hover:bg-(--ds-hover) disabled:opacity-50"
-                        :disabled="busy"
-                        @click="addExisting(c)"
-                    >
-                        <component
-                            :is="kinds[c.kind].icon"
-                            class="size-4 shrink-0 text-(--ds-text-secondary)"
-                            :stroke-width="1.75"
-                        />
-                        <span class="min-w-0 truncate font-medium">{{
-                            c.name
-                        }}</span>
-                        <span class="text-(--ds-text-muted)">{{
-                            c.template
-                                ? (templateNames[c.template] ?? c.template)
-                                : $t('App')
-                        }}</span>
-                        <span
-                            class="ml-auto shrink-0 text-xs text-(--ds-text-muted)"
-                            >{{ c.machine.name }}</span
-                        >
-                    </button>
                 </div>
-            </DialogContent>
-        </Dialog>
 
-        <Dialog
-            :open="placing !== null"
-            @update:open="(open) => !open && (placing = null)"
-        >
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
-            >
-                <form
-                    class="flex flex-col gap-4 p-5"
-                    @submit.prevent="confirmPlace"
+                <label
+                    v-if="sourceHasData"
+                    class="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px]"
                 >
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            placing
-                                ? $t('New :kind', {
-                                      kind: $t(kinds[placing].label),
-                                  })
-                                : ''
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t(
-                                    'Pick the machine it runs on. Every app in the project is connected to it once it’s up, wherever they run.',
-                                ) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
-                    <div class="flex flex-col gap-1">
-                        <label
-                            v-for="m in machines"
-                            :key="m.id"
-                            class="flex cursor-pointer items-center gap-2.5 rounded-[8px] px-3 py-2 text-[13px] hover:bg-(--ds-hover)"
-                        >
-                            <input
-                                v-model="placeOn"
-                                type="radio"
-                                name="machine"
-                                :value="m.id"
-                                class="accent-(--ds-blue)"
-                            />
-                            <Server
+                    <input
+                        v-model="envCopyData"
+                        type="checkbox"
+                        class="mt-0.5 accent-(--ds-blue)"
+                    />
+                    <span class="flex flex-col gap-0.5">
+                        <span class="font-medium">{{
+                            $t('Copy the data in its databases')
+                        }}</span>
+                        <span class="text-xs/4 text-(--ds-text-muted)">{{
+                            $t(
+                                'Taken over the project’s private network once they’re up. Copy it again any time, or every night, from the Data menu.',
+                            )
+                        }}</span>
+                    </span>
+                </label>
+
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="making = false"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="primary"
+                        type="submit"
+                        :disabled="busy || !envName.trim()"
+                        :label="$t('Make the environment')"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="promoting">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
+        >
+            <div class="flex flex-col gap-4 p-5">
+                <div class="flex flex-col gap-1">
+                    <DialogTitle class="text-base/6 font-semibold">{{
+                        $t('Promote :from to :to', {
+                            from: env?.name ?? '',
+                            to: sourceEnv?.name ?? '',
+                        })
+                    }}</DialogTitle>
+                    <DialogDescription
+                        class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
+                    >
+                        {{
+                            ' ' +
+                            $t(
+                                'Each app in :to is deployed at the code its copy runs. Its own settings, domain and data stay as they are, and if a deploy fails its health check the live version keeps running.',
+                                { to: sourceEnv?.name ?? '' },
+                            ) +
+                            ' '
+                        }}
+                    </DialogDescription>
+                </div>
+                <div
+                    v-if="promotionRows === undefined"
+                    class="py-6 text-center text-[13px] text-(--ds-text-muted)"
+                >
+                    {{ $t('Working out what changes…') }}
+                </div>
+                <p
+                    v-else-if="!promotionRows.length"
+                    class="py-4 text-[13px] text-(--ds-text-muted)"
+                >
+                    {{
+                        $t('No app here is a copy of one in :to.', {
+                            to: sourceEnv?.name ?? '',
+                        })
+                    }}
+                </p>
+                <ul
+                    v-else
+                    class="flex flex-col divide-y divide-(--ds-divider) rounded-[8px] border border-(color:--ds-divider)"
+                >
+                    <li
+                        v-for="row in promotionRows"
+                        :key="row.app"
+                        class="flex flex-col gap-1 px-3 py-2.5 text-[13px]"
+                    >
+                        <div class="flex items-center gap-2">
+                            <AppWindow
                                 class="size-4 text-(--ds-text-secondary)"
                                 :stroke-width="1.75"
                             />
-                            {{ m.name }}
-                        </label>
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="placing = null"
+                            <span class="font-medium">{{ row.app }}</span>
+                            <span class="text-xs text-(--ds-text-faint)">{{
+                                row.machine
+                            }}</span>
+                            <span
+                                v-if="row.from && row.to"
+                                class="ml-auto font-ui-mono text-xs"
+                                :class="
+                                    row.ready
+                                        ? 'text-(--ds-text-secondary)'
+                                        : 'text-(--ds-text-faint)'
+                                "
+                            >
+                                {{ row.from }} →
+                                <span
+                                    :class="row.ready && 'text-(--ds-text)'"
+                                    >{{ row.to }}</span
+                                >
+                            </span>
+                        </div>
+                        <p
+                            v-if="row.reason"
+                            class="pl-6 text-xs/4 text-(--ds-text-muted)"
                         >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="submit"
-                            :class="appButtonClasses('primary')"
-                            :disabled="busy || placeOn === null"
+                            {{ $t(row.reason) }}
+                        </p>
+                        <p
+                            v-if="row.missing.length"
+                            class="pl-6 text-xs/4 text-(--ds-amber)"
                         >
-                            {{ $t('Deploy and connect') }}
-                        </button>
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="renaming">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
-            >
-                <form class="flex flex-col gap-4 p-5" @submit.prevent="rename">
-                    <DialogTitle class="text-base/6 font-semibold">{{
-                        $t('Rename project')
-                    }}</DialogTitle>
-                    <DialogDescription class="sr-only">{{
-                        $t('Rename project')
-                    }}</DialogDescription>
-                    <Input
-                        v-model="newName"
-                        maxlength="80"
-                        required
-                        :aria-label="$t('Project name')"
+                            {{
+                                $t(
+                                    'Only the copy has :names. Add them to :app’s settings first if the new code needs them.',
+                                    {
+                                        names: row.missing.join(', '),
+                                        app: row.app,
+                                    },
+                                )
+                            }}
+                        </p>
+                    </li>
+                </ul>
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="promoting = false"
+                        :label="$t('Cancel')"
                     />
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="renaming = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="submit"
-                            :class="appButtonClasses('primary')"
-                            :disabled="busy || !newName.trim()"
-                        >
-                            {{ $t('Save') }}
-                        </button>
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="deleting">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
-            >
-                <div class="flex flex-col gap-4 p-5">
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            $t('Delete :name?', { name: project.name })
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t(
-                                    'Everything in it keeps running, and apps keep the settings they were given. The private network is taken down, so apps on other machines lose the way to reach these services.',
-                                ) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="deleting = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="button"
-                            :class="appButtonClasses('danger')"
-                            :disabled="busy"
-                            @click="destroy"
-                        >
-                            {{ $t('Delete project') }}
-                        </button>
-                    </div>
+                    <DashButton
+                        variant="primary"
+                        type="button"
+                        :disabled="busy || !promotionReady"
+                        @click="promote"
+                        :label="$t('Promote')"
+                    />
                 </div>
-            </DialogContent>
-        </Dialog>
-        <Dialog v-model:open="making">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
-            >
-                <form class="flex flex-col gap-5 p-5" @submit.prevent="makeEnv">
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            $t('New environment')
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t(
-                                    'A copy to try things in before they reach your users. Its apps run the same code with no domain, and its databases, caches and storage are new ones with passwords of their own.',
-                                ) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
+            </div>
+        </DialogContent>
+    </Dialog>
 
+    <Dialog v-model:open="renamingEnv">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        >
+            <form class="flex flex-col gap-4 p-5" @submit.prevent="renameEnv">
+                <DialogTitle class="text-base/6 font-semibold">{{
+                    $t('Rename :name', { name: env?.name ?? '' })
+                }}</DialogTitle>
+                <DialogDescription class="sr-only">{{
+                    $t('Rename the environment')
+                }}</DialogDescription>
+                <Input
+                    v-model="newEnvName"
+                    maxlength="40"
+                    required
+                    :aria-label="$t('Environment name')"
+                />
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="renamingEnv = false"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="primary"
+                        type="submit"
+                        :disabled="busy || !newEnvName.trim()"
+                        :label="$t('Save')"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="deletingEnv">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        >
+            <div class="flex flex-col gap-4 p-5">
+                <div class="flex flex-col gap-1">
+                    <DialogTitle class="text-base/6 font-semibold">{{
+                        $t('Delete :name?', { name: env?.name ?? '' })
+                    }}</DialogTitle>
+                    <DialogDescription
+                        class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
+                    >
+                        {{
+                            ' ' +
+                            $t(
+                                'It comes out of the project. Nothing in any other environment is touched.',
+                            ) +
+                            ' '
+                        }}
+                    </DialogDescription>
+                </div>
+                <label
+                    class="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px]"
+                >
+                    <input
+                        v-model="removeServices"
+                        type="checkbox"
+                        class="mt-0.5 accent-(--ds-red)"
+                    />
+                    <span class="flex flex-col gap-0.5">
+                        <span class="font-medium">{{
+                            $t('Remove its apps and services too')
+                        }}</span>
+                        <span class="text-xs/4 text-(--ds-text-muted)">{{
+                            $t(
+                                'They’re stopped and removed from their machines with their data. Leave this off to keep them running.',
+                            )
+                        }}</span>
+                    </span>
+                </label>
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="deletingEnv = false"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="danger"
+                        type="button"
+                        :disabled="busy"
+                        @click="deleteEnv"
+                        :label="$t('Delete environment')"
+                    />
+                </div>
+            </div>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="deletingOpen">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        >
+            <form
+                v-if="deletingNode"
+                class="flex flex-col gap-4 p-5"
+                @submit.prevent="confirmDelete"
+            >
+                <div class="flex flex-col gap-1">
+                    <DialogTitle class="text-base/6 font-semibold">{{
+                        $t('Delete :name?', { name: deletingNode.name })
+                    }}</DialogTitle>
+                    <DialogDescription
+                        class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
+                    >
+                        {{
+                            ' ' +
+                            (deletingNode.href
+                                ? $t(
+                                      'Its containers on :machine stop and are deleted, every version of it, and it comes off the project. Data in volumes is kept unless you choose otherwise.',
+                                      {
+                                          machine: deletingNode.machine.name,
+                                      },
+                                  )
+                                : $t(
+                                      'Nothing of it is running on :machine, so this only takes it off the project.',
+                                      {
+                                          machine: deletingNode.machine.name,
+                                      },
+                                  )) +
+                            ' '
+                        }}
+                    </DialogDescription>
+                </div>
+                <template v-if="deletingNode.href">
+                    <div class="flex flex-col gap-1.5">
+                        <label for="delete-confirm" class="text-[13px]/5">{{
+                            $t('Type :name to confirm', {
+                                name: deletingNode.name,
+                            })
+                        }}</label>
+                        <Input
+                            id="delete-confirm"
+                            v-model="deleteConfirm"
+                            autocomplete="off"
+                            class="font-ui-mono"
+                        />
+                    </div>
+                    <label class="flex items-start gap-2 text-[13px]/5">
+                        <TickBox v-model="deleteData" class="mt-0.5" />
+                        {{
+                            $t(
+                                'Also delete its data (volumes). This can’t be undone.',
+                            )
+                        }}
+                    </label>
+                </template>
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        size="sm"
+                        @click="deletingNode = null"
+                        :label="$t('Cancel')"
+                    />
+                    <DangerButton
+                        :label="$t('Delete')"
+                        :processing="busy"
+                        :disabled="
+                            !busy &&
+                            !!deletingNode.href &&
+                            deleteConfirm !== deletingNode.name
+                        "
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+    <AppVariablesDialog
+        v-if="editing"
+        v-model:open="editingOpen"
+        :machine-id="editing.machine.id"
+        :app="editing.name"
+    />
+    <Dialog v-model:open="previewing">
+        <DialogContent
+            class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
+        >
+            <form
+                class="flex flex-col gap-5 p-5"
+                @submit.prevent="savePreviews"
+            >
+                <div class="flex flex-col gap-1">
+                    <DialogTitle class="text-base/6 font-semibold">{{
+                        $t('Pull request previews')
+                    }}</DialogTitle>
+                    <DialogDescription
+                        class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
+                    >
+                        {{
+                            ' ' +
+                            $t(
+                                'Each pull request gets its own copy of :env on the machine you pick, running the pull request’s code. New commits deploy it again, and it’s removed when the pull request closes. Pull requests from forks never get one.',
+                                { env: environments[0]?.name ?? '' },
+                            ) +
+                            ' ' +
+                            $t(
+                                'Nor does a project with an app that runs its repository’s own Compose file, since that file can control Docker on the machine.',
+                            ) +
+                            ' '
+                        }}
+                    </DialogDescription>
+                </div>
+
+                <p
+                    v-if="!previews.github"
+                    class="rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px] text-pretty text-(--ds-text-secondary)"
+                >
+                    {{
+                        $t(
+                            'ServerOS hears about pull requests through its GitHub App.',
+                        )
+                    }}
+                    <a
+                        :href="githubUrl"
+                        class="font-medium text-(--ds-blue) hover:underline"
+                        >{{ $t('Connect GitHub in Settings') }}</a
+                    >
+                </p>
+
+                <label
+                    class="flex cursor-pointer items-center gap-2.5 text-[13px] font-medium"
+                >
+                    <input
+                        v-model="previewForm.enabled"
+                        type="checkbox"
+                        class="accent-(--ds-blue)"
+                    />
+                    {{ $t('Make a preview for each pull request') }}
+                </label>
+
+                <template v-if="previewForm.enabled">
                     <div class="grid gap-3 sm:grid-cols-2">
                         <label class="flex flex-col gap-1.5 text-[13px]">
-                            <span class="font-medium">{{ $t('Name') }}</span>
+                            <span class="font-medium">{{
+                                $t('Repository')
+                            }}</span>
                             <Input
-                                v-model="envName"
-                                maxlength="40"
+                                v-model="previewForm.repo"
+                                list="project-repos"
                                 required
-                                :placeholder="$t('Staging')"
+                                placeholder="owner/name"
+                                class="font-ui-mono text-xs"
                             />
+                            <datalist id="project-repos">
+                                <option
+                                    v-for="r in repos ?? []"
+                                    :key="r"
+                                    :value="r"
+                                />
+                            </datalist>
                         </label>
                         <label class="flex flex-col gap-1.5 text-[13px]">
-                            <span class="font-medium">{{
-                                $t('A copy of')
-                            }}</span>
+                            <span class="font-medium">{{ $t('Runs on') }}</span>
                             <SelectMenu
-                                v-model="envSource"
-                                :options="environmentOptions"
+                                v-model="previewForm.machine"
+                                :options="machineOptions"
                                 class="ds-raised-button h-9 w-full text-[13px]"
                             />
                         </label>
                     </div>
 
-                    <div
-                        v-if="sourceMachines.length"
-                        class="flex flex-col gap-2"
-                    >
-                        <p class="text-[13px] font-medium">
-                            {{ $t('Where it runs') }}
-                        </p>
-                        <div
-                            class="flex flex-col divide-y divide-(--ds-divider) rounded-[8px] border border-(color:--ds-divider)"
+                    <label class="flex flex-col gap-1.5 text-[13px]">
+                        <span class="font-medium"
+                            >{{ $t('Domain') }}
+                            <span class="font-normal text-(--ds-text-muted)">{{
+                                $t('(optional)')
+                            }}</span></span
                         >
-                            <div
-                                v-for="m in sourceMachines"
-                                :key="m.id"
-                                class="flex items-center gap-3 px-3 py-2 text-[13px]"
-                            >
-                                <span
-                                    class="min-w-0 flex-1 truncate text-(--ds-text-secondary)"
-                                    >{{
-                                        $t('What’s on :name goes on', {
-                                            name: m.name,
-                                        })
-                                    }}</span
-                                >
-                                <SelectMenu
-                                    v-model="envMachines[m.id]"
-                                    :options="machineOptions"
-                                    :aria-label="
-                                        $t('What’s on :name goes on', {
-                                            name: m.name,
-                                        })
-                                    "
-                                    class="ds-raised-button h-8 max-w-[45%] text-[13px]"
-                                />
-                            </div>
-                        </div>
-                        <p class="text-xs/4 text-(--ds-text-muted)">
-                            {{
-                                $t(
-                                    'A cheaper machine is fine: it only runs what you test.',
-                                )
-                            }}
-                        </p>
+                        <Input
+                            v-model="previewForm.domain"
+                            placeholder="preview.example.com"
+                            class="font-ui-mono text-xs"
+                        />
+                        <span class="text-xs/4 text-(--ds-text-muted)">{{
+                            previewForm.domain.trim()
+                                ? $t(
+                                      'Each preview opens at an address like :example. Point *.:domain at the machine in your DNS.',
+                                      {
+                                          example: `shop-pr-12.${previewForm.domain.trim()}`,
+                                          domain: previewForm.domain.trim(),
+                                      },
+                                  )
+                                : $t(
+                                      'Without one, previews have no address of their own. Add one to an app from its page.',
+                                  )
+                        }}</span>
+                    </label>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <label class="flex flex-col gap-1.5 text-[13px]">
+                            <span class="font-medium">{{
+                                $t('Open at once, at most')
+                            }}</span>
+                            <SelectMenu
+                                v-model="previewForm.limit"
+                                :options="previewLimitOptions"
+                                class="ds-raised-button h-9 w-full text-[13px]"
+                            />
+                        </label>
                     </div>
 
                     <label
-                        v-if="sourceHasData"
                         class="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px]"
                     >
                         <input
-                            v-model="envCopyData"
+                            v-model="previewForm.copy_data"
                             type="checkbox"
                             class="mt-0.5 accent-(--ds-blue)"
                         />
                         <span class="flex flex-col gap-0.5">
                             <span class="font-medium">{{
-                                $t('Copy the data in its databases')
-                            }}</span>
-                            <span class="text-xs/4 text-(--ds-text-muted)">{{
-                                $t(
-                                    'Taken over the project’s private network once they’re up. Copy it again any time, or every night, from the Data menu.',
-                                )
-                            }}</span>
-                        </span>
-                    </label>
-
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="making = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="submit"
-                            :class="appButtonClasses('primary')"
-                            :disabled="busy || !envName.trim()"
-                        >
-                            {{ $t('Make the environment') }}
-                        </button>
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="promoting">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
-            >
-                <div class="flex flex-col gap-4 p-5">
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            $t('Promote :from to :to', {
-                                from: env?.name ?? '',
-                                to: sourceEnv?.name ?? '',
-                            })
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t(
-                                    'Each app in :to is deployed at the code its copy runs. Its own settings, domain and data stay as they are, and if a deploy fails its health check the live version keeps running.',
-                                    { to: sourceEnv?.name ?? '' },
-                                ) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
-                    <div
-                        v-if="promotionRows === undefined"
-                        class="py-6 text-center text-[13px] text-(--ds-text-muted)"
-                    >
-                        {{ $t('Working out what changes…') }}
-                    </div>
-                    <p
-                        v-else-if="!promotionRows.length"
-                        class="py-4 text-[13px] text-(--ds-text-muted)"
-                    >
-                        {{
-                            $t('No app here is a copy of one in :to.', {
-                                to: sourceEnv?.name ?? '',
-                            })
-                        }}
-                    </p>
-                    <ul
-                        v-else
-                        class="flex flex-col divide-y divide-(--ds-divider) rounded-[8px] border border-(color:--ds-divider)"
-                    >
-                        <li
-                            v-for="row in promotionRows"
-                            :key="row.app"
-                            class="flex flex-col gap-1 px-3 py-2.5 text-[13px]"
-                        >
-                            <div class="flex items-center gap-2">
-                                <AppWindow
-                                    class="size-4 text-(--ds-text-secondary)"
-                                    :stroke-width="1.75"
-                                />
-                                <span class="font-medium">{{ row.app }}</span>
-                                <span class="text-xs text-(--ds-text-faint)">{{
-                                    row.machine
-                                }}</span>
-                                <span
-                                    v-if="row.from && row.to"
-                                    class="ml-auto font-ui-mono text-xs"
-                                    :class="
-                                        row.ready
-                                            ? 'text-(--ds-text-secondary)'
-                                            : 'text-(--ds-text-faint)'
-                                    "
-                                >
-                                    {{ row.from }} →
-                                    <span
-                                        :class="row.ready && 'text-(--ds-text)'"
-                                        >{{ row.to }}</span
-                                    >
-                                </span>
-                            </div>
-                            <p
-                                v-if="row.reason"
-                                class="pl-6 text-xs/4 text-(--ds-text-muted)"
-                            >
-                                {{ $t(row.reason) }}
-                            </p>
-                            <p
-                                v-if="row.missing.length"
-                                class="pl-6 text-xs/4 text-(--ds-amber)"
-                            >
-                                {{
-                                    $t(
-                                        'Only the copy has :names. Add them to :app’s settings first if the new code needs them.',
-                                        {
-                                            names: row.missing.join(', '),
-                                            app: row.app,
-                                        },
-                                    )
-                                }}
-                            </p>
-                        </li>
-                    </ul>
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="promoting = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="button"
-                            :class="appButtonClasses('primary')"
-                            :disabled="busy || !promotionReady"
-                            @click="promote"
-                        >
-                            {{ $t('Promote') }}
-                        </button>
-                    </div>
-                </div>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="renamingEnv">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
-            >
-                <form
-                    class="flex flex-col gap-4 p-5"
-                    @submit.prevent="renameEnv"
-                >
-                    <DialogTitle class="text-base/6 font-semibold">{{
-                        $t('Rename :name', { name: env?.name ?? '' })
-                    }}</DialogTitle>
-                    <DialogDescription class="sr-only">{{
-                        $t('Rename the environment')
-                    }}</DialogDescription>
-                    <Input
-                        v-model="newEnvName"
-                        maxlength="40"
-                        required
-                        :aria-label="$t('Environment name')"
-                    />
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="renamingEnv = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="submit"
-                            :class="appButtonClasses('primary')"
-                            :disabled="busy || !newEnvName.trim()"
-                        >
-                            {{ $t('Save') }}
-                        </button>
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="deletingEnv">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
-            >
-                <div class="flex flex-col gap-4 p-5">
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            $t('Delete :name?', { name: env?.name ?? '' })
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t(
-                                    'It comes out of the project. Nothing in any other environment is touched.',
-                                ) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
-                    <label
-                        class="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px]"
-                    >
-                        <input
-                            v-model="removeServices"
-                            type="checkbox"
-                            class="mt-0.5 accent-(--ds-red)"
-                        />
-                        <span class="flex flex-col gap-0.5">
-                            <span class="font-medium">{{
-                                $t('Remove its apps and services too')
-                            }}</span>
-                            <span class="text-xs/4 text-(--ds-text-muted)">{{
-                                $t(
-                                    'They’re stopped and removed from their machines with their data. Leave this off to keep them running.',
-                                )
-                            }}</span>
-                        </span>
-                    </label>
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="deletingEnv = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="button"
-                            :class="appButtonClasses('danger')"
-                            :disabled="busy"
-                            @click="deleteEnv"
-                        >
-                            {{ $t('Delete environment') }}
-                        </button>
-                    </div>
-                </div>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="deletingOpen">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
-            >
-                <form
-                    v-if="deletingNode"
-                    class="flex flex-col gap-4 p-5"
-                    @submit.prevent="confirmDelete"
-                >
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            $t('Delete :name?', { name: deletingNode.name })
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                (deletingNode.href
-                                    ? $t(
-                                          'Its containers on :machine stop and are deleted, every version of it, and it comes off the project. Data in volumes is kept unless you choose otherwise.',
-                                          {
-                                              machine:
-                                                  deletingNode.machine.name,
-                                          },
-                                      )
-                                    : $t(
-                                          'Nothing of it is running on :machine, so this only takes it off the project.',
-                                          {
-                                              machine:
-                                                  deletingNode.machine.name,
-                                          },
-                                      )) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
-                    <template v-if="deletingNode.href">
-                        <div class="flex flex-col gap-1.5">
-                            <label for="delete-confirm" class="text-[13px]/5">{{
-                                $t('Type :name to confirm', {
-                                    name: deletingNode.name,
+                                $t('Copy :env’s data into each preview', {
+                                    env: environments[0]?.name ?? '',
                                 })
-                            }}</label>
-                            <Input
-                                id="delete-confirm"
-                                v-model="deleteConfirm"
-                                autocomplete="off"
-                                class="font-ui-mono"
-                            />
-                        </div>
-                        <label class="flex items-start gap-2 text-[13px]/5">
-                            <TickBox v-model="deleteData" class="mt-0.5" />
-                            {{
-                                $t(
-                                    'Also delete its data (volumes). This can’t be undone.',
-                                )
-                            }}
-                        </label>
-                    </template>
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary', 'sm')"
-                            @click="deletingNode = null"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <DangerButton
-                            :label="$t('Delete')"
-                            :processing="busy"
-                            :disabled="
-                                !busy &&
-                                !!deletingNode.href &&
-                                deleteConfirm !== deletingNode.name
-                            "
-                        />
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-        <AppVariablesDialog
-            v-if="editing"
-            v-model:open="editingOpen"
-            :machine-id="editing.machine.id"
-            :app="editing.name"
-        />
-        <Dialog v-model:open="previewing">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-lg"
-            >
-                <form
-                    class="flex flex-col gap-5 p-5"
-                    @submit.prevent="savePreviews"
-                >
-                    <div class="flex flex-col gap-1">
-                        <DialogTitle class="text-base/6 font-semibold">{{
-                            $t('Pull request previews')
-                        }}</DialogTitle>
-                        <DialogDescription
-                            class="text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t(
-                                    'Each pull request gets its own copy of :env on the machine you pick, running the pull request’s code. New commits deploy it again, and it’s removed when the pull request closes. Pull requests from forks never get one.',
-                                    { env: environments[0]?.name ?? '' },
-                                ) +
-                                ' ' +
-                                $t(
-                                    'Nor does a project with an app that runs its repository’s own Compose file, since that file can control Docker on the machine.',
-                                ) +
-                                ' '
-                            }}
-                        </DialogDescription>
-                    </div>
-
-                    <p
-                        v-if="!previews.github"
-                        class="rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px] text-pretty text-(--ds-text-secondary)"
-                    >
-                        {{
-                            $t(
-                                'ServerOS hears about pull requests through its GitHub App.',
-                            )
-                        }}
-                        <a
-                            href="/settings"
-                            class="font-medium text-(--ds-blue) hover:underline"
-                            >{{ $t('Connect GitHub in Settings') }}</a
-                        >
-                    </p>
-
-                    <label
-                        class="flex cursor-pointer items-center gap-2.5 text-[13px] font-medium"
-                    >
-                        <input
-                            v-model="previewForm.enabled"
-                            type="checkbox"
-                            class="accent-(--ds-blue)"
-                        />
-                        {{ $t('Make a preview for each pull request') }}
-                    </label>
-
-                    <template v-if="previewForm.enabled">
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <label class="flex flex-col gap-1.5 text-[13px]">
-                                <span class="font-medium">{{
-                                    $t('Repository')
-                                }}</span>
-                                <Input
-                                    v-model="previewForm.repo"
-                                    list="project-repos"
-                                    required
-                                    placeholder="owner/name"
-                                    class="font-ui-mono text-xs"
-                                />
-                                <datalist id="project-repos">
-                                    <option
-                                        v-for="r in repos ?? []"
-                                        :key="r"
-                                        :value="r"
-                                    />
-                                </datalist>
-                            </label>
-                            <label class="flex flex-col gap-1.5 text-[13px]">
-                                <span class="font-medium">{{
-                                    $t('Runs on')
-                                }}</span>
-                                <SelectMenu
-                                    v-model="previewForm.machine"
-                                    :options="machineOptions"
-                                    class="ds-raised-button h-9 w-full text-[13px]"
-                                />
-                            </label>
-                        </div>
-
-                        <label class="flex flex-col gap-1.5 text-[13px]">
-                            <span class="font-medium"
-                                >{{ $t('Domain') }}
-                                <span
-                                    class="font-normal text-(--ds-text-muted)"
-                                    >{{ $t('(optional)') }}</span
-                                ></span
-                            >
-                            <Input
-                                v-model="previewForm.domain"
-                                placeholder="preview.example.com"
-                                class="font-ui-mono text-xs"
-                            />
-                            <span class="text-xs/4 text-(--ds-text-muted)">{{
-                                previewForm.domain.trim()
-                                    ? $t(
-                                          'Each preview opens at an address like :example. Point *.:domain at the machine in your DNS.',
-                                          {
-                                              example: `shop-pr-12.${previewForm.domain.trim()}`,
-                                              domain: previewForm.domain.trim(),
-                                          },
-                                      )
-                                    : $t(
-                                          'Without one, previews have no address of their own. Add one to an app from its page.',
-                                      )
                             }}</span>
-                        </label>
+                            <span class="text-xs/4 text-(--ds-text-muted)">{{
+                                $t(
+                                    'Off by default: anyone who can push a branch would see real data in their preview.',
+                                )
+                            }}</span>
+                        </span>
+                    </label>
+                </template>
 
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <label class="flex flex-col gap-1.5 text-[13px]">
-                                <span class="font-medium">{{
-                                    $t('Open at once, at most')
-                                }}</span>
-                                <SelectMenu
-                                    v-model="previewForm.limit"
-                                    :options="previewLimitOptions"
-                                    class="ds-raised-button h-9 w-full text-[13px]"
-                                />
-                            </label>
-                        </div>
-
-                        <label
-                            class="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-(color:--ds-divider) p-3 text-[13px]"
-                        >
-                            <input
-                                v-model="previewForm.copy_data"
-                                type="checkbox"
-                                class="mt-0.5 accent-(--ds-blue)"
-                            />
-                            <span class="flex flex-col gap-0.5">
-                                <span class="font-medium">{{
-                                    $t('Copy :env’s data into each preview', {
-                                        env: environments[0]?.name ?? '',
-                                    })
-                                }}</span>
-                                <span
-                                    class="text-xs/4 text-(--ds-text-muted)"
-                                    >{{
-                                        $t(
-                                            'Off by default: anyone who can push a branch would see real data in their preview.',
-                                        )
-                                    }}</span
-                                >
-                            </span>
-                        </label>
-                    </template>
-
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            :class="appButtonClasses('secondary')"
-                            @click="previewing = false"
-                        >
-                            {{ $t('Cancel') }}
-                        </button>
-                        <button
-                            type="submit"
-                            :class="appButtonClasses('primary')"
-                            :disabled="
-                                busy ||
-                                (previewForm.enabled &&
-                                    (!previewForm.repo.trim() ||
-                                        previewForm.machine === null))
-                            "
-                        >
-                            {{ $t('Save') }}
-                        </button>
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-    </WorkspacePage>
+                <div class="flex justify-end gap-2">
+                    <DashButton
+                        type="button"
+                        @click="previewing = false"
+                        :label="$t('Cancel')"
+                    />
+                    <DashButton
+                        variant="primary"
+                        type="submit"
+                        :disabled="
+                            busy ||
+                            (previewForm.enabled &&
+                                (!previewForm.repo.trim() ||
+                                    previewForm.machine === null))
+                        "
+                        :label="$t('Save')"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
 </template>

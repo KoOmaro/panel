@@ -62,14 +62,14 @@ export function every(seconds: number): string {
 }
 
 export function percent(value: number | null | undefined): string {
-    if (value === null || value === undefined) return '—';
+    if (value === null || value === undefined) return '–';
     if (value >= 99.995) return '100%';
 
     return `${value.toFixed(value >= 99 ? 2 : 1).replace(/\.?0+$/, '')}%`;
 }
 
 export function ms(value: number | null | undefined): string {
-    if (value === null || value === undefined) return '—';
+    if (value === null || value === undefined) return '–';
 
     return value >= 1000
         ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')} s`
@@ -117,4 +117,87 @@ export function daysUntil(iso: string | null, now = Date.now()): number | null {
     if (!iso) return null;
 
     return Math.floor((new Date(iso).getTime() - now) / 86_400_000);
+}
+
+export type MonitorRow = Monitor & {
+    machine: { id: number; name: string; provider: string | null } | null;
+    service: { name: string; image: string | null; icon: string | null } | null;
+    pausedBy: { name: string | null; at: string } | null;
+};
+
+export function dayBar(value: number | null): string {
+    if (value === null) return 'bg-surface-tile';
+    if (value >= 99.9) return 'bg-[rgb(62_196_109/0.85)]';
+    if (value >= 95) return 'bg-[rgb(240_148_60/0.9)]';
+
+    return 'bg-[rgb(240_105_90/0.95)]';
+}
+
+export function uptimeTone(value: number | null): string {
+    if (value === null || value >= 99.5) return 'text-fg-secondary';
+
+    return value >= 95 ? 'text-status-pending' : 'text-status-down';
+}
+
+export function address(
+    monitor: Pick<Monitor, 'type' | 'url' | 'target'>,
+): string {
+    if (monitor.type === 'tcp') return monitor.target;
+
+    return (monitor.url ?? '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+export function host(monitor: Pick<Monitor, 'type' | 'url' | 'host'>): string {
+    if (monitor.type === 'tcp') return monitor.host ?? '';
+    try {
+        return new URL(monitor.url ?? '').host;
+    } catch {
+        return monitor.url ?? '';
+    }
+}
+
+export function shortError(error: string | null): string | null {
+    if (!error) return null;
+    const code = /^Returned (\d{3})/.exec(error);
+    if (code) return code[1];
+
+    return error.replace(/\.$/, '');
+}
+
+export function lasting(fromIso: string | null, now = Date.now()): string {
+    if (!fromIso) return '';
+    const seconds = Math.max(
+        0,
+        Math.round((now - new Date(fromIso).getTime()) / 1000),
+    );
+    if (seconds < 60) return trans(':count s', { count: String(seconds) });
+    if (seconds < 3600)
+        return trans(':count min', { count: String(Math.floor(seconds / 60)) });
+    if (seconds < 86400)
+        return trans(':count h', { count: String(Math.floor(seconds / 3600)) });
+    const days = Math.floor(seconds / 86400);
+
+    return trans(days === 1 ? '1 day' : ':count days', { count: String(days) });
+}
+
+export function relative(iso: string | null, now = Date.now()): string {
+    if (!iso) return trans('Not yet');
+    const seconds = Math.round((now - new Date(iso).getTime()) / 1000);
+    if (seconds < 60) return trans('just now');
+
+    return trans(':time ago', { time: lasting(iso, now) });
+}
+
+const ORDER: Record<MonitorStatus, number> = {
+    down: 0,
+    pending: 1,
+    up: 2,
+    paused: 3,
+};
+
+export function byUrgency<T extends Pick<Monitor, 'status' | 'name'>>(
+    a: T,
+    b: T,
+): number {
+    return ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name);
 }

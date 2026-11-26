@@ -23,7 +23,7 @@ function skipMachine(string $version = 'v0.1.1-pre.22'): array
     $machine = Machine::factory()->for($workspace)->create(['name' => 'Box']);
     $machine->forceFill(['uid' => (string) Str::uuid(), 'certificate_serial' => bin2hex(random_bytes(6)), 'daemon_version' => $version, 'last_seen_at' => now()])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 test('saving skip rules tidies them, tells the daemon and records it', function () {

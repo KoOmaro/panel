@@ -22,7 +22,7 @@ function composeMachine(string $daemon = '0.1.1-pre.38'): array
     $machine = Machine::factory()->for($workspace)->create(['ip_address' => '203.0.113.7']);
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), 'daemon_version' => $daemon])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/deploy'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/deploy'];
 }
 
 /** @return array<string, mixed>|null */
@@ -166,7 +166,7 @@ test('detection hands the Compose file and its port to the dialog and to MCP', f
     $workspace = Workspace::factory()->create();
 
     $this->actingAs($workspace->owner)
-        ->postJson('https://'.$workspace->host().'/services/detect', ['repository' => 'https://github.com/acme/app'])
+        ->postJson($workspace->url().'/services/detect', ['repository' => 'https://github.com/acme/app'])
         ->assertOk()
         ->assertJson(['template' => 'compose-file', 'composeFile' => 'compose.yaml', 'composePort' => 8080]);
 

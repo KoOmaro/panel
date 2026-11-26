@@ -173,7 +173,7 @@ test('a passkey only counts for required two-factor when this session signed in 
     $sam = User::factory()->create();
     $workspace->members()->attach($sam, ['role' => 'admin']);
     Passkey::query()->forceCreate(['user_id' => $sam->id, 'name' => 'Laptop', 'credential_id' => 'abc', 'credential' => []]);
-    $machines = 'https://'.$workspace->host().'/machines';
+    $machines = $workspace->url().'/machines';
 
     $this->actingAs($sam)->withSession([GoogleTeamAccess::VIA => 'password'])->get($machines)
         ->assertRedirect('https://'.$workspace->host().'/user/confirm-password')

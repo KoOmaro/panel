@@ -29,7 +29,7 @@ function selfHostedInstall(): void
 
 function selfHostedUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/'.$path;
+    return $workspace->url().'/'.$path;
 }
 
 test('serveros.com is not self-hosted unless the edition says so', function () {
@@ -223,25 +223,25 @@ test('on serveros.com a trial that needs a card still can’t skip the welcome f
 test('the dashboard asks for no plan on a self-hosted install', function () {
     $workspace = Workspace::factory()->create();
     $guideGroups = fn () => collect(SetupGuide::for($workspace, $workspace->owner)['groups'] ?? [])->pluck('key')->all();
-    $homeSteps = fn () => collect($this->actingAs($workspace->owner)->get(selfHostedUrl($workspace))->viewData('page')['props']['onboarding'])->pluck('key')->all();
+    $pageGroups = fn () => collect($this->actingAs($workspace->owner)->get(selfHostedUrl($workspace, 'setup'))->viewData('page')['props']['guide']['groups'])->pluck('key')->all();
 
     app(Extensions::class)->setUpgradeLink(null);
-    expect($homeSteps())->not->toContain('plan')
+    expect($pageGroups())->not->toContain('plan')
         ->and($guideGroups())->not->toContain('plan');
 
     app(Extensions::class)->setUpgradeLink(new UpgradeLink(label: 'Billing', route: 'workspace.settings.general'));
 
-    $this->actingAs($workspace->owner)->get(selfHostedUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page->component('workspace/Home')
-            ->where('onboarding', fn ($steps) => collect($steps)->pluck('key')->contains('plan'))
+    $this->actingAs($workspace->owner)->get(selfHostedUrl($workspace, 'setup'))
+        ->assertInertia(fn (Assert $page) => $page->component('workspace/SetupGuide')
+            ->where('guide.groups', fn ($groups) => collect($groups)->pluck('key')->contains('plan'))
             ->missing('workspace.billing.selfHosted'));
     expect($guideGroups())->toContain('plan');
 
     selfHostedInstall();
 
-    $this->actingAs($workspace->owner)->get(selfHostedUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page->component('workspace/Home')
-            ->where('onboarding', fn ($steps) => ! collect($steps)->pluck('key')->contains('plan'))
+    $this->actingAs($workspace->owner)->get(selfHostedUrl($workspace, 'setup'))
+        ->assertInertia(fn (Assert $page) => $page->component('workspace/SetupGuide')
+            ->where('guide.groups', fn ($groups) => ! collect($groups)->pluck('key')->contains('plan'))
             ->where('workspace.billing.selfHosted', true));
     expect($guideGroups())->not->toContain('plan')->toContain('connect');
 });

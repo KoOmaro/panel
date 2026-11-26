@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import { Search } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import {
@@ -8,11 +8,21 @@ import {
     SheetDescription,
     SheetTitle,
 } from '@/components/ui/sheet';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 import { since, taskPhrase, taskPhraseClass } from './agentTasks';
 import type { TaskRow, TaskStatus } from './agentTasks';
 
 const props = defineProps<{ tasks: TaskRow[] }>();
 const open = defineModel<boolean>('open', { required: true });
+
+const page = usePage<{ workspace: { slug: string } }>();
+
+function taskHref(id: number): string {
+    return onWorkspace(
+        agentsRoutes.show({ workspace: page.props.workspace.slug, task: id }),
+    ).url;
+}
 
 type Filter = 'all' | 'running' | 'review' | 'failed';
 const filter = ref<Filter>('all');
@@ -117,7 +127,7 @@ const shown = computed(() => {
             >
                 <li v-for="task in shown" :key="task.id">
                     <Link
-                        :href="`/agents/${task.id}`"
+                        :href="taskHref(task.id)"
                         class="flex flex-col gap-0.5 px-4 py-2.5 transition-colors hover:bg-(--ds-hover) focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-(--ds-ring)"
                         @click="open = false"
                     >

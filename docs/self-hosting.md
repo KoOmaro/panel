@@ -19,14 +19,13 @@ Built from source, Settings › License says it's the community edition and how 
 - A domain for the panel, like `panel.example.com`, and access to its DNS.
 - Ports 80 and 443 open (the panel, with free Let's Encrypt certificates) and 8443 (where your machines connect).
 
-The panel answers on the domain, and each workspace on a subdomain of it (`acme.panel.example.com`). So before you install, add two DNS records pointing at the server:
+The panel answers on the domain, and each workspace at a path on it (`panel.example.com/acme`). So before you install, add one DNS record pointing at the server:
 
-| Type | Name                  | Value                |
-| ---- | --------------------- | -------------------- |
-| A    | `panel.example.com`   | the server's address |
-| A    | `*.panel.example.com` | the server's address |
+| Type | Name                | Value                |
+| ---- | ------------------- | -------------------- |
+| A    | `panel.example.com` | the server's address |
 
-(Add AAAA records too if the server has IPv6.) Certificates are made for each name the first time someone visits it, so there's nothing to set up for them.
+(Add an AAAA record too if the server has IPv6.) The certificate is made the first time someone visits, so there's nothing to set up for it. To open workspaces on a different name, see [Workspace addresses](#workspace-addresses).
 
 ## Installing
 
@@ -68,7 +67,7 @@ Then open `https://panel.example.com`, enter the code, and go through the steps:
 
 1. **Server check.** Docker has everything, so it's all green.
 2. **Database.** The install brings its own PostgreSQL, already set up, so this one is done for you.
-3. **Address.** Set by the install (`--domain`). The installer checks that it and `*.panel.example.com` point at the server.
+3. **Address.** Set by the install (`--domain`). The installer checks that it points at the server.
 4. **Email.** Your SMTP server, with a test email before it's saved. You can skip it and come back to it later in `/opt/serveros/.env` (see [Email](#email)).
 5. **Your account and first workspace.** You're the owner of the install. Your account doesn't need its email checked, so you can sign in before email is set up.
 6. **Finish.** You land in your workspace, on a short welcome: what you run, what your machines collect, and the command to connect your first one. There's no plan step.
@@ -99,17 +98,17 @@ You'll need PHP 8.4 (with the bcmath, ctype, curl, dom, fileinfo, intl, mbstring
 
     That's all PHP needs to write. Leave the rest of the code owned by root or the deploy user, so the web server can't change it. Run updates as that user too, as in [Upgrading](#upgrading): `bootstrap/cache` belongs to the web server's user now, so Composer skips its scripts and `php artisan package:discover` runs as `www-data`.
 
-3. Point the web server at `/var/www/serveros/public`, for `panel.example.com` and `*.panel.example.com`, with HTTPS. With Caddy:
+3. Point the web server at `/var/www/serveros/public`, for `panel.example.com`, with HTTPS. With Caddy:
 
     ```
-    panel.example.com, *.panel.example.com {
+    panel.example.com {
         root * /var/www/serveros/public
         php_fastcgi unix//run/php/php8.4-fpm.sock
         file_server
     }
     ```
 
-    (A wildcard certificate needs Caddy's DNS challenge; with nginx, use certbot the same way.)
+    (With nginx, use certbot the same way.)
 
 4. Make an empty database and a user for it, for example on PostgreSQL:
 
@@ -151,7 +150,7 @@ Machines are the exception. They connect to the gateway with their own certifica
 
     There's no `--email` to give: Let's Encrypt isn't used.
 
-4. In the tunnel's Routes, add a published application for `panel.example.com` and another for `*.panel.example.com`, each with the service URL `http://web:80`. Cloudflare adds their DNS records. Check the full hostname before you save: a route on the bare domain takes over whatever that domain serves now.
+4. In the tunnel's Routes, add a published application for `panel.example.com` with the service URL `http://web:80`. Cloudflare adds its DNS record. Check the full hostname before you save: a route on the bare domain takes over whatever that domain serves now.
 
 Then open `https://panel.example.com` and set it up as usual. The address step checks the tunnel and the gateway's name.
 
@@ -168,7 +167,7 @@ The script adds this to `/opt/serveros/.env`:
 
 Two things to know:
 
-- Cloudflare's free certificate covers a domain and one level under it: `example.com` and `*.example.com`. Workspaces on `acme.panel.example.com` are two levels down, so they need Cloudflare's Advanced Certificate Manager. Using the domain itself for the panel (`example.com`, with workspaces on `acme.example.com`) avoids that.
+- Workspaces open at a path on the panel's domain (`panel.example.com/acme`), so Cloudflare's free certificate covers them.
 - To move an existing install behind a tunnel, run the script again with `--tunnel-token` and `--gateway-host`. Machines connected before then use the old gateway name, so connect them again from Machines › Connect machine.
 
 ### Your machines' apps behind a tunnel
@@ -378,6 +377,16 @@ serveros-panel restart
 - **Emails don't arrive.** See [Email](#email); until it's set up, they're only in the log.
 - **"no configuration file provided: not found" when starting ServerOS.** If Docker was installed as a snap (`snap install docker`), snap confinement prevents Docker Compose from reading files in `/opt/serveros`. Either uninstall the snap and install Docker from [Docker's repository](https://get.docker.com) (or `apt`), or install ServerOS into a non-hidden directory under your home folder with `--dir=/home/username/serveros`.
 
+## Workspace addresses
+
+Each workspace opens at a path on the panel's domain: `https://panel.example.com/acme`, `https://panel.example.com/acme/machines` and so on. Account pages (sign in, `/dashboard`, `/workspaces`, `/settings/profile`) are on the same domain, so workspace names can't be words the panel uses itself, like `login` or `settings`.
+
+To open workspaces on another name, set `DASHBOARD_DOMAIN` in `.env`, like `DASHBOARD_DOMAIN=cloud.example.com`, point that name at the server too, and if it's under the panel's domain set `SESSION_DOMAIN=.example.com` so signing in carries over. ServerOS on serveros.com uses `cloud.serveros.com`.
+
+Installs from before this change opened each workspace on its own subdomain (`acme.panel.example.com`). Those addresses still work if you keep the `*.panel.example.com` DNS record: they redirect to the new address, keeping the path, and AI apps connected to `https://acme.panel.example.com/mcp` keep working there. New connections use `https://panel.example.com/acme/mcp`. Without the wildcard record, old links and old AI app connections stop working, so reconnect those apps from Settings › AI and MCP.
+
+Before updating, run `php artisan workspaces:reserved-slugs` (in the image: `docker compose exec app php artisan workspaces:reserved-slugs`). It lists any workspace whose name is now a reserved word. Rename those in their settings first, or their dashboard can't open.
+
 ## Trying it on your own computer
 
 For a look before you put it on a server, install it on your computer with `--local`. It runs on Linux, or on a Mac with Docker Desktop, needs no root, and lives in `~/serveros`:
@@ -386,7 +395,7 @@ For a look before you put it on a server, install it on your computer with `--lo
 curl -fsSL https://raw.githubusercontent.com/serveroshq/panel/main/docker/self-hosted/install.sh | bash -s -- --local
 ```
 
-Then open https://serveros.localhost in Chrome or Firefox (Safari doesn't open `.localhost` subdomains) and enter the setup code it shows. The certificate comes from Caddy on your computer, so the browser warns about it the first time; the script says how to trust it. Browsers send every `*.localhost` name to your computer, so workspaces work too. Ports 80 and 443 need to be free: stop any other web server on your computer while you try it.
+Then open https://serveros.localhost in Chrome or Firefox (Safari doesn't open `.localhost` subdomains) and enter the setup code it shows. The certificate comes from Caddy on your computer, so the browser warns about it the first time; the script says how to trust it. Workspaces open at a path on it, like https://serveros.localhost/acme. Ports 80 and 443 need to be free: stop any other web server on your computer while you try it.
 
 A local panel is for trying ServerOS: machines on the internet can't connect to it. Stop it with `cd ~/serveros && docker compose down`, or remove it with `docker compose down -v` and `rm -rf ~/serveros`.
 
@@ -404,4 +413,4 @@ Run it with `--image` and `--version` on the install script, or `SERVEROS_IMAGE`
 
 The official image is built by ServerOS the same way, from a checkout that also requires the commercial `serveroshq/panel-ee` package, which is why it has the paid features and this one doesn't.
 
-Every install is the self-hosted edition (`SERVEROS_EDITION=self-hosted`) unless it says otherwise, and the image sets it too. That's what turns off what only makes sense on serveros.com (`App\Support\Edition`): the trial and the welcome flow's plan step, billing, and certificates for any subdomain (only the install's own names and its workspaces get one). serveros.com sets `SERVEROS_EDITION=cloud`. What each workspace may use is `App\Support\Entitlements` (`SelfHostedEntitlements`), with the limits in `config/serveros.php` (`self_hosted`): machines and AI tool calls are unlimited, and the rest can be changed with the `SERVEROS_SELF_HOSTED_*` settings.
+Every install is the self-hosted edition (`SERVEROS_EDITION=self-hosted`) unless it says otherwise, and the image sets it too. That's what turns off what only makes sense on serveros.com (`App\Support\Edition`): the trial and the welcome flow's plan step, billing, and certificates for any subdomain (only the install's own names, and the old workspace subdomains that now redirect, get one). serveros.com sets `SERVEROS_EDITION=cloud`. What each workspace may use is `App\Support\Entitlements` (`SelfHostedEntitlements`), with the limits in `config/serveros.php` (`self_hosted`): machines and AI tool calls are unlimited, and the rest can be changed with the `SERVEROS_SELF_HOSTED_*` settings.

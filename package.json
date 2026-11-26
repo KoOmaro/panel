@@ -11,8 +11,6 @@
         "types:check": "vue-tsc --noEmit"
     },
     "dependencies": {
-        "@calcom/embed-react": "^1.5.3",
-        "@gsap/react": "^2.1.2",
         "@inertiajs/react": "^3.8.0",
         "@inertiajs/vite": "^3.0.0",
         "@inertiajs/vue3": "^3.0.0",
@@ -38,7 +36,6 @@
         "lucide-react": "^1.52.0",
         "marked": "^18.1.0",
         "modern-screenshot": "^4.7.0",
-        "motion": "^14.0.0",
         "posthog-js": "^1.450.0",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",

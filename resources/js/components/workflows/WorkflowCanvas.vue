@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { trans } from 'laravel-vue-i18n';
-import { Maximize, Minus, Plus } from '@lucide/vue';
 import {
     computed,
     nextTick,
@@ -10,75 +8,74 @@ import {
     useTemplateRef,
     watch,
 } from 'vue';
-import ActionsPanel from './ActionsPanel.vue';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
 import {
-    DEFAULT_VIEW,
     GRID_SIZE,
     MAX_ZOOM,
     MIN_ZOOM,
+    NODE_HEIGHT,
     NODE_WIDTH,
     clampZoom,
-    estimateHeight,
     freePlacement,
     hasInput,
-    inputPoint,
+    inAnchor,
     nodeHeight,
     openPorts,
-    outputPoint,
+    outAnchor,
     placementFor,
     portFromPointer,
     snapToNodes,
+    tidy,
     toWorld,
     zoomAround,
 } from './geometry';
 import type { OpenPort, Point, View } from './geometry';
-import {
-    EVENTS,
-    FROM_TRIGGER,
-    STEPS,
-    environmentName,
-    projectName,
-    stepTheme,
-} from './kinds';
+import { EVENTS, FROM_TRIGGER, STEPS } from './kinds';
 import type { Options, PortId, StepKind, WorkflowNode } from './kinds';
 import NodePanel from './NodePanel.vue';
+import StepPicker from './StepPicker.vue';
+import { useWorkflowEditor } from './useWorkflowEditor';
+import { nodeSubtitle, nodeVisual } from './visual';
+import type { NodeVisual } from './visual';
 import WorkflowEdges from './WorkflowEdges.vue';
 import type { EdgePreview } from './WorkflowEdges.vue';
 import WorkflowNodeCard from './WorkflowNode.vue';
-import { useWorkflowEditor } from './useWorkflowEditor';
 
 const props = defineProps<{
     options: Options;
     webhookUrl: string | null;
     twoFactor: boolean;
     problems: Record<string, string>;
+    insetLeft?: number;
 }>();
 
 const emit = defineEmits<{ rotateWebhook: [] }>();
+
+defineSlots<{ default?: () => unknown; dock?: () => unknown }>();
 
 const editor = useWorkflowEditor();
 const { nodes, edges, sizes, view, selection, readOnly } = editor;
 
 const container = useTemplateRef<HTMLDivElement>('container');
-const panelEl = ref<HTMLElement | null>(null);
+const pickerEl = ref<HTMLElement | null>(null);
 
-function setPanel(component: unknown): void {
-    panelEl.value = (component as { $el?: HTMLElement } | null)?.$el ?? null;
+function setPicker(component: unknown): void {
+    pickerEl.value = (component as { $el?: HTMLElement } | null)?.$el ?? null;
 }
 
 const SNAP_RADIUS = 48;
 const DRAG_THRESHOLD = 4;
 const ZOOM_STEP = 1.25;
-const PANEL_INSET = 332;
-const INSPECTOR_INSET = 472;
+const PICKER_INSET = 320;
+const INSPECTOR_INSET = 480;
 const SNAP_TOLERANCE = 10;
+const MARGIN = 60;
 
 type PaletteDrag = {
     kind: StepKind;
     clientX: number;
     clientY: number;
-    grabX: number;
-    grabY: number;
     snap: OpenPort | null;
     placement: Point | null;
 };
@@ -90,7 +87,6 @@ type LinkDrag = {
     target: string | null;
 };
 
-const panelOpen = ref(true);
 const palette = ref<PaletteDrag | null>(null);
 const link = ref<LinkDrag | null>(null);
 const draggingNode = ref<string | null>(null);
@@ -153,6 +149,12 @@ function animateView(update: (current: View) => View): void {
     animation = requestAnimationFrame(frame);
 }
 
+function rightInset(width: number): number {
+    if (editor.inspector.value && width >= 1100) return INSPECTOR_INSET;
+
+    return !readOnly.value && width >= 900 ? PICKER_INSET : 0;
+}
+
 function findSnap(world: Point, zoom: number) {
     let best: { port: OpenPort; placement: Point } | null = null;
     let bestDistance = Infinity;
@@ -163,8 +165,8 @@ function findSnap(world: Point, zoom: number) {
         const inside =
             world.x >= placement.x &&
             world.x <= placement.x + NODE_WIDTH &&
-            world.y >= port.point.y - 12 &&
-            world.y <= placement.y + 121;
+            world.y >= placement.y &&
+            world.y <= placement.y + NODE_HEIGHT;
         if ((distance <= SNAP_RADIUS || inside) && distance < bestDistance) {
             best = {
                 port,
@@ -183,8 +185,8 @@ function nodeAt(world: Point, exclude: string): string | null {
         if (node.id === exclude || !hasInput(node)) continue;
         const height = nodeHeight(node, sizes);
         if (
-            world.x >= node.x &&
-            world.x <= node.x + NODE_WIDTH &&
+            world.x >= node.x - 8 &&
+            world.x <= node.x + NODE_WIDTH + 8 &&
             world.y >= node.y - 16 &&
             world.y <= node.y + height
         )
@@ -197,23 +199,20 @@ function nodeAt(world: Point, exclude: string): string | null {
 function reveal(node: WorkflowNode): void {
     const rect = bounds();
     const current = view.value;
-    const height = estimateHeight(node);
-    const inset = panelOpen.value && rect.width >= 900 ? PANEL_INSET : 16;
-    const right =
-        editor.inspector.value && rect.width >= 1100 ? INSPECTOR_INSET : 16;
+    const right = rightInset(rect.width) || 16;
     const left = rect.width / 2 + current.x + node.x * current.zoom;
     const top = current.y + node.y * current.zoom;
     const visible =
-        left >= inset &&
+        left >= 16 &&
         left + NODE_WIDTH * current.zoom <= rect.width - right &&
         top >= 16 &&
-        top + height * current.zoom <= rect.height - 16;
+        top + (NODE_HEIGHT + 60) * current.zoom <= rect.height - 80;
     if (visible) return;
-    const centerX = inset + (rect.width - inset - right) / 2;
+    const centerX = (rect.width - right) / 2;
     animateView((value) => ({
         ...value,
         x: centerX - rect.width / 2 - (node.x + NODE_WIDTH / 2) * value.zoom,
-        y: rect.height / 2 - (node.y + height / 2) * value.zoom,
+        y: rect.height / 2 - (node.y + NODE_HEIGHT / 2) * value.zoom,
     }));
 }
 
@@ -245,33 +244,91 @@ function create(
     return node;
 }
 
-function addToNextSlot(kind: StepKind): void {
-    if (readOnly.value) return;
+const PORT_ORDER: Record<PortId, number> = {
+    true: 0,
+    out: 1,
+    false: 2,
+    failed: 3,
+};
+
+const target = computed<OpenPort | null>(() => {
     const ports = openPorts(nodes.value, edges.value, sizes);
     const pending = editor.pendingPort.value;
-    const preferred =
-        (pending &&
-            ports.find(
-                (p) =>
-                    p.source.id === pending.source && p.port === pending.port,
-            )) ??
-        ports.find(
-            (p) =>
-                selection.value?.type === 'node' &&
-                p.source.id === selection.value.id &&
-                p.port !== 'failed',
-        ) ??
-        ports.find((p) => p.port !== 'failed') ??
-        ports[0];
-    if (preferred) {
+    if (pending) {
+        const port = ports.find(
+            (p) => p.source.id === pending.source && p.port === pending.port,
+        );
+        if (port) return port;
+    }
+    if (selection.value?.type === 'node') {
+        const id = selection.value.id;
+        const port = ports.find(
+            (p) => p.source.id === id && p.port !== 'failed',
+        );
+        if (port) return port;
+    }
+    const root = nodes.value.find((n) => n.kind === 'trigger');
+    const order: string[] = [];
+    if (root) {
+        const queue = [root.id];
+        const seen = new Set(queue);
+        while (queue.length) {
+            const id = queue.shift()!;
+            order.push(id);
+            for (const edge of edges.value
+                .filter((e) => e.source === id)
+                .sort((a, b) => PORT_ORDER[a.port] - PORT_ORDER[b.port])) {
+                if (seen.has(edge.target)) continue;
+                seen.add(edge.target);
+                queue.push(edge.target);
+            }
+        }
+    }
+    const rank = (id: string) => {
+        const i = order.indexOf(id);
+
+        return i === -1 ? Infinity : i;
+    };
+    const candidates = ports
+        .filter((p) => p.port !== 'failed')
+        .sort(
+            (a, b) =>
+                rank(a.source.id) - rank(b.source.id) ||
+                PORT_ORDER[a.port] - PORT_ORDER[b.port],
+        );
+    const leaf = candidates.find(
+        (p) => !edges.value.some((e) => e.source === p.source.id),
+    );
+
+    return leaf ?? candidates[0] ?? null;
+});
+
+const targetKey = computed(() =>
+    target.value ? `${target.value.source.id}:${target.value.port}` : null,
+);
+
+const targetLabel = computed(() => {
+    const port = target.value;
+    if (!port) return null;
+    const title = port.source.title || STEPS[port.source.kind].title;
+
+    return port.port === 'true' || port.port === 'false'
+        ? `${title} (${port.port === 'true' ? 'yes' : 'no'})`
+        : title;
+});
+
+function addToNextSlot(kind: StepKind): void {
+    if (readOnly.value) return;
+    const port = target.value;
+    if (port) {
         const node = create(
             kind,
             freePlacement(
-                placementFor(preferred.source, preferred.port, sizes),
+                placementFor(port.source, port.port, sizes),
                 nodes.value,
                 sizes,
             ),
-            { source: preferred.source.id, port: preferred.port },
+            { source: port.source.id, port: port.port },
         );
         editor.openInspector(node.id, 'build');
         void nextTick(() => reveal(node));
@@ -279,8 +336,8 @@ function addToNextSlot(kind: StepKind): void {
         return;
     }
     const rect = bounds();
-    const center = toWorld(
-        rect.left + rect.width / 2,
+    const middle = toWorld(
+        rect.left + (rect.width - rightInset(rect.width)) / 2,
         rect.top + rect.height / 3,
         rect,
         view.value,
@@ -288,12 +345,13 @@ function addToNextSlot(kind: StepKind): void {
     const node = create(
         kind,
         freePlacement(
-            { x: center.x - NODE_WIDTH / 2, y: center.y },
+            { x: middle.x - NODE_WIDTH / 2, y: middle.y },
             nodes.value,
             sizes,
         ),
         null,
     );
+    editor.openInspector(node.id, 'build');
     void nextTick(() => reveal(node));
 }
 
@@ -301,20 +359,16 @@ function resolvePalette(
     kind: StepKind,
     clientX: number,
     clientY: number,
-    grabX: number,
-    grabY: number,
 ): PaletteDrag {
     const base: PaletteDrag = {
         kind,
         clientX,
         clientY,
-        grabX,
-        grabY,
         snap: null,
         placement: null,
     };
     const rect = bounds();
-    const panel = panelEl.value?.getBoundingClientRect();
+    const panel = pickerEl.value?.getBoundingClientRect();
     const overPanel =
         panel &&
         clientX >= panel.left &&
@@ -333,15 +387,15 @@ function resolvePalette(
 
     return {
         ...base,
-        placement: { x: world.x - NODE_WIDTH / 2, y: world.y - 18 },
+        placement: {
+            x: world.x - NODE_WIDTH / 2,
+            y: world.y - NODE_HEIGHT / 2,
+        },
     };
 }
 
 function onItemPointerdown(kind: StepKind, event: PointerEvent): void {
     if (event.button !== 0 || readOnly.value) return;
-    const item = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const grabX = event.clientX - item.left;
-    const grabY = event.clientY - item.top;
     const startX = event.clientX;
     const startY = event.clientY;
     let active = false;
@@ -354,13 +408,7 @@ function onItemPointerdown(kind: StepKind, event: PointerEvent): void {
             )
                 return;
             active = true;
-            palette.value = resolvePalette(
-                kind,
-                move.clientX,
-                move.clientY,
-                grabX,
-                grabY,
-            );
+            palette.value = resolvePalette(kind, move.clientX, move.clientY);
         },
         (end, cancelled) => {
             palette.value = null;
@@ -370,13 +418,7 @@ function onItemPointerdown(kind: StepKind, event: PointerEvent): void {
 
                 return;
             }
-            const drop = resolvePalette(
-                kind,
-                end.clientX,
-                end.clientY,
-                grabX,
-                grabY,
-            );
+            const drop = resolvePalette(kind, end.clientX, end.clientY);
             if (!drop.placement) return;
             const node = create(
                 kind,
@@ -394,6 +436,7 @@ function onNodePointerdown(id: string, event: PointerEvent): void {
     if (event.button !== 0) return;
     event.stopPropagation();
     selection.value = { type: 'node', id };
+    editor.pendingPort.value = null;
     if (readOnly.value) {
         editor.openInspector(id);
 
@@ -469,7 +512,7 @@ function startLink(
             if (!moved) {
                 if (port) {
                     editor.pendingPort.value = { source, port };
-                    panelOpen.value = true;
+                    editor.inspector.value = null;
                 }
 
                 return;
@@ -551,10 +594,10 @@ function onWheel(event: WheelEvent): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-    const target = event.target;
+    const element = event.target;
     if (
-        target instanceof Element &&
-        target.closest("input, textarea, select, [contenteditable='true']")
+        element instanceof Element &&
+        element.closest("input, textarea, select, [contenteditable='true']")
     )
         return;
     const key = event.key.toLowerCase();
@@ -598,37 +641,82 @@ function zoomBy(factor: number): void {
     );
 }
 
+function overlayRect(
+    rect: DOMRect,
+): { left: number; top: number; bottom: number } | null {
+    const element = editor.inspector.value
+        ? container.value?.querySelector('.wf-inspector')
+        : pickerEl.value;
+    if (!element) return null;
+    const box = element.getBoundingClientRect();
+
+    return {
+        left: box.left - rect.left - 16,
+        top: box.top - rect.top - 16,
+        bottom: box.bottom - rect.top + 16,
+    };
+}
+
 function fitView(options: { animate?: boolean } = {}): void {
     if (!nodes.value.length || !container.value) return;
     const rect = bounds();
-    const minX = Math.min(...nodes.value.map((n) => n.x)) - 40;
-    const maxX = Math.max(...nodes.value.map((n) => n.x + NODE_WIDTH)) + 40;
-    const minY = Math.min(...nodes.value.map((n) => n.y)) - 24;
-    const maxY =
-        Math.max(...nodes.value.map((n) => n.y + nodeHeight(n, sizes))) + 104;
-    const inset =
-        panelOpen.value && rect.width >= 900 && !readOnly.value
-            ? PANEL_INSET
-            : 0;
-    const zoom = clampZoom(
-        Math.min(
-            (rect.width - inset - 64) / (maxX - minX),
-            (rect.height - 64) / (maxY - minY),
-        ),
+    const minX = Math.min(...nodes.value.map((n) => n.x));
+    const maxX = Math.max(...nodes.value.map((n) => n.x + NODE_WIDTH));
+    const minY = Math.min(...nodes.value.map((n) => n.y));
+    const maxY = Math.max(
+        ...nodes.value.map((n) => n.y + nodeHeight(n, sizes)),
     );
-    const centerX = inset + (rect.width - inset) / 2;
-    const fits =
-        maxX - minX <= rect.width - inset - 64 &&
-        maxY - minY <= rect.height - 64;
-    const target = {
-        zoom,
-        x: centerX - rect.width / 2 - ((minX + maxX) / 2) * zoom,
-        y: fits
-            ? DEFAULT_VIEW.y - minY + 24
-            : rect.height / 2 - ((minY + maxY) / 2) * zoom,
+    const inset = rightInset(rect.width);
+    const left = rect.width >= 900 ? (props.insetLeft ?? 0) : 0;
+    const panel = overlayRect(rect);
+    const place = (room: number): View => {
+        const zoom = clampZoom(
+            Math.min(
+                1,
+                (room - MARGIN * 2) / (maxX - minX),
+                (rect.height - 200) / (maxY - minY),
+            ),
+        );
+        const width = (maxX - minX) * zoom;
+        const height = (maxY - minY) * zoom;
+        const middle = Math.max(
+            left + (rect.width - left - inset) / 2,
+            left + MARGIN + width / 2,
+        );
+        const top = Math.max(40, (rect.height - height) / 2 - 8);
+
+        return {
+            zoom,
+            x: middle - rect.width / 2 - ((minX + maxX) / 2) * zoom,
+            y: top - minY * zoom,
+        };
     };
-    if (options.animate === false) view.value = target;
-    else animateView(() => target);
+    const covered = (candidate: View): boolean =>
+        panel !== null &&
+        nodes.value.some((n) => {
+            const x = rect.width / 2 + candidate.x + n.x * candidate.zoom;
+            const y = candidate.y + n.y * candidate.zoom;
+
+            return (
+                x + NODE_WIDTH * candidate.zoom > panel.left &&
+                y < panel.bottom &&
+                y + nodeHeight(n, sizes) * candidate.zoom > panel.top
+            );
+        });
+    let next = place(rect.width - left);
+    if (covered(next)) next = place(rect.width - left - inset);
+    if (options.animate === false) view.value = next;
+    else animateView(() => next);
+}
+
+function tidyUp(): void {
+    if (readOnly.value || !nodes.value.length) return;
+    editor.checkpoint();
+    const positions = tidy(nodes.value, edges.value);
+    for (const [id, point] of Object.entries(positions)) {
+        editor.moveNode(id, Math.round(point.x), Math.round(point.y));
+    }
+    requestAnimationFrame(() => fitView());
 }
 
 function focusNode(id: string): void {
@@ -662,7 +750,6 @@ defineExpose({ fitView });
 onMounted(() => {
     container.value?.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeydown);
-    if (window.innerWidth < 900) panelOpen.value = false;
     requestAnimationFrame(() => fitView({ animate: false }));
 });
 
@@ -680,47 +767,31 @@ const snapKey = computed(() =>
         ? `${palette.value.snap.source.id}:${palette.value.snap.port}`
         : null,
 );
-const pendingKey = computed(() =>
-    editor.pendingPort.value
-        ? `${editor.pendingPort.value.source}:${editor.pendingPort.value.port}`
-        : null,
-);
-const pendingLabel = computed(() => {
-    const pending = editor.pendingPort.value;
-    if (!pending) return null;
-    const node = nodes.value.find((n) => n.id === pending.source);
-
-    return node
-        ? `${node.title}${pending.port === 'out' ? '' : ` (${pending.port.toUpperCase()})`}`
-        : null;
-});
 
 const preview = computed<EdgePreview | null>(() => {
     if (link.value) {
         const source = nodes.value.find((n) => n.id === link.value!.source);
         if (!source) return null;
-        const target = link.value.target
+        const goal = link.value.target
             ? nodes.value.find((n) => n.id === link.value!.target)
             : undefined;
+        const port =
+            link.value.port ?? portFromPointer(source, link.value.pointer.x);
 
         return {
-            from: outputPoint(source, nodeHeight(source, sizes)),
-            to: target ? inputPoint(target) : link.value.pointer,
-            fromColor: 'var(--wf-edge)',
-            toColor: target ? 'var(--wf-edge)' : 'var(--wf-stub)',
+            from: outAnchor(source, nodeHeight(source, sizes), port).point,
+            to: goal
+                ? inAnchor(goal, nodeHeight(goal, sizes)).point
+                : link.value.pointer,
         };
     }
     if (palette.value?.snap && palette.value.placement) {
-        const source = palette.value.snap.source;
-
         return {
-            from: outputPoint(source, nodeHeight(source, sizes)),
+            from: palette.value.snap.point,
             to: {
                 x: palette.value.placement.x + NODE_WIDTH / 2,
                 y: palette.value.placement.y,
             },
-            fromColor: 'var(--wf-edge)',
-            toColor: 'var(--wf-edge)',
         };
     }
 
@@ -736,107 +807,28 @@ const gridStyle = computed(() => {
 
     return {
         backgroundSize: `${size}px ${size}px`,
-        backgroundPosition: `calc(50% + ${view.value.x}px) ${view.value.y}px`,
+        backgroundPosition: `calc(50% + ${view.value.x + 11 * view.value.zoom}px) ${view.value.y + 11 * view.value.zoom}px`,
     };
 });
 
-function summary(node: WorkflowNode): string | null {
-    const r = node.rules;
-    const machine =
-        r.machine_id === FROM_TRIGGER
-            ? 'trigger’s machine'
-            : props.options.machines.find(
-                  (m) => String(m.id) === String(r.machine_id),
-              )?.name;
-    const service =
-        r.service === FROM_TRIGGER
-            ? 'trigger’s service'
-            : (props.options.machines
-                  .flatMap((m) => m.services)
-                  .find((s) => s.key === r.service)?.name ??
-              (r.service ? String(r.service) : null));
-    const monitor = props.options.monitors.find(
-        (m) => String(m.id) === String(r.monitor_id),
-    )?.name;
-
-    switch (node.kind) {
-        case 'trigger': {
-            const event = EVENTS.find((e) => e.id === r.event);
-            if (r.event === 'schedule')
-                return r.every
-                    ? `every ${r.every}${r.every !== 'hour' ? ` at ${r.at ?? '03:00'} UTC` : ''}`
-                    : null;
-
-            return event && event.id !== 'manual'
-                ? event.label.toLowerCase()
-                : null;
-        }
-        case 'redeploy':
-        case 'restart':
-        case 'start':
-        case 'stop':
-            return machine && service ? `${service} · ${machine}` : null;
-        case 'command':
-            return r.command ? `$ ${r.command}` : null;
-        case 'agent':
-            return r.prompt
-                ? `${r.agent === 'codex' ? 'Codex' : 'Claude Code'} · ${String(r.prompt).slice(0, 60)}`
-                : null;
-        case 'backup':
-            return machine ?? null;
-        case 'copy_data': {
-            const into = environmentName(
-                props.options,
-                r.project,
-                r.environment,
-            );
-
-            return into
-                ? `${into} · ${projectName(props.options, r.project)}`
-                : null;
-        }
-        case 'promote': {
-            const from = environmentName(props.options, r.project, r.from);
-            const to = environmentName(props.options, r.project, r.to);
-
-            return from && to ? `${from} → ${to}` : null;
-        }
-        case 'check_monitor':
-            return monitor
-                ? trans(':monitor · up to :value min', {
-                      monitor: String(monitor),
-                      value: String(r.timeout ?? 5),
-                  })
-                : null;
-        case 'http':
-            return r.url
-                ? `${r.method ?? 'POST'} ${String(r.url).replace(/^https?:\/\//, '')}`
-                : null;
-        case 'alert':
-            return r.subject ? String(r.subject) : null;
-        case 'wait':
-            return null;
-        case 'branch':
-            if (r.condition === 'trigger_field')
-                return r.field ? `${r.field} = ${r.value}` : null;
-            if (r.condition === 'monitor_up')
-                return monitor
-                    ? trans(':monitor is up', { monitor: String(monitor) })
-                    : null;
-            if (r.condition === 'service_running')
-                return service
-                    ? trans(':service is running', { service: String(service) })
-                    : null;
-            if (r.condition === 'disk_below')
-                return machine ? `${machine} disk < ${r.percent ?? 85}%` : null;
-            if (r.condition === 'time_between')
-                return `${r.from ?? '09:00'}–${r.to ?? '17:00'} UTC`;
-
-            return null;
+const visuals = computed(() => {
+    const out: Record<string, { visual: NodeVisual; subtitle: string }> = {};
+    for (const node of nodes.value) {
+        out[node.id] = {
+            visual: nodeVisual(node, props.options),
+            subtitle: nodeSubtitle(node, props.options),
+        };
     }
 
-    return null;
-}
+    return out;
+});
+
+const showPicker = computed(
+    () => !readOnly.value && editor.inspector.value === null,
+);
+
+const dockButton =
+    'flex h-8 shrink-0 cursor-pointer items-center justify-center rounded-[8px] px-3 text-[13px]/5 font-medium tracking-[-0.01em] text-fg-secondary transition-colors hover:bg-black/[0.05] hover:text-fg-primary focus-visible:outline-2 focus-visible:outline-(--ds-ring) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:hover:bg-[#242424]';
 </script>
 
 <template>
@@ -845,11 +837,11 @@ function summary(node: WorkflowNode): string | null {
         role="application"
         aria-roledescription="workflow canvas"
         :aria-label="$t('Workflow canvas')"
-        class="wf-root wf-canvas relative min-h-0 flex-1 touch-none overflow-hidden select-none"
+        class="wf-root relative min-h-0 flex-1 touch-none overflow-hidden bg-surface-main font-ui select-none [--wf-dot:rgb(0_0_0/0.12)] [--wf-handle:#ffffff] [--wf-port-ring:#f4f4f4] [--wf-port:#b8b8b8] [--wf-wire-hover:#9a9a9a] [--wf-wire:#c6c6c6] dark:[--wf-dot:rgb(255_255_255/0.1)] dark:[--wf-handle:#1f1f1f] dark:[--wf-port-ring:#131313] dark:[--wf-port:#4a4a4a] dark:[--wf-wire-hover:#5c5c5c] dark:[--wf-wire:#3c3c3c]"
         @pointerdown="onCanvasPointerdown"
     >
         <div
-            class="wf-grid pointer-events-none absolute inset-0"
+            class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle,var(--wf-dot)_0.8px,transparent_1.2px)]"
             :style="gridStyle"
             aria-hidden="true"
         />
@@ -866,10 +858,9 @@ function summary(node: WorkflowNode): string | null {
                 :sizes="sizes"
                 :selection="selection"
                 :snap-key="snapKey"
-                :pending-key="pendingKey"
+                :target-key="interacting ? null : targetKey"
                 :preview="preview"
-                :traversed="editor.traversed.value"
-                :running="editor.run.value?.state === 'running'"
+                :run="editor.run.value"
                 :read-only="readOnly"
                 @edge-pointerdown="onEdgePointerdown"
                 @endpoint-pointerdown="startLink"
@@ -879,9 +870,8 @@ function summary(node: WorkflowNode): string | null {
             <div
                 v-if="palette?.snap && palette.placement"
                 aria-hidden="true"
-                class="wf-placeholder pointer-events-none absolute top-0 left-0 h-[121px] w-[400px] rounded-[12px] border border-dashed"
+                class="pointer-events-none absolute top-0 left-0 h-[86px] w-[214px] rounded-[19px] border border-dashed border-edge-checkbox-hover bg-black/[0.03] dark:bg-white/[0.03]"
                 :style="{
-                    ...stepTheme(palette.kind),
                     translate: `${palette.placement.x}px ${palette.placement.y}px`,
                 }"
             />
@@ -899,24 +889,20 @@ function summary(node: WorkflowNode): string | null {
                 :problem="problems[node.id] ?? null"
                 :editing="editor.inspector.value?.nodeId === node.id"
                 :read-only="readOnly"
-                :summary="summary(node)"
-                @measure="(id, h) => (sizes[id] = h)"
+                :visual="visuals[node.id].visual"
+                :subtitle="visuals[node.id].subtitle"
                 @node-pointerdown="onNodePointerdown"
-                @handle-pointerdown="(id, e) => startLink(id, null, e)"
                 @open="openNode"
             />
         </div>
 
-        <ActionsPanel
-            v-if="!readOnly"
-            :ref="setPanel"
-            :open="panelOpen"
+        <StepPicker
+            v-if="showPicker"
+            :ref="setPicker"
+            :target-label="targetLabel"
             :dragging-kind="palette?.kind ?? null"
-            :pending-label="pendingLabel"
-            @toggle="panelOpen = !panelOpen"
             @item-pointerdown="onItemPointerdown"
             @add="addToNextSlot"
-            @cancel-pending="editor.pendingPort.value = null"
         />
 
         <NodePanel
@@ -931,36 +917,76 @@ function summary(node: WorkflowNode): string | null {
 
         <div
             role="toolbar"
-            :aria-label="$t('Canvas zoom')"
+            :aria-label="$t('Canvas')"
             data-canvas-overlay
-            class="absolute right-0 bottom-0 z-20 flex flex-col gap-2 p-4"
+            class="absolute bottom-5 left-1/2 z-20 flex max-w-[calc(100%-40px)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-[12px] border-[0.5px] border-[#e0e0e0] bg-white p-1.5 shadow-[0_10px_24px_-6px_rgb(0_0_0/0.45),0_1px_2px_rgb(0_0_0/0.5)] dark:border-[#2c2c2c] dark:bg-[#1a1a1a]"
             @pointerdown.stop
         >
+            <template v-if="$slots.dock">
+                <slot name="dock" />
+                <span
+                    class="h-[18px] w-[0.5px] shrink-0 bg-edge-control"
+                    aria-hidden="true"
+                />
+            </template>
             <button
                 type="button"
-                class="wf-button size-9! p-0!"
-                :aria-label="$t('Zoom in')"
-                :disabled="view.zoom >= MAX_ZOOM - 0.001"
-                @click="zoomBy(ZOOM_STEP)"
-            >
-                <Plus class="size-4" />
-            </button>
-            <button
-                type="button"
-                class="wf-button size-9! p-0!"
+                :class="[dockButton, 'w-8 px-0!']"
                 :aria-label="$t('Zoom out')"
                 :disabled="view.zoom <= MIN_ZOOM + 0.001"
                 @click="zoomBy(1 / ZOOM_STEP)"
             >
-                <Minus class="size-4" />
+                −
             </button>
             <button
                 type="button"
-                class="wf-button size-9! p-0!"
-                :aria-label="$t('Fit workflow to screen')"
+                :class="[dockButton, 'min-w-[60px] tabular-nums']"
+                :title="$t('Back to 100%')"
+                @click="
+                    animateView((current) => {
+                        const rect = bounds();
+
+                        return zoomAround(
+                            current,
+                            1,
+                            rect.width / 2,
+                            rect.height / 2,
+                            rect.width,
+                        );
+                    })
+                "
+            >
+                {{ Math.round(view.zoom * 100) }}%
+            </button>
+            <button
+                type="button"
+                :class="[dockButton, 'w-8 px-0!']"
+                :aria-label="$t('Zoom in')"
+                :disabled="view.zoom >= MAX_ZOOM - 0.001"
+                @click="zoomBy(ZOOM_STEP)"
+            >
+                +
+            </button>
+            <span
+                class="h-[18px] w-[0.5px] shrink-0 bg-edge-control"
+                aria-hidden="true"
+            />
+            <button
+                type="button"
+                :class="dockButton"
+                :title="$t('Fit the workflow on screen')"
                 @click="fitView()"
             >
-                <Maximize class="size-4" />
+                {{ $t('Fit') }}
+            </button>
+            <button
+                v-if="!readOnly"
+                type="button"
+                :class="dockButton"
+                :title="$t('Line the steps up')"
+                @click="tidyUp"
+            >
+                {{ $t('Tidy up') }}
             </button>
         </div>
 
@@ -978,24 +1004,51 @@ function summary(node: WorkflowNode): string | null {
             aria-hidden="true"
             class="pointer-events-none fixed top-0 left-0 z-50"
             :style="{
-                translate: `${palette.clientX - palette.grabX}px ${palette.clientY - palette.grabY}px`,
+                translate: `${palette.clientX - (NODE_WIDTH / 2) * view.zoom}px ${palette.clientY - (NODE_HEIGHT / 2) * view.zoom}px`,
             }"
         >
             <div
-                class="wf-ghost flex h-9 w-[260px] items-center rounded-[8px] px-1 py-1.5 transition-[opacity,scale] duration-150"
-                :class="{ 'scale-[0.96] opacity-60': palette.snap }"
-                :style="stepTheme(palette.kind)"
+                class="flex h-[86px] w-[214px] origin-top-left flex-col rounded-[19px] border-[0.5px] border-[#262626] bg-[#101010] p-[5px] opacity-90 shadow-[0_12px_32px_rgb(0_0_0/0.5)] transition-opacity duration-150"
+                :class="{ 'opacity-50!': palette.snap }"
+                :style="{ scale: String(view.zoom) }"
             >
-                <span class="flex shrink-0 items-center pl-1">
-                    <component
-                        :is="STEPS[palette.kind].icon"
-                        class="wf-tone size-[18px]"
-                        :stroke-width="2"
+                <div
+                    class="flex flex-1 items-center gap-3 rounded-[14px] border-[0.5px] border-[#2e2e2e] bg-[linear-gradient(164.5deg,#222222_14.286%,#161616_85.714%)] px-4"
+                >
+                    <BrandLogo
+                        v-if="STEPS[palette.kind].kind === 'agent'"
+                        name="claude"
+                        :size="22"
                     />
-                </span>
-                <span class="pl-2 text-[14px]/6 font-medium text-(--wf-text)">{{
-                    STEPS[palette.kind].label
-                }}</span>
+                    <FilledIcon
+                        v-else
+                        :name="
+                            nodeVisual(
+                                {
+                                    id: '',
+                                    kind: palette.kind,
+                                    x: 0,
+                                    y: 0,
+                                    title: '',
+                                    description: '',
+                                    rules: {},
+                                },
+                                options,
+                            ).icon
+                        "
+                        :size="22"
+                        class="text-[#ededed]"
+                    />
+                    <span class="flex min-w-0 flex-col">
+                        <span
+                            class="truncate text-[13.5px]/[18px] font-medium text-[#ededed]"
+                            >{{ STEPS[palette.kind].title }}</span
+                        >
+                        <span class="truncate text-[12px]/4 text-[#9a9a9a]">{{
+                            STEPS[palette.kind].description
+                        }}</span>
+                    </span>
+                </div>
             </div>
         </div>
     </div>

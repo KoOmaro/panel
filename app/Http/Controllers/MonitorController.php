@@ -9,8 +9,12 @@ use App\Models\MonitorCheck;
 use App\Models\MonitorIncident;
 use App\Models\StatusIncident;
 use App\Models\Workspace;
+use App\Models\WorkspaceStatusPage;
+use App\Support\Activity\ActivityLine;
 use App\Support\Audit\Audited;
 use App\Support\Audit\NotAudited;
+use App\Support\Deploys\AppReleases;
+use App\Support\Deploys\ServiceLabels;
 use App\Support\Monitors\AlertKinds;
 use App\Support\Monitors\HostResolver;
 use App\Support\Monitors\MonitorAlerts;
@@ -20,6 +24,7 @@ use App\Support\Monitors\TelegramAlerts;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -36,9 +41,19 @@ class MonitorController extends Controller
 
     public function index(Workspace $workspace): Response
     {
+        $monitors = $workspace->monitors()->with('machine')->orderBy('name')->get();
+        $pausedBy = $this->pausedBy($workspace, array_values($monitors->where('paused', true)->map(fn (Monitor $m) => $m->name)->all()));
+        $page = $workspace->fleetStatusPage;
+
         return Inertia::render('workspace/Monitors', [
             'workspace' => $workspace->toPageProps(),
-            'monitors' => $workspace->monitors()->orderBy('name')->get()->map(fn (Monitor $m) => $m->toPageProps())->values(),
+            'monitors' => $monitors->map(fn (Monitor $m) => [
+                ...$m->toPageProps(),
+                'machine' => $m->machine ? ['id' => $m->machine->id, 'name' => $m->machine->name, 'provider' => $m->machine->provider] : null,
+                'service' => $this->serviceFor($m),
+                'pausedBy' => $m->paused ? ($pausedBy[$m->name] ?? null) : null,
+            ])->values(),
+            'uptime' => $this->overallUptime($monitors),
             'machines' => $this->machines($workspace),
             'limit' => $workspace->monitorLimit(),
             'minInterval' => $workspace->minMonitorInterval(),
@@ -49,11 +64,92 @@ class MonitorController extends Controller
                 ->all()),
             'statusPage' => [
                 'available' => $workspace->hasFleetStatusPage(),
-                'set' => $workspace->fleetStatusPage !== null,
-                'live' => (bool) $workspace->fleetStatusPage?->live(),
-                'url' => $workspace->fleetStatusPage ? rtrim((string) config('app.url'), '/').'/status/'.$workspace->fleetStatusPage->slug : null,
+                'set' => $page !== null,
+                'live' => (bool) $page?->live(),
+                'url' => $page ? rtrim((string) config('app.url'), '/').'/status/'.$page->slug : null,
+                'shown' => $page ? $this->shownOnStatusPage($page, $monitors) : 0,
             ],
         ]);
+    }
+
+    /** @param  Collection<int, Monitor>  $monitors */
+    private function shownOnStatusPage(WorkspaceStatusPage $page, Collection $monitors): int
+    {
+        $covered = $page->coveredMachines()->modelKeys();
+        $picked = $page->monitors ?? [];
+
+        return $monitors->filter(fn (Monitor $m) => ! $m->paused
+            && (in_array($m->id, $picked, true) || ($m->machine_id !== null && in_array($m->machine_id, $covered, true))))->count();
+    }
+
+    /** @param  Collection<int, Monitor>  $monitors */
+    private function overallUptime(Collection $monitors): ?float
+    {
+        $cutoff = now()->subDays(29)->toDateString();
+        $checks = 0;
+        $ok = 0;
+        foreach ($monitors->where('paused', false) as $monitor) {
+            foreach ($monitor->daily ?? [] as $day => [$c, $o]) {
+                if ($day >= $cutoff) {
+                    $checks += $c;
+                    $ok += $o;
+                }
+            }
+        }
+
+        return $checks === 0 ? null : round($ok / $checks * 100, 3);
+    }
+
+    /**
+     * @param  list<string>  $names
+     * @return array<string, array{name: string|null, at: string}>
+     */
+    private function pausedBy(Workspace $workspace, array $names): array
+    {
+        if ($names === []) {
+            return [];
+        }
+
+        return Activity::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('action', 'monitor.pause')
+            ->whereIn('subject', $names)
+            ->with('user:id,name')
+            ->orderBy('id')
+            ->get()
+            ->mapWithKeys(fn (Activity $a) => [(string) $a->subject => [
+                'name' => ActivityLine::actor($a)['name'] ?? null,
+                'at' => $a->created_at->toIso8601String(),
+            ]])
+            ->all();
+    }
+
+    /** @return array{name: string, image: string|null, icon: string|null}|null */
+    private function serviceFor(Monitor $monitor): ?array
+    {
+        $machine = $monitor->machine;
+        $services = $machine?->inventory['services'] ?? null;
+        if ($machine === null || ! is_array($services)) {
+            return null;
+        }
+
+        $host = strtolower((string) ($monitor->type === 'tcp' ? $monitor->host : parse_url((string) $monitor->url, PHP_URL_HOST)));
+        $label = explode('.', $host)[0];
+        $name = fn (array $s) => strtolower(AppReleases::parse($s['name'] ?? null)['app'] ?? (string) ($s['name'] ?? ''));
+        $match = collect($services)->first(fn ($s) => is_array($s) && (
+            ($monitor->type === 'tcp' && in_array($monitor->port, (array) ($s['ports'] ?? []), true))
+            || ($label !== '' && $name($s) === $label)
+        ));
+        if (! is_array($match)) {
+            return null;
+        }
+        $image = $match['image'] ?? $match['details']['image'] ?? null;
+
+        return [
+            'name' => ServiceLabels::for($machine, $match) ?? $name($match),
+            'image' => is_string($image) ? $image : null,
+            'icon' => ServiceLabels::iconUrl($machine, $match),
+        ];
     }
 
     public function show(Request $request, Workspace $workspace, Monitor $monitor): Response

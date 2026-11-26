@@ -27,7 +27,7 @@ beforeEach(function () {
 
 function gtaHost(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function googleAccount(string $email, ?string $hd, bool $verified = true, string $id = 'g-1'): ProviderUser

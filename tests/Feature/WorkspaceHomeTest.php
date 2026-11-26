@@ -12,10 +12,10 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function homeUrl(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host().'/';
+    return $workspace->url().'/';
 }
 
-test('a new workspace sees onboarding with the first machine as the next step', function () {
+test('a new workspace gets the empty home, with the setup steps left to the setup guide', function () {
     $workspace = Workspace::factory()->create();
     app(Extensions::class)->setUpgradeLink(new UpgradeLink(label: 'Billing', route: 'workspace.settings.general'));
 
@@ -25,21 +25,16 @@ test('a new workspace sees onboarding with the first machine as the next step', 
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Home')
             ->where('workspace.host', $workspace->host())
-            ->where('onboardingDismissed', false)
             ->where('stats.machines', 0)
             ->where('stats.averageCpu', 0)
             ->where('providers', [])
-            ->where('onboarding', [
-                ['key' => 'workspace', 'done' => true],
-                ['key' => 'machine', 'done' => false],
-                ['key' => 'service', 'done' => false],
-                ['key' => 'backups', 'done' => false],
-                ['key' => 'plan', 'done' => false],
-            ])
+            ->missing('onboarding')
+            ->missing('onboardingDismissed')
+            ->where('setupGuide.percent', 0)
             ->has('issues', 0));
 });
 
-test('connected machines turn onboarding into fleet stats', function () {
+test('connected machines turn the empty home into fleet stats', function () {
     $workspace = Workspace::factory()->create();
     Machine::factory()->for($workspace)->create(['services_count' => 3, 'cpu_percent' => 20]);
     Machine::factory()->for($workspace)->busy()->create(['services_count' => 2]);
@@ -50,8 +45,6 @@ test('connected machines turn onboarding into fleet stats', function () {
     $this->actingAs($workspace->owner)
         ->get(homeUrl($workspace))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('onboarding.1.done', true)
-            ->where('onboarding.3.done', true)
             ->where('stats', [
                 'machines' => 3,
                 'environments' => ['production' => 2, 'staging' => 1, 'development' => 0],
@@ -156,18 +149,18 @@ test('the setup guide can be skipped and resumed per person', function () {
         ->assertRedirect();
 
     $this->actingAs($workspace->owner)
-        ->get(homeUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page->where('onboardingDismissed', true));
+        ->get(homeUrl($workspace).'setup')
+        ->assertInertia(fn (Assert $page) => $page->where('hidden', true)->where('setupGuide', null));
 
     $this->actingAs($teammate)
-        ->get(homeUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page->where('onboardingDismissed', false));
+        ->get(homeUrl($workspace).'setup')
+        ->assertInertia(fn (Assert $page) => $page->where('hidden', false));
 
     $this->actingAs($workspace->owner)->delete(homeUrl($workspace).'onboarding/dismiss');
 
     $this->actingAs($workspace->owner)
-        ->get(homeUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page->where('onboardingDismissed', false));
+        ->get(homeUrl($workspace).'setup')
+        ->assertInertia(fn (Assert $page) => $page->where('hidden', false));
 });
 
 test('outsiders cannot skip a workspace setup guide', function () {

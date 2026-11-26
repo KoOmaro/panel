@@ -10,7 +10,7 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { toast } from '@/lib/toast';
 import {
-    LICENSE_SETTINGS_PATH,
+    licenseSettingsPath,
     useSelfHosted,
 } from '@/composables/useSelfHosted';
 import InputError from '@/components/InputError.vue';
@@ -26,6 +26,8 @@ import AppButton from '@/components/workspace/AppButton.vue';
 import DangerButton from '@/components/workspace/DangerButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import Tile from '@/components/workspace/Tile.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
 type Domain = {
@@ -128,16 +130,24 @@ function connect(): void {
         data.purpose === 'status' && statusMode.value === 'path'
             ? { ...data, hostname: null }
             : { ...data, path: null },
-    ).post('/settings/domains', {
-        preserveScroll: true,
-        onSuccess: () => (connecting.value = null),
-    });
+    ).post(
+        onWorkspace(settingsRoutes.domains.store(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (connecting.value = null),
+        },
+    );
 }
 
 const checking = ref<number | null>(null);
 function check(domain: Domain): void {
     router.post(
-        `/settings/domains/${domain.id}/check`,
+        onWorkspace(
+            settingsRoutes.domains.check({
+                workspace: props.workspace.slug,
+                domain: domain.id,
+            }),
+        ).url,
         {},
         {
             preserveScroll: true,
@@ -151,7 +161,11 @@ const removing = ref<Domain | null>(null);
 const removeBusy = ref(false);
 function disconnect(): void {
     if (!removing.value) return;
-    router.delete(`/settings/domains/${removing.value.id}`, {
+    const route = settingsRoutes.domains.destroy({
+        workspace: props.workspace.slug,
+        domain: removing.value.id,
+    });
+    router.delete(onWorkspace(route).url, {
         preserveScroll: true,
         onStart: () => (removeBusy.value = true),
         onFinish: () => {
@@ -206,7 +220,8 @@ const th = 'px-3 py-2.5 text-left text-[12px]/4 font-medium';
     <Head :title="$t('Domains')" />
 
     <Tile
-        :title="$t('Domains')"
+        wide
+        :title="$t('Your own domains')"
         :description="
             $t(
                 'Your own domain for the dashboard and the status page, instead of :subdomain. MCP and the API stay where they are.',
@@ -223,7 +238,7 @@ const th = 'px-3 py-2.5 text-left text-[12px]/4 font-medium';
             <template v-if="!allowed && selfHosted">
                 {{ $t('Your own domains need a ServerOS license.') + ' ' }}
                 <Link
-                    :href="LICENSE_SETTINGS_PATH"
+                    :href="licenseSettingsPath()"
                     class="text-(--ds-text) underline underline-offset-2"
                     >{{ $t('Add one in Settings › License') }}</Link
                 >

@@ -31,7 +31,7 @@ function shopMachine(string $oldStatus = 'running'): array
 
     shopInventory($machine, $oldStatus);
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 function shopInventory(Machine $machine, string $oldStatus, string $newStatus = 'running'): void
@@ -58,7 +58,7 @@ test('a deployed app has one page that stays put across versions', function () {
             ->where('service.app', 'shop'));
 
     $this->actingAs($workspace->owner)->get("{$base}/machines/{$machine->id}/services/docker:111111111111")
-        ->assertRedirect("/machines/{$machine->id}/services/app:shop");
+        ->assertRedirect("{$base}/machines/{$machine->id}/services/app:shop");
 
     $this->actingAs($workspace->owner)->get("{$base}/machines/{$machine->id}")
         ->assertInertia(fn (Assert $page) => $page

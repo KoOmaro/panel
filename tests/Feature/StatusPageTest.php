@@ -38,7 +38,7 @@ function statusMachine(?Plan $plan = Plan::Pro): array
 
 function statusSettings(Workspace $workspace, Machine $machine): string
 {
-    return 'https://'.$workspace->host().'/machines/'.$machine->id;
+    return $workspace->url().'/machines/'.$machine->id;
 }
 
 /** @param  array<string, mixed>  $overrides */
@@ -299,7 +299,7 @@ test('a Scale workspace gets one status page with a section for each machine', f
 
     $this->actingAs($workspace->owner)->put(statusSettings($workspace, $web).'/status-page', statusPayload(['enabled' => false]))->assertSessionHasNoErrors();
 
-    $settings = 'https://'.$workspace->host().'/settings/status-page';
+    $settings = $workspace->url().'/settings/status-page';
     $this->actingAs($workspace->owner)->get($settings)->assertOk()
         ->assertInertia(fn (Assert $page) => $page->component('workspace/settings/StatusPage')->where('planAllows', true)->has('machines', 2));
     $this->actingAs($workspace->owner)->put($settings, fleetPayload())->assertSessionHasNoErrors();
@@ -328,7 +328,7 @@ test('a Scale workspace gets one status page with a section for each machine', f
 
 test('the fleet page is Scale only, and shares addresses with machine pages', function () {
     [$workspace, $machine] = statusMachine(Plan::Pro);
-    $settings = 'https://'.$workspace->host().'/settings/status-page';
+    $settings = $workspace->url().'/settings/status-page';
 
     $this->actingAs($workspace->owner)->put($settings, fleetPayload())->assertSessionHasErrors('enabled');
 
@@ -369,7 +369,7 @@ test('the monitors page points to the fleet status page', function () {
     $fleet->workspace_id = $workspace->id;
     $fleet->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/monitors')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/monitors')
         ->assertInertia(fn (Assert $page) => $page
             ->where('statusPage.live', true)
             ->where('statusPage.url', rtrim((string) config('app.url'), '/').'/status/acme'));
@@ -477,7 +477,7 @@ test('a workspace with no machines can show a site hosted elsewhere on its statu
     $site->save();
     $site->incidents()->create(['started_at' => now()->subDay(), 'resolved_at' => now()->subDay()->addMinutes(4), 'cause' => 'Returned 502.']);
 
-    $settings = 'https://'.$workspace->host().'/settings/status-page';
+    $settings = $workspace->url().'/settings/status-page';
     $this->actingAs($workspace->owner)->get($settings)
         ->assertInertia(fn (Assert $page) => $page->has('machines', 0)->has('monitors', 2)->where('monitors.1.target', 'https://www.example.com/'));
     $this->actingAs($workspace->owner)->put($settings, fleetPayload(['monitors' => [$site->id]]))->assertSessionHasNoErrors();
@@ -502,7 +502,7 @@ test('only the workspace’s own monitors on no machine can go on its status pag
     [$workspace, $machine] = statusMachine(Plan::Business);
     $onMachine = $workspace->monitors()->create(['machine_id' => $machine->id, 'name' => 'API', 'type' => 'http', 'url' => 'https://api.example.com/', 'interval_seconds' => 60, 'timeout_seconds' => 10]);
     $elsewhere = Workspace::factory()->create()->monitors()->create(['name' => 'Theirs', 'type' => 'http', 'url' => 'https://theirs.example.com/', 'interval_seconds' => 60, 'timeout_seconds' => 10]);
-    $settings = 'https://'.$workspace->host().'/settings/status-page';
+    $settings = $workspace->url().'/settings/status-page';
 
     $this->actingAs($workspace->owner)->put($settings, fleetPayload(['monitors' => [$onMachine->id]]))->assertSessionHasErrors('monitors.0');
     $this->actingAs($workspace->owner)->put($settings, fleetPayload(['monitors' => [$elsewhere->id]]))->assertSessionHasErrors('monitors.0');
@@ -592,7 +592,7 @@ test('the fleet page follows machine groups, shows new machines as chosen, and t
     $c = statusFleetMachine($workspace, 'nyc-1', ['docker:game' => 'game-3']);
     $a->forceFill(['machine_group_id' => $london->id])->save();
 
-    $settings = 'https://'.$workspace->host().'/settings/status-page';
+    $settings = $workspace->url().'/settings/status-page';
     $this->actingAs($workspace->owner)->put($settings, fleetPayload(['machines' => [$c->id], 'machine_groups' => [$london->id]]))->assertSessionHasNoErrors();
     $page = $workspace->fleetStatusPage()->sole();
 
@@ -674,7 +674,7 @@ test('a machine page takes a page title, an icon and a favicon of its own', func
 test('the fleet page takes a page title, an icon and a favicon, for people who can manage machines', function () {
     Storage::fake('public');
     [$workspace] = statusMachine(Plan::Business);
-    $settings = 'https://'.$workspace->host().'/settings/status-page';
+    $settings = $workspace->url().'/settings/status-page';
 
     $this->actingAs($workspace->owner)
         ->post($settings.'/favicon', ['favicon' => UploadedFile::fake()->image('favicon.png', 64, 64)])

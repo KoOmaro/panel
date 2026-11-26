@@ -37,7 +37,7 @@ function limitedApp(string $version = '0.1.1-pre.46', array $job = []): array
     ]);
     $live->forceFill(['created_at' => now()->subHour()])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/apps/shop/limits', $live];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/apps/shop/limits', $live];
 }
 
 /** @return list<array<string, mixed>> */
@@ -145,7 +145,7 @@ test('the app page shows the limits the container runs with beside its usage', f
     AppLimits::store($machine, 'shop', ['cpus' => 1.0, 'memory_mb' => 256]);
     $live->forceFill(['result' => ['limits' => ['cpu_millis' => 500]]])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines/'.$machine->id.'/services/app:shop')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/machines/'.$machine->id.'/services/app:shop')
         ->assertInertia(fn (AssertableInertia $page) => $page
             ->where('app.limits.setting', ['cpus' => 1, 'memoryMb' => 256])
             ->where('app.limits.applied', ['cpus' => 0.5, 'memoryMb' => null])

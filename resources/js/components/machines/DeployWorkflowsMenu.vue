@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useUpgradeLink } from '@/composables/useUpgradeLink';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { ChevronDown } from '@lucide/vue';
 import { SolarWorkflows as Workflows } from '@/lib/solarIcons';
 import {
@@ -11,8 +11,11 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import workflowsRoutes from '@/routes/workspace/workflows';
 
 const upgrade = useUpgradeLink();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const props = defineProps<{ available: boolean }>();
 
@@ -35,7 +38,11 @@ const templates = [
 ] as const;
 
 function create(template: string): void {
-    if (props.available) router.post('/workflows', { template });
+    if (props.available)
+        router.post(
+            onWorkspace(workflowsRoutes.store(page.props.workspace.slug)).url,
+            { template },
+        );
 }
 </script>
 

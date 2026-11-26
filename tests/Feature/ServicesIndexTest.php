@@ -29,7 +29,7 @@ test('the services page lists every machine\'s services with where they run and 
         ]],
     ])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Services')
@@ -50,10 +50,10 @@ test('another workspace\'s services stay out of the list', function () {
     $other = Machine::factory()->create();
     $other->forceFill(['inventory' => ['services' => [['key' => 'docker:x', 'name' => 'secret', 'ports' => []]]]])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertInertia(fn (Assert $page) => $page->has('services', 0)->etc());
 
-    $this->actingAs(User::factory()->create())->get('https://'.$workspace->host().'/services')
+    $this->actingAs(User::factory()->create())->get($workspace->url().'/services')
         ->assertForbidden();
 });
 
@@ -62,7 +62,7 @@ test('a service saved without ports still lists, with none', function () {
     $machine = Machine::factory()->for($workspace)->create();
     $machine->forceFill(['inventory' => ['services' => [['key' => 'docker:old', 'name' => 'old-db', 'kind' => 'container', 'status' => 'running']]]])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertInertia(fn (Assert $page) => $page
             ->has('services', 1)
             ->where('services.0.ports', [])
@@ -95,7 +95,7 @@ test('the services page sends this workspace’s deploys that are building or ju
     servicesDeploy($machine, 'scan', 'running', 1, 0, 'scan');
     servicesDeploy($theirs, 'secret', 'running', 1, 0);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('machines.0.scannedAt', 1700000000)
@@ -115,7 +115,7 @@ test('a busy workspace’s finished deploys are capped and never push out one st
         servicesDeploy($machine, "app-{$i}", 'failed', 1);
     }
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertInertia(fn (Assert $page) => $page
             ->has('deploys', 51)
             ->where('deploys.50.id', $running->id)

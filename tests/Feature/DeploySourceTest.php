@@ -45,7 +45,7 @@ function lieAboutSize(string $path, string $entry, int $size): void
 
 function upload($test, Workspace $workspace, Machine $machine, string $zip)
 {
-    $base = 'https://'.$workspace->host()."/machines/{$machine->id}/sources";
+    $base = $workspace->url()."/machines/{$machine->id}/sources";
     $bytes = file_get_contents($zip);
 
     $start = $test->postJson($base, ['filename' => 'my-app.zip', 'size' => strlen($bytes)])->assertCreated();
@@ -145,14 +145,14 @@ test('viewers cannot upload', function () {
     $workspace->members()->attach($viewer, ['role' => 'viewer']);
 
     $this->actingAs($viewer)
-        ->postJson('https://'.$workspace->host()."/machines/{$machine->id}/sources", ['filename' => 'a.zip', 'size' => 10])
+        ->postJson($workspace->url()."/machines/{$machine->id}/sources", ['filename' => 'a.zip', 'size' => 10])
         ->assertForbidden();
 });
 
 test('a workspace can only upload so much in a day', function () {
     $workspace = Workspace::factory()->create();
     $machine = Machine::factory()->for($workspace)->create();
-    $base = 'https://'.$workspace->host()."/machines/{$machine->id}/sources";
+    $base = $workspace->url()."/machines/{$machine->id}/sources";
     $this->actingAs($workspace->owner);
 
     foreach (range(1, 5) as $i) {
@@ -162,7 +162,7 @@ test('a workspace can only upload so much in a day', function () {
 
     $other = Workspace::factory()->create(['owner_id' => $workspace->owner_id]);
     $otherMachine = Machine::factory()->for($other)->create();
-    $this->postJson('https://'.$other->host()."/machines/{$otherMachine->id}/sources", ['filename' => 'a.zip', 'size' => 1])
+    $this->postJson($other->url()."/machines/{$otherMachine->id}/sources", ['filename' => 'a.zip', 'size' => 1])
         ->assertUnprocessable()->assertJsonValidationErrors('size');
 
     DeploySource::query()->update(['created_at' => now()->subHours(DeploySource::KEEP_HOURS + 1)]);
@@ -175,7 +175,7 @@ test('uploads that stop are cleared within the hour', function () {
     $workspace = Workspace::factory()->create();
     $machine = Machine::factory()->for($workspace)->create();
     $this->actingAs($workspace->owner)
-        ->postJson('https://'.$workspace->host()."/machines/{$machine->id}/sources", ['filename' => 'a.zip', 'size' => 10])
+        ->postJson($workspace->url()."/machines/{$machine->id}/sources", ['filename' => 'a.zip', 'size' => 10])
         ->assertCreated();
     $stalled = DeploySource::query()->sole();
     file_put_contents($stalled->zipPath(), 'part');

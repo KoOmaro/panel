@@ -36,7 +36,7 @@ function scheduledMachine(): array
 test('the machine page lists cron jobs and timers in plain words, linked to their services', function () {
     [$workspace, $machine] = scheduledMachine();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines/'.$machine->id)
+    $this->actingAs($workspace->owner)->get($workspace->url().'/machines/'.$machine->id)
         ->assertInertia(fn (Assert $page) => $page
             ->has('scheduled', 4)
             ->where('scheduled.0.command', '/etc/cron.daily/backup-2021')

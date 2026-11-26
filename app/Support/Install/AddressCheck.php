@@ -5,7 +5,6 @@ namespace App\Support\Install;
 use App\Http\Middleware\TrustCloudflare;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\IpUtils;
 
 class AddressCheck
@@ -27,10 +26,10 @@ class AddressCheck
         $host = strtolower($host);
 
         if ($host === 'localhost' || str_ends_with($host, '.localhost')) {
-            return self::result([['ok', "{$host} and its subdomains always point at the computer you’re on, so this works for trying it out."]]);
+            return self::result([['ok', "{$host} always points at the computer you’re on, so this works for trying it out."]]);
         }
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return self::result([['warn', 'That’s an IP address. It works for the panel, but workspaces open on subdomains, so they need a domain.']]);
+            return self::result([['warn', 'That’s an IP address. It works, but a domain is easier to keep when you move to another server.']]);
         }
 
         if (config('serveros.tunnel') === 'cloudflare') {
@@ -49,13 +48,6 @@ class AddressCheck
         } else {
             $lines[] = ['warn', "{$host} points at ".implode(', ', $found).'. Make sure that’s this server.'];
         }
-
-        $wildcard = ($this->resolver)('serveros-check-'.Str::lower(Str::random(6)).'.'.$host);
-        $lines[] = $wildcard === []
-            ? ['warn', "*.{$host} doesn’t point anywhere yet. Workspaces open on subdomains (acme.{$host}), so add an A record for *.{$host} too."]
-            : (array_intersect($wildcard, $found) !== [] || array_intersect($wildcard, $ours) !== []
-                ? ['ok', "*.{$host} does too, so workspaces will open."]
-                : ['warn', "*.{$host} points at ".implode(', ', $wildcard).', not where '.$host.' does.']);
 
         return self::result($lines);
     }
@@ -76,14 +68,6 @@ class AddressCheck
             $request->getHost() === $host || self::onCloudflare($found) => ['ok', "{$host} comes through your Cloudflare Tunnel."],
             default => ['warn', "{$host} points at ".implode(', ', $found).', not Cloudflare. Add it to your tunnel’s routes instead.'],
         }];
-
-        $wildcard = ($this->resolver)('serveros-check-'.Str::lower(Str::random(6)).'.'.$host);
-        $lines[] = $wildcard === []
-            ? ['warn', "*.{$host} doesn’t point anywhere yet. Workspaces open on subdomains (acme.{$host}), so add *.{$host} to the tunnel too."]
-            : ['ok', "*.{$host} does too, so workspaces will open."];
-        if (substr_count($host, '.') >= 2) {
-            $lines[] = ['warn', "Cloudflare’s free certificate covers a domain and one level under it. Workspaces on acme.{$host} are two levels down, so they need Cloudflare’s Advanced Certificate Manager, unless {$host} is the domain itself."];
-        }
 
         $gateway = strtolower((string) parse_url('tls://'.config('daemon.gateway_host'), PHP_URL_HOST));
         if ($gateway === '' || $gateway === $host) {

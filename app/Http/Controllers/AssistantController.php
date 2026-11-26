@@ -65,7 +65,7 @@ class AssistantController extends Controller
     {
         return response()->json([
             'options' => $providers->modelOptions($workspace),
-            'settingsUrl' => '/settings/mcp',
+            'settingsUrl' => $workspace->url('/settings/mcp'),
         ]);
     }
 

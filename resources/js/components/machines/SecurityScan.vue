@@ -2,6 +2,7 @@
 import { trans } from 'laravel-vue-i18n';
 import { ChevronDown, LoaderCircle } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const props = defineProps<{ machineId: number }>();
 
@@ -67,11 +68,14 @@ function csrf(): string {
 
 async function start(): Promise<void> {
     try {
-        const response = await fetch(`/machines/${props.machineId}/scan`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrf() },
-        });
+        const response = await fetch(
+            workspacePath(`/machines/${props.machineId}/scan`),
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrf() },
+            },
+        );
         jobId = (await response.json()).jobId ?? null;
     } catch {
         jobId = null;
@@ -86,7 +90,7 @@ async function poll(): Promise<void> {
     try {
         const query = jobId ? `?job=${jobId}` : '';
         const response = await fetch(
-            `/machines/${props.machineId}/scan${query}`,
+            workspacePath(`/machines/${props.machineId}/scan${query}`),
             {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },

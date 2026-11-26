@@ -60,7 +60,7 @@ function webServerMachine(string $daemon = '0.1.1-pre.47', string $proxy = 'none
         ]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 function sendSiteEnvelopes(Machine $machine, array $payload): void
@@ -162,7 +162,7 @@ test('a web server’s page lists its sites with their last day, and each one op
     $this->actingAs($viewer)->getJson($base."/machines/{$machine->id}/sites/nginx.nope.example.com/traffic")->assertNotFound();
 
     $other = Workspace::factory()->create();
-    $this->actingAs($other->owner)->getJson('https://'.$other->host()."/machines/{$machine->id}/sites/nginx.shop.example.com/traffic")->assertNotFound();
+    $this->actingAs($other->owner)->getJson($other->url()."/machines/{$machine->id}/sites/nginx.shop.example.com/traffic")->assertNotFound();
 });
 
 test('machines whose daemon doesn’t count web server sites say so on the tab and show no numbers', function () {

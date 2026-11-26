@@ -59,7 +59,7 @@ function wsToolsMember(Workspace $workspace, WorkspaceRole $role = WorkspaceRole
 
 function wsToolsHomeIssues(Workspace $workspace, ?User $user = null): array
 {
-    return test()->actingAs($user ?? $workspace->owner)->get('https://'.$workspace->host().'/')->viewData('page')['props']['issues'];
+    return test()->actingAs($user ?? $workspace->owner)->get($workspace->url().'/')->viewData('page')['props']['issues'];
 }
 
 test('the group offers its tools, the write one only to connections and roles that may change things', function () {
@@ -104,7 +104,7 @@ test('search finds machines, services, monitors and workflows like ⌘K, with id
             'foundAs' => 'serveros-umami-umami-1',
             'shownAs' => 'Umami',
             'status' => 'exited',
-            'url' => 'https://'.$workspace->host()."/machines/{$machine->id}/services/docker%3Aabc123def456",
+            'url' => $workspace->url()."/machines/{$machine->id}/services/docker%3Aabc123def456",
         ])
         ->and($umami['data']['monitors'])->toBe([])
         ->and($umami['data']['workflows'][0])->toMatchArray(['name' => 'Redeploy umami', 'enabled' => true])
@@ -113,13 +113,13 @@ test('search finds machines, services, monitors and workflows like ⌘K, with id
 
     expect(mcpCall($workspace, $key, 'search', ['query' => '203.0.113'])['data']['machines'][0])->toMatchArray(['id' => $machine->id, 'name' => 'web-1', 'status' => 'online', 'environment' => 'production'])
         ->and(mcpCall($workspace, $key, 'search', ['query' => 'shop.example'])['data']['monitors'][0])->toMatchArray(['id' => $monitor->id, 'status' => 'down', 'muted' => false, 'target' => 'https://shop.example.com/', 'machineId' => $machine->id]);
-    $this->actingAs($workspace->owner)->getJson('https://'.$workspace->host().'/search?q=umami')
+    $this->actingAs($workspace->owner)->getJson($workspace->url().'/search?q=umami')
         ->assertJsonPath('services.0.label', 'Umami')
         ->assertJsonCount(1, 'workflows');
 
     $machine->forceFill(['service_labels' => ['nginx.service' => 'Front door']])->save();
     expect(mcpCall($workspace, $key, 'search', ['query' => 'front'])['data']['services'][0])->toMatchArray(['key' => 'nginx.service', 'label' => 'Front door', 'name' => 'Front door', 'shownAs' => 'Front door']);
-    $this->actingAs($workspace->owner)->getJson('https://'.$workspace->host().'/search?q=front')->assertJsonPath('services.0.label', 'Front door');
+    $this->actingAs($workspace->owner)->getJson($workspace->url().'/search?q=front')->assertJsonPath('services.0.label', 'Front door');
 
     $monitor->forceFill(['muted_until' => now()->addHour()])->save();
     expect(mcpCall($workspace, $key, 'search', ['query' => 'shop'])['data']['monitors'][0])->toMatchArray(['status' => 'down', 'muted' => true]);
@@ -198,17 +198,17 @@ test('list_issues gives what the Home shows, with what each is about and what to
         'machine' => ['id' => $machine->id, 'name' => 'web-1'],
         'service' => null,
         'action' => 'Open monitor',
-        'url' => 'https://'.$workspace->host()."/monitors/{$monitor->id}",
+        'url' => $workspace->url()."/monitors/{$monitor->id}",
     ])->and($byKind['monitor.down']['fix'])->toContain('Returned 502.')
         ->and($byKind['monitor.down']['since'])->not->toBeNull();
 
     expect($byKind['service.down'])->toMatchArray([
         'id' => "service-{$machine->id}-docker:abc123def456-down",
         'title' => 'serveros-umami-umami-1 stopped on web-1',
-        'service' => ['key' => 'docker:abc123def456', 'name' => 'serveros-umami-umami-1', 'url' => 'https://'.$workspace->host()."/machines/{$machine->id}/services/docker%3Aabc123def456"],
+        'service' => ['key' => 'docker:abc123def456', 'name' => 'serveros-umami-umami-1', 'url' => $workspace->url()."/machines/{$machine->id}/services/docker%3Aabc123def456"],
         'machine' => ['id' => $machine->id, 'name' => 'web-1'],
         'action' => 'See its logs',
-    ])->and($byKind['service.down']['url'])->toBe('https://'.$workspace->host().'/logs?'.http_build_query(['machine' => $machine->id, 'service' => 'serveros-umami-umami-1']));
+    ])->and($byKind['service.down']['url'])->toBe($workspace->url().'/logs?'.http_build_query(['machine' => $machine->id, 'service' => 'serveros-umami-umami-1']));
 
     expect($byKind['service.crash_loop']['service']['key'])->toBe('nginx.service')
         ->and($byKind['machine.disk']['fix'])->toContain('on / (4 GB left)')
@@ -274,7 +274,7 @@ test('backup problems name the machine and point at the backups page', function 
         'kind' => 'backup.failed',
         'severity' => 'warning',
         'machine' => ['id' => $machine->id, 'name' => 'db-1'],
-        'url' => 'https://'.$workspace->host().'/backups',
+        'url' => $workspace->url().'/backups',
     ])->and($issue['detail'])->toContain('Destination refused the upload.');
 });
 
@@ -325,7 +325,7 @@ test('dismiss_issues needs a role that manages machines and a connection that ma
         ->and($workspace->fresh()->dismissed_issues)->toBeNull();
 
     $this->actingAs($viewer)
-        ->post('https://'.$workspace->host().'/issues/dismiss', $ids)->assertForbidden();
+        ->post($workspace->url().'/issues/dismiss', $ids)->assertForbidden();
 });
 
 test('dismiss_issues checks its arguments as the dashboard does', function () {
@@ -373,9 +373,9 @@ test('get_activity reads like the Activity page, and says what came through MCP'
         ->and($entries[0])->toMatchArray(['action' => 'issues.dismiss', 'viaMcp' => true, 'client' => 'Claude Desktop', 'who' => ['id' => $workspace->owner_id, 'name' => 'Ada Lovelace', 'support' => false]])
         ->and($entries[2])->toMatchArray(['who' => null, 'viaMcp' => false, 'client' => null, 'tone' => 'bad', 'machine' => ['id' => $machine->id, 'name' => 'web-1']])
         ->and($entries[3])->toMatchArray(['verb' => 'restarted', 'subject' => 'umami'])
-        ->and($result['data'])->toMatchArray(['hasMore' => false, 'nextCursor' => null, 'keepDays' => Plan::Pro->activityRetentionDays(), 'url' => 'https://'.$workspace->host().'/activity']);
+        ->and($result['data'])->toMatchArray(['hasMore' => false, 'nextCursor' => null, 'keepDays' => Plan::Pro->activityRetentionDays(), 'url' => $workspace->url().'/activity']);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page
             ->where('entries.0.verb', $entries[0]['verb'])
             ->where('entries.1.after', $entries[1]['after'])
@@ -420,7 +420,7 @@ test('get_activity filters by machine, who, person, action, MCP and time', funct
         ->and($actions(['since' => now()->subDays(3)->toDateString(), 'until' => now()->subDays(3)->toDateString()]))->toBe(['service.restart']);
 
     $filtered = mcpCall($workspace, $key, 'get_activity', ['who' => 'people', 'machine' => 'db-1'])['data'];
-    expect($filtered['url'])->toBe('https://'.$workspace->host()."/activity?who=people&machine={$db->id}");
+    expect($filtered['url'])->toBe($workspace->url()."/activity?who=people&machine={$db->id}");
 
     $workspace->members()->detach($grace);
     expect($actions(['person' => 'Grace Hopper']))->toBe(['machine.maintenance', 'service.stop'])
@@ -498,13 +498,13 @@ test('the activity page and its export read the same after the wording moved', f
     [$workspace, $machine] = wsToolsWorkspace();
     Activity::record($workspace, 'machine.maintenance', 'web-1', $machine, $workspace->owner, ['minutes' => 90, 'reason' => 'Disk swap']);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page
             ->where('entries.0.verb', 'started maintenance on')
             ->where('entries.0.after', 'for 1 h 30 min: Disk swap')
             ->where('entries.0.tone', 'warn'));
 
-    $csv = $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity/export')->streamedContent();
+    $csv = $this->actingAs($workspace->owner)->get($workspace->url().'/activity/export')->streamedContent();
     expect($csv)->toContain('started maintenance on web-1 for 1 h 30 min: Disk swap');
 });
 
@@ -590,7 +590,7 @@ test('MCP keys made and revoked read as sentences, on the page and through get_a
         'Ada created the MCP key Laptop',
     ]);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page
             ->where('entries.0.verb', 'disconnected')
             ->where('entries.1.verb', 'revoked the MCP key')
@@ -612,7 +612,7 @@ test('a Pterodactyl container whose Wings files are gone needs repairing', funct
         'severity' => 'warning',
         'title' => '10279aa4-91dd needs repairing before it can start on web-1',
         'action' => 'Repair it',
-        'url' => 'https://'.$workspace->host()."/machines/{$machine->id}/services/docker%3A82cfe2569cd4",
+        'url' => $workspace->url()."/machines/{$machine->id}/services/docker%3A82cfe2569cd4",
     ])->and($issue['service']['key'])->toBe('docker:82cfe2569cd4')
         ->and($issue['fix'])->toContain('repair_service');
 });

@@ -355,7 +355,7 @@ class WorkflowEngine
                 $this->alerts->notify($workflow->workspace, 'workflow.failed', "{$workflow->name} failed", array_values(array_filter([
                     $step['message'] ?? null,
                     'Started by: '.$run->trigger['summary'],
-                ])), 'https://'.$workflow->workspace->host()."/workflows/{$workflow->id}?run={$run->id}", true, 'Open the run');
+                ])), $workflow->workspace->url("/workflows/{$workflow->id}?run={$run->id}"), true, 'Open the run');
             }
         }
     }
@@ -822,7 +822,7 @@ class WorkflowEngine
 
         if ($to !== 'emails') {
             $this->alerts->notify($workspace, 'workflow.alert', $subject, array_values(array_filter([$message, "From the workflow “{$workflow->name}”."])),
-                'https://'.$workspace->host()."/workflows/{$workflow->id}?run={$run->id}", $bad, 'Open the run',
+                $workspace->url("/workflows/{$workflow->id}?run={$run->id}"), $bad, 'Open the run',
                 ['workflow' => ['id' => $workflow->id, 'name' => $workflow->name, 'run' => $run->id]]);
         }
         if ($emails !== []) {

@@ -70,6 +70,13 @@ class MachineDeployController extends Controller
             'canChooseProxy' => DaemonJobQueue::canChooseProxy($machine),
             'canChooseHttps' => DaemonJobQueue::canChooseHttps($machine),
             'freeAddress' => DeployRequest::freeAddressBase($machine),
+            'machines' => $workspace->machines()->orderBy('name')->get()
+                ->map(fn (Machine $other) => [
+                    'id' => $other->id,
+                    'name' => $other->name,
+                    'provider' => $other->provider,
+                    'online' => $other->isOnline(),
+                ])->values()->all(),
         ]);
     }
 

@@ -12,8 +12,11 @@ Composer and Node 22 in one image, your checkout mounted into it.
 
 The containers use host networking, so the panel is at
 http://serveros.localhost:8000 and each workspace at
-`http://{name}.serveros.localhost:8000`. Browsers send every `*.localhost`
-name to 127.0.0.1 themselves, so no `/etc/hosts` entries are needed.
+`http://serveros.localhost:8000/{name}` (or
+`http://cloud.serveros.localhost:8000/{name}` with the serveros.com package
+installed, which makes it the cloud edition). Browsers send every
+`*.localhost` name to 127.0.0.1 themselves, so no `/etc/hosts` entries are
+needed.
 Files the containers write belong to your own user.
 
 ## Setting up

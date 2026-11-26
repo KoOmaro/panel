@@ -17,7 +17,7 @@ function tabMachine(): array
         ]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 test('a machine, its settings and its services open on any of their tabs', function () {
@@ -51,7 +51,7 @@ test('a tab a page does not have is not found', function () {
 
 test('backups open on any of their tabs', function () {
     [$workspace] = tabMachine();
-    $base = 'https://'.$workspace->host();
+    $base = $workspace->url();
 
     foreach (['/backups', '/backups/destinations', '/backups/history'] as $path) {
         $this->actingAs($workspace->owner)->get($base.$path)->assertOk()

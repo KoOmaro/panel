@@ -122,6 +122,9 @@ onBeforeUnmount(() => {
                 'border-destructive': status === 'unavailable' || props.error,
             }"
         >
+            <span class="shrink-0 pl-3 text-muted-foreground select-none"
+                >{{ domain }}/</span
+            >
             <input
                 id="workspace"
                 v-model="slug"
@@ -136,11 +139,8 @@ onBeforeUnmount(() => {
                 :tabindex="tabindex"
                 :aria-invalid="status === 'unavailable' || !!props.error"
                 aria-describedby="workspace-status"
-                class="h-full min-w-0 flex-1 bg-transparent pl-3 text-foreground outline-none placeholder:text-muted-foreground"
+                class="h-full min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
             />
-            <span class="shrink-0 pr-2 text-muted-foreground select-none"
-                >.{{ domain }}</span
-            >
             <span class="flex w-6 shrink-0 justify-center pr-2">
                 <LoaderCircle
                     v-if="status === 'checking'"
@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
             </template>
             <p v-else-if="status === 'available'" class="text-muted-foreground">
                 {{
-                    $t(':value.:domain is available.', {
+                    $t(':domain/:value is available.', {
                         value: slug.replace(/-$/, ''),
                         domain,
                     }) + ' '

@@ -10,7 +10,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function machineUrl(Workspace $workspace, Machine $machine): string
 {
-    return 'https://'.$workspace->host().'/machines/'.$machine->id;
+    return $workspace->url().'/machines/'.$machine->id;
 }
 
 test('a member can open only a machine in their workspace and inspect its inventory', function () {

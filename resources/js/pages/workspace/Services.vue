@@ -55,6 +55,8 @@ import {
 } from '@/components/ui/dialog';
 import { appButtonClasses } from '@/lib/appButton';
 import { useWhenVisible } from '@/composables/useWhenVisible';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 import type { Workspace, WorkspaceAccess } from '@/types';
 
 const loadDeployDialog = () =>
@@ -220,7 +222,14 @@ const building = computed(() => {
 });
 
 function openDeployLog(machineId: number, jobId: string): void {
-    router.visit(`/machines/${machineId}?job=${encodeURIComponent(jobId)}`);
+    router.visit(
+        onWorkspace(
+            machinesRoutes.show(
+                { workspace: props.workspace.slug, machine: machineId },
+                { query: { job: jobId } },
+            ),
+        ).url,
+    );
 }
 
 type Row =

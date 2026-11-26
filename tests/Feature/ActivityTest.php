@@ -28,7 +28,7 @@ function activityMachine(): array
         ]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/services/'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/services/'];
 }
 
 test('what people do to services is recorded and read back as sentences', function () {
@@ -41,7 +41,7 @@ test('what people do to services is recorded and read back as sentences', functi
 
     expect(Activity::query()->pluck('action')->all())->toBe(['service.restart', 'machine.offline']);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Activity')
             ->where('entries.0.leads', true)
@@ -52,7 +52,7 @@ test('what people do to services is recorded and read back as sentences', functi
             ->where('entries.1.subject', 'serveros-cache-redis-1')
             ->where('entries.1.machine.id', $machine->id));
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity?who=people')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity?who=people')
         ->assertInertia(fn (Assert $page) => $page->has('entries', 1));
 });
 
@@ -65,22 +65,22 @@ test('console commands are recorded word for word, shown only to people who can 
 
     $this->actingAs($workspace->owner)->postJson($url.'docker:abc123def456/actions', ['action' => 'exec', 'command' => 'redis-cli FLUSHALL'])->assertAccepted();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page
             ->where('entries.0.verb', 'ran a command in')
             ->where('entries.0.detail', 'redis-cli FLUSHALL'));
 
     $viewer = User::factory()->create();
     $workspace->members()->attach($viewer, ['role' => 'viewer']);
-    $this->actingAs($viewer)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($viewer)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page->where('entries.0.detail', null));
 
-    $this->actingAs(User::factory()->create())->get('https://'.$workspace->host().'/activity')->assertForbidden();
+    $this->actingAs(User::factory()->create())->get($workspace->url().'/activity')->assertForbidden();
 });
 
 test('settings changes and removals are recorded', function () {
     [$workspace, $machine] = activityMachine();
-    $base = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $base = $workspace->url().'/machines/'.$machine->id;
 
     $this->actingAs($workspace->owner)->patch($base, ['name' => 'web-prod', 'environment' => 'staging'])->assertRedirect();
     $this->actingAs($workspace->owner)->delete($base)->assertRedirect();

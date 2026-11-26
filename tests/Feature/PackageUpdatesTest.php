@@ -5,8 +5,10 @@ use App\Models\Activity;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\MachinePackageUpdate;
+use App\Models\MachineVulnerability;
 use App\Models\PackageRollout;
 use App\Models\User;
+use App\Models\Vulnerability;
 use App\Models\Workspace;
 use App\Support\Machines\PackageRollouts;
 use App\Support\Machines\PackageUpdates;
@@ -72,7 +74,7 @@ function pkgSent(): array
 
 function pkgUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function pkgJob(Machine $machine, string $kind): DaemonJob
@@ -439,4 +441,73 @@ test('the Updates page shows every machine’s updates, and viewers can only loo
 
     $other = PackageRollout::query()->create(['workspace_id' => Workspace::factory()->create()->id, 'name' => 'x', 'packages' => [], 'mode' => 'latest']);
     $this->getJson(pkgUrl($workspace, "/updates/rollouts/{$other->id}"))->assertNotFound();
+});
+
+test('the Updates page says which CVEs each package fixes, which need a restart, and follows the current rollout', function () {
+    $workspace = pkgWorkspace();
+    $one = pkgMachine($workspace, 'web-1', ['updates_checked_at' => now()->subMinutes(12)]);
+    $two = pkgMachine($workspace, 'web-2', ['updates_checked_at' => now()->subMinutes(12)]);
+    pkgSnapshot($one, [
+        'openssl' => ['3.0.13-0ubuntu3.4', '3.0.13-0ubuntu3.5', true],
+        'linux-image-generic' => ['6.8.0-49.49', '6.8.0-51.52', true],
+        'curl' => ['8.5.0-2ubuntu10.4', '8.5.0-2ubuntu10.6', true],
+    ]);
+    pkgSnapshot($two, ['openssl' => ['3.0.13-0ubuntu3.3', '3.0.13-0ubuntu3.5', true]]);
+    $exploited = Vulnerability::query()->create(['cve' => 'CVE-2026-0001', 'severity' => 'critical', 'cvss' => 9.8, 'epss' => 0.6, 'exploited' => true]);
+    $other = Vulnerability::query()->create(['cve' => 'CVE-2026-0002', 'severity' => 'critical', 'cvss' => 9.1]);
+    $kernel = Vulnerability::query()->create(['cve' => 'CVE-2026-0003', 'severity' => 'high', 'cvss' => 7.8]);
+    $fixed = Vulnerability::query()->create(['cve' => 'CVE-2026-0004', 'severity' => 'medium']);
+    foreach ([[$one, $exploited], [$two, $exploited], [$one, $other]] as [$machine, $vulnerability]) {
+        MachineVulnerability::query()->create(['machine_id' => $machine->id, 'vulnerability_id' => $vulnerability->id, 'source' => 'openssl', 'packages' => ['openssl', 'libssl3t64'], 'detected_at' => now()]);
+    }
+    MachineVulnerability::query()->create(['machine_id' => $one->id, 'vulnerability_id' => $kernel->id, 'source' => 'linux', 'packages' => ['linux-image-generic'], 'detected_at' => now()]);
+    MachineVulnerability::query()->create(['machine_id' => $one->id, 'vulnerability_id' => $fixed->id, 'source' => 'curl', 'packages' => ['curl'], 'detected_at' => now(), 'resolved_at' => now()]);
+    $rollout = PackageRollout::query()->create(['workspace_id' => $workspace->id, 'name' => 'Nightly security', 'packages' => [['name' => 'openssl', 'version' => null]], 'mode' => 'latest', 'state' => 'running']);
+    $rollout->targets()->create(['machine_id' => $one->id, 'position' => 0, 'state' => 'done', 'installed' => [['name' => 'openssl', 'version' => null]]]);
+    $rollout->targets()->create(['machine_id' => $two->id, 'position' => 1, 'state' => 'running']);
+    PackageRollout::query()->create(['workspace_id' => $workspace->id, 'name' => 'Later', 'packages' => [], 'mode' => 'latest', 'state' => 'done']);
+
+    $this->actingAs($workspace->owner)->get(pkgUrl($workspace, '/updates'))->assertOk()->assertInertia(fn (Assert $page) => $page
+        ->component('workspace/Updates')
+        ->where('packages.0.name', 'openssl')
+        ->where('packages.0.fixes.severity', 'critical')
+        ->where('packages.0.fixes.count', 2)
+        ->where('packages.0.fixes.exploited', 1)
+        ->where('packages.0.fixes.cves.0.cve', 'CVE-2026-0001')
+        ->where('packages.0.fixes.cves.0.url', 'https://nvd.nist.gov/vuln/detail/CVE-2026-0001')
+        ->where('packages.0.on', [
+            ['id' => $one->id, 'installed' => '3.0.13-0ubuntu3.4', 'candidate' => '3.0.13-0ubuntu3.5'],
+            ['id' => $two->id, 'installed' => '3.0.13-0ubuntu3.3', 'candidate' => '3.0.13-0ubuntu3.5'],
+        ])
+        ->where('packages.0.restart', false)
+        ->where('packages.1.name', 'linux-image-generic')
+        ->where('packages.1.restart', true)
+        ->where('packages.1.fixes.severity', 'high')
+        ->where('packages.2.name', 'curl')
+        ->where('packages.2.fixes', null)
+        ->where('security.updates', 4)
+        ->where('security.packages', 3)
+        ->where('security.cves', 3)
+        ->where('security.exploited', 1)
+        ->where('security.levels.critical', ['cves' => 2, 'exploited' => 1, 'packages' => ['openssl']])
+        ->where('security.levels.high', ['cves' => 1, 'exploited' => 0, 'packages' => ['linux-image-generic']])
+        ->where('security.levels.medium.cves', 0)
+        ->where('summary.held', 0)
+        ->where('rollout.name', 'Nightly security')
+        ->where('rollout.machines.0.state', 'done')
+        ->where('rollout.machines.1.state', 'running'));
+});
+
+test('machines without a daemon still show on the Updates page, but nothing is sent to them', function () {
+    $workspace = pkgWorkspace();
+    $demo = Machine::factory()->for($workspace)->create(['name' => 'demo-1']);
+    MachinePackageUpdate::query()->create(['machine_id' => $demo->id, 'name' => 'openssl', 'installed' => '1', 'candidate' => '2', 'security' => true]);
+
+    $this->actingAs($workspace->owner)->get(pkgUrl($workspace, '/updates'))->assertInertia(fn (Assert $page) => $page
+        ->where('machines.0.name', 'demo-1')
+        ->where('machines.0.connection', 'demo')
+        ->where('packages.0.name', 'openssl')
+        ->where('summary.updates', 1));
+
+    $this->postJson(pkgUrl($workspace, '/updates/check'))->assertStatus(409);
 });

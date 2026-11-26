@@ -43,7 +43,7 @@ function pushDeployApp(string $repo = 'https://github.com/acme/shop'): array
     ]);
     $job->forceFill(['created_at' => now()->subDays(2)])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 function pushTo(string $branch = 'main', string $commit = '', string $repo = 'acme/shop'): TestResponse

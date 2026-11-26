@@ -44,6 +44,8 @@ import type {
     PolicyRule,
 } from '@/lib/machinePolicies';
 import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
+import monitorsRoutes from '@/routes/workspace/monitors';
 import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
@@ -145,12 +147,27 @@ const props = defineProps<{
     collectedData?: CollectedData;
 }>();
 
-const machineUrl = computed(() => `/machines/${props.machine.id}`);
+const machineArgs = computed(() => ({
+    workspace: props.workspace.slug,
+    machine: props.machine.id!,
+}));
+const settingsBase = computed(
+    () => onWorkspace(machinesRoutes.settings(machineArgs.value)).url,
+);
+const iconUrl = computed(
+    () => onWorkspace(machinesRoutes.icon.update(machineArgs.value)).url,
+);
+const monitorsUrl = computed(
+    () => onWorkspace(monitorsRoutes.index(props.workspace.slug)).url,
+);
 
-const tab = usePathTab(`${machineUrl.value}/settings`, [
-    'general',
-    'status',
-] as const);
+function statusImageUrl(kind: 'icon' | 'favicon'): string {
+    return onWorkspace(
+        machinesRoutes.statusPage.image.update({ ...machineArgs.value, kind }),
+    ).url;
+}
+
+const tab = usePathTab(settingsBase.value, ['general', 'status'] as const);
 
 const policyBusy = ref(false);
 const policyError = ref<string | null>(null);
@@ -198,7 +215,7 @@ const policyFollows = computed(() => {
 
 function choosePolicy(value: number | null): void {
     router.put(
-        `${machineUrl.value}/policy`,
+        onWorkspace(machinesRoutes.policy.update(machineArgs.value)).url,
         { policy: value },
         {
             preserveScroll: true,
@@ -214,7 +231,7 @@ function choosePolicy(value: number | null): void {
 
 function installUpdate(): void {
     router.post(
-        `${machineUrl.value}/daemon-update`,
+        onWorkspace(machinesRoutes.daemonUpdate(machineArgs.value)).url,
         {},
         {
             preserveScroll: true,
@@ -249,15 +266,18 @@ function saveSkip(): void {
             services: data.services.split('\n'),
             patterns: data.patterns,
         }))
-        .put(`/machines/${props.machine.id}/log-skip`, {
-            preserveScroll: true,
-            onStart: () => (skipOffer.value = null),
-            onFlash: (flash) => {
-                skipOffer.value =
-                    (flash.logSkipOffer as SkipOffer | undefined) ?? null;
+        .put(
+            onWorkspace(machinesRoutes.logSkip.update(machineArgs.value)).url,
+            {
+                preserveScroll: true,
+                onStart: () => (skipOffer.value = null),
+                onFlash: (flash) => {
+                    skipOffer.value =
+                        (flash.logSkipOffer as SkipOffer | undefined) ?? null;
+                },
+                onSuccess: () => skipForm.defaults(),
             },
-            onSuccess: () => skipForm.defaults(),
-        });
+        );
 }
 
 type SkipOffer = {
@@ -273,7 +293,8 @@ function deleteSkipped(): void {
     const offer = skipOffer.value;
     if (!offer || offerBusy.value) return;
     router.post(
-        `/machines/${props.machine.id}/collected-data/skipped-services`,
+        onWorkspace(machinesRoutes.collectedData.skipped(machineArgs.value))
+            .url,
         { services: offer.services.map((s) => s.service) },
         {
             preserveScroll: true,
@@ -328,7 +349,7 @@ function saveMachine(): void {
             ...data,
             labels: data.labels.filter((label) => label.key.trim() !== ''),
         }))
-        .patch(machineUrl.value, {
+        .patch(onWorkspace(machinesRoutes.update(machineArgs.value)).url, {
             preserveScroll: true,
             onSuccess: () => machineForm.defaults(),
         });
@@ -379,10 +400,13 @@ const monitorStatus: Record<StatusMonitor['status'], ComponentStatus> = {
 const editable = computed(() => props.canManage && props.planAllows);
 
 function saveStatusPage(): void {
-    statusForm.put(`${machineUrl.value}/status-page`, {
-        preserveScroll: true,
-        onSuccess: () => statusForm.defaults(),
-    });
+    statusForm.put(
+        onWorkspace(machinesRoutes.statusPage.update(machineArgs.value)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => statusForm.defaults(),
+        },
+    );
 }
 
 const live = computed(
@@ -604,7 +628,7 @@ const deleteConfirmation = ref('');
 const deleting = ref(false);
 
 function deleteMachine(): void {
-    router.delete(machineUrl.value, {
+    router.delete(onWorkspace(machinesRoutes.destroy(machineArgs.value)).url, {
         onStart: () => (deleting.value = true),
         onFinish: () => (deleting.value = false),
     });
@@ -1286,8 +1310,8 @@ const serviceColumns =
                     hide-label
                     :image-url="machine.iconUrl ?? null"
                     :fallback="machine.name.charAt(0).toUpperCase()"
-                    :upload-url="`/machines/${machine.id}/icon`"
-                    :remove-url="`/machines/${machine.id}/icon`"
+                    :upload-url="iconUrl"
+                    :remove-url="iconUrl"
                 />
             </section>
 
@@ -1590,8 +1614,8 @@ const serviceColumns =
                                     .charAt(0)
                                     .toUpperCase()
                             "
-                            :upload-url="`${machineUrl}/status-page/icon`"
-                            :remove-url="`${machineUrl}/status-page/icon`"
+                            :upload-url="statusImageUrl('icon')"
+                            :remove-url="statusImageUrl('icon')"
                             :disabled="!editable"
                         />
                     </SettingsLine>
@@ -1613,8 +1637,8 @@ const serviceColumns =
                             "
                             :image-url="statusPage.faviconUrl"
                             fallback=""
-                            :upload-url="`${machineUrl}/status-page/favicon`"
-                            :remove-url="`${machineUrl}/status-page/favicon`"
+                            :upload-url="statusImageUrl('favicon')"
+                            :remove-url="statusImageUrl('favicon')"
                             :disabled="!editable"
                         />
                     </SettingsLine>
@@ -1769,7 +1793,7 @@ const serviceColumns =
                         >
                     </h2>
                     <Link
-                        href="/monitors"
+                        :href="monitorsUrl"
                         class="text-[13px]/5 font-medium text-(--ds-blue) hover:underline hover:underline-offset-4"
                     >
                         {{ ' ' + $t('Manage monitors') + ' ' }}
@@ -1891,7 +1915,7 @@ const serviceColumns =
                         )
                     }}
                     <Link
-                        href="/monitors"
+                        :href="monitorsUrl"
                         class="font-medium text-(--ds-blue) hover:underline hover:underline-offset-4"
                         >{{ $t('Add a monitor') }}</Link
                     >

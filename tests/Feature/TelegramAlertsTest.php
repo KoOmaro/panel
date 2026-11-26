@@ -23,7 +23,7 @@ function telegramWorkspace(array $attributes = []): Workspace
 test('a Telegram chat is saved from the alerts dialog with its token encrypted and never sent back', function () {
     $this->withoutVite();
     $workspace = telegramWorkspace();
-    $url = 'https://'.$workspace->host().'/monitor-alerts';
+    $url = $workspace->url().'/monitor-alerts';
 
     $this->actingAs($workspace->owner)->put($url, ['email' => true, 'webhook' => '', 'telegram_chat' => '-1001234567890', 'telegram_token' => TELEGRAM_TOKEN])->assertRedirect();
 
@@ -33,18 +33,18 @@ test('a Telegram chat is saved from the alerts dialog with its token encrypted a
         ->and(DB::table('workspaces')->where('id', $workspace->id)->value('alert_telegram_token'))->not->toContain('AAHdqTcv')
         ->and(json_encode($workspace->toArray()))->not->toContain('AAHdqTcv');
 
-    $page = $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/monitors');
+    $page = $this->actingAs($workspace->owner)->get($workspace->url().'/monitors');
     $page->assertInertia(fn (AssertableInertia $p) => $p->where('alerts.telegram', ['chat' => '-1001234567890', 'set' => true]));
     expect($page->getContent())->not->toContain('AAHdqTcv');
 
-    $settings = $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/settings/general');
+    $settings = $this->actingAs($workspace->owner)->get($workspace->url().'/settings/general');
     $settings->assertInertia(fn (AssertableInertia $p) => $p->where('alerts.telegram.set', true));
     expect($settings->getContent())->not->toContain('AAHdqTcv');
 });
 
 test('the token can be left out to keep it, a bad chat id is turned down, and an empty chat removes Telegram', function () {
     $workspace = telegramWorkspace();
-    $url = 'https://'.$workspace->host().'/monitor-alerts';
+    $url = $workspace->url().'/monitor-alerts';
     $owner = $workspace->owner;
 
     $this->actingAs($owner)->put($url, ['email' => true, 'telegram_chat' => 'my group'])->assertSessionHasErrors('telegram_chat');
@@ -100,7 +100,7 @@ test('a test message goes to the chat typed in, with the saved token when none i
         default => Http::response(['ok' => false, 'description' => 'Unauthorized'], 401),
     });
     $workspace = telegramWorkspace(['alert_telegram_chat' => '-1', 'alert_telegram_token' => TELEGRAM_TOKEN]);
-    $url = 'https://'.$workspace->host().'/monitor-alerts/test';
+    $url = $workspace->url().'/monitor-alerts/test';
     $owner = $workspace->owner;
 
     $this->actingAs($owner)->postJson($url, ['channel' => 'telegram', 'telegram_chat' => '-1'])->assertOk()->assertExactJson(['ok' => true, 'error' => null]);

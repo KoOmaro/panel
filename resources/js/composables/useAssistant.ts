@@ -1,7 +1,10 @@
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, nextTick, ref, watch } from 'vue';
 import { errorMessage, reasonIn, statusMessage } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import { assistant } from '@/routes/workspace';
+import assistantRoutes from '@/routes/workspace/assistant';
 
 export type StepState =
     | 'running'
@@ -399,6 +402,10 @@ async function post(url: string, body: Record<string, unknown>): Promise<void> {
     }
 }
 
+function workspaceSlug(): string {
+    return usePage<{ workspace: { slug: string } }>().props.workspace.slug;
+}
+
 async function send(text: string, images: string[] = []): Promise<void> {
     const message = text.trim();
     if ((!message && images.length === 0) || streaming.value) return;
@@ -409,7 +416,7 @@ async function send(text: string, images: string[] = []): Promise<void> {
         }
     }
     items.value.push({ kind: 'user', text: message, images });
-    await post('/assistant', {
+    await post(onWorkspace(assistant(workspaceSlug())).url, {
         chat: chatId.value,
         message,
         images,
@@ -426,7 +433,7 @@ async function decide(
     if (streaming.value || item.state !== 'waiting' || !chatId.value) return;
     item.state = approve ? 'running' : 'declined';
     if (!approve) item.summary = trans('Declined');
-    await post('/assistant/decide', {
+    await post(onWorkspace(assistantRoutes.decide(workspaceSlug())).url, {
         chat: chatId.value,
         call: item.id,
         approve,
@@ -448,10 +455,13 @@ let modelsLoading: Promise<void> | null = null;
 
 function loadModels(force = false): Promise<void> {
     if (modelsLoading && !force) return modelsLoading;
-    modelsLoading = fetch('/assistant/models', {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-    })
+    modelsLoading = fetch(
+        onWorkspace(assistantRoutes.models(workspaceSlug())).url,
+        {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+        },
+    )
         .then((r) => (r.ok ? r.json() : { options: [] }))
         .then((json: { options?: ModelOption[] }) => {
             modelOptions.value = json.options ?? [];

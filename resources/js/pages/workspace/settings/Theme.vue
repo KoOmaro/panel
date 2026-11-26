@@ -11,7 +11,9 @@ import Tile from '@/components/workspace/Tile.vue';
 import { useAssistant } from '@/composables/useAssistant';
 import { SolarImagePlus, SolarLayers } from '@/lib/solarIcons';
 import { STANDARD_PREVIEW } from '@/lib/themePreview';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import { setThemePreview } from '@/lib/workspaceTheme';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
 type Template = {
@@ -114,17 +116,23 @@ function settle(): void {
 }
 
 function saveDraft(): void {
-    form.put('/settings/theme/draft', {
-        preserveScroll: true,
-        onSuccess: settle,
-    });
+    form.put(
+        onWorkspace(settingsRoutes.theme.draft(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: settle,
+        },
+    );
 }
 
 function publish(): void {
-    form.post('/settings/theme/publish', {
-        preserveScroll: true,
-        onSuccess: settle,
-    });
+    form.post(
+        onWorkspace(settingsRoutes.theme.publish(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: settle,
+        },
+    );
 }
 
 function useTemplate(template: Template): void {
@@ -138,14 +146,18 @@ function discard(): void {
         setThemePreview(null);
         return;
     }
-    router.delete('/settings/theme/draft', {
-        preserveScroll: true,
-        onSuccess: () => {
-            form.defaults({ css: props.css });
-            form.reset();
-            setThemePreview(null);
+    router.delete(
+        onWorkspace(settingsRoutes.theme.draft.destroy(props.workspace.slug))
+            .url,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                form.defaults({ css: props.css });
+                form.reset();
+                setThemePreview(null);
+            },
         },
-    });
+    );
 }
 
 function turnOff(): void {
@@ -153,10 +165,13 @@ function turnOff(): void {
         confirmingOff.value = true;
         return;
     }
-    router.delete('/settings/theme', {
-        preserveScroll: true,
-        onFinish: () => (confirmingOff.value = false),
-    });
+    router.delete(
+        onWorkspace(settingsRoutes.theme.destroy(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onFinish: () => (confirmingOff.value = false),
+        },
+    );
 }
 
 function askAi(): void {
@@ -169,15 +184,23 @@ function pickImage(event: Event): void {
     upload.image = input.files?.[0] ?? null;
     input.value = '';
     if (!upload.image) return;
-    upload.post('/settings/theme/images', {
-        preserveScroll: true,
-        forceFormData: true,
-        onSuccess: () => upload.reset(),
-    });
+    upload.post(
+        onWorkspace(settingsRoutes.theme.images.store(props.workspace.slug))
+            .url,
+        {
+            preserveScroll: true,
+            forceFormData: true,
+            onSuccess: () => upload.reset(),
+        },
+    );
 }
 
 function removeImage(image: Image): void {
-    router.delete(`/settings/theme/images/${encodeURIComponent(image.name)}`, {
+    const route = settingsRoutes.theme.images.destroy({
+        workspace: props.workspace.slug,
+        image: encodeURIComponent(image.name),
+    });
+    router.delete(onWorkspace(route).url, {
         preserveScroll: true,
     });
 }
@@ -216,11 +239,21 @@ const copiedLink = ref<string | null>(null);
 
 function createShare(): void {
     shareForm.css = form.css;
-    shareForm.post('/settings/theme/shares', { preserveScroll: true });
+    shareForm.post(
+        onWorkspace(settingsRoutes.theme.shares.store(props.workspace.slug))
+            .url,
+        {
+            preserveScroll: true,
+        },
+    );
 }
 
 function stopSharing(id: number): void {
-    router.delete(`/settings/theme/shares/${id}`, { preserveScroll: true });
+    const route = settingsRoutes.theme.shares.destroy({
+        workspace: props.workspace.slug,
+        share: id,
+    });
+    router.delete(onWorkspace(route).url, { preserveScroll: true });
 }
 
 async function copyLink(url: string): Promise<void> {
@@ -241,10 +274,13 @@ function downloadCss(): void {
 
 function importLink(): void {
     importForm.file = null;
-    importForm.post('/settings/theme/import', {
-        preserveScroll: true,
-        onSuccess: () => importForm.reset(),
-    });
+    importForm.post(
+        onWorkspace(settingsRoutes.theme.import(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => importForm.reset(),
+        },
+    );
 }
 
 function importFile(event: Event): void {
@@ -253,11 +289,14 @@ function importFile(event: Event): void {
     picker.value = '';
     if (!importForm.file) return;
     importForm.link = '';
-    importForm.post('/settings/theme/import', {
-        preserveScroll: true,
-        forceFormData: true,
-        onSuccess: () => importForm.reset(),
-    });
+    importForm.post(
+        onWorkspace(settingsRoutes.theme.import(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            forceFormData: true,
+            onSuccess: () => importForm.reset(),
+        },
+    );
 }
 
 function shortDate(iso: string | null): string {
@@ -274,7 +313,7 @@ function shortDate(iso: string | null): string {
 <template>
     <Head :title="$t('Theme')" />
 
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col">
         <Tile
             id="theme-css"
             :title="$t('Theme')"

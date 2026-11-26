@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
@@ -10,6 +10,8 @@ import { appButtonClasses } from '@/lib/appButton';
 import { SolarCopy as Copy, SolarDownload as Download } from '@/lib/solarIcons';
 import { timeAgo } from '@/lib/timeAgo';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import panelUpdateRoutes from '@/routes/workspace/panel-update';
 
 export type PanelUpdateState = {
     current: string;
@@ -36,6 +38,8 @@ export type PanelUpdateState = {
 };
 
 const props = defineProps<{ state: PanelUpdateState }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
 
 const state = ref<PanelUpdateState>(props.state);
 const error = ref<string | null>(null);
@@ -175,10 +179,13 @@ const details = computed(() => {
 });
 
 async function poll(): Promise<void> {
-    const response = await fetch('/settings/panel-update', {
-        headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
-    }).catch(() => null);
+    const response = await fetch(
+        onWorkspace(panelUpdateRoutes.show(page.props.workspace.slug)).url,
+        {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        },
+    ).catch(() => null);
     if (
         response?.ok &&
         response.headers.get('content-type')?.includes('application/json')
@@ -215,7 +222,11 @@ function update(): void {
     ) {
         return;
     }
-    post('/settings/panel-update');
+    post(onWorkspace(panelUpdateRoutes.store(page.props.workspace.slug)).url);
+}
+
+function checkNow(): void {
+    post(onWorkspace(panelUpdateRoutes.check(page.props.workspace.slug)).url);
 }
 
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -277,7 +288,7 @@ onBeforeUnmount(() => clearInterval(timer));
                     v-else-if="state.current !== 'dev'"
                     size="sm"
                     :disabled="busy"
-                    @click="post('/settings/panel-update/check')"
+                    @click="checkNow"
                 >
                     {{ $t('Check now') }}
                 </AppButton>

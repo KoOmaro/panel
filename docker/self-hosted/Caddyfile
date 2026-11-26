@@ -1,9 +1,10 @@
 # The self-hosted panel's web server: FrankenPHP (Caddy with PHP built in).
 #
-# The panel answers on SERVEROS_DOMAIN and each workspace on its own
-# subdomain of it (acme.panel.example.com), so DNS needs both
-# SERVEROS_DOMAIN and *.SERVEROS_DOMAIN pointing here. Each name gets its
-# own Let's Encrypt certificate the first time it's visited (on-demand
+# The panel answers on SERVEROS_DOMAIN, with each workspace at a path on it
+# (panel.example.com/acme), so DNS needs SERVEROS_DOMAIN pointing here.
+# Older installs opened workspaces on subdomains (acme.panel.example.com);
+# those still redirect while *.SERVEROS_DOMAIN points here. Each name gets
+# its own Let's Encrypt certificate the first time it's visited (on-demand
 # TLS), once the panel says the name is its own: /api/internal/tls-check,
 # which only answers on the loopback address below.
 #

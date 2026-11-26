@@ -12,7 +12,7 @@ test('unknown pages get our 404, with the right way back', function () {
             ->where('home.label', 'Go to the homepage'));
 
     $workspace = Workspace::factory()->create();
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/no-such-page')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/no-such-page')
         ->assertNotFound()
         ->assertInertia(fn (Assert $page) => $page->where('home.label', 'Back to dashboard'));
 

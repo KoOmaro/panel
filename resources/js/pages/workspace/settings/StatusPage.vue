@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-    LICENSE_SETTINGS_PATH,
+    licenseSettingsPath,
     useSelfHosted,
 } from '@/composables/useSelfHosted';
 import { useUpgradeLink } from '@/composables/useUpgradeLink';
@@ -20,6 +20,9 @@ import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { appButtonClasses } from '@/lib/appButton';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import monitorsRoutes from '@/routes/workspace/monitors';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
 const upgrade = useUpgradeLink();
@@ -117,11 +120,44 @@ const editable = computed(
     () => props.canManage && (props.planAllows || props.page.enabled),
 );
 
-function save(): void {
-    form.put('/settings/status-page', {
-        preserveScroll: true,
-        onSuccess: () => form.defaults(),
+const monitorsHref = computed(
+    () => onWorkspace(monitorsRoutes.index(props.workspace.slug)).url,
+);
+
+const imageUrls = computed(() => {
+    const args = (kind: 'icon' | 'favicon') => ({
+        workspace: props.workspace.slug,
+        kind,
     });
+
+    return {
+        icon: {
+            upload: onWorkspace(
+                settingsRoutes.statusPage.image.update(args('icon')),
+            ).url,
+            remove: onWorkspace(
+                settingsRoutes.statusPage.image.destroy(args('icon')),
+            ).url,
+        },
+        favicon: {
+            upload: onWorkspace(
+                settingsRoutes.statusPage.image.update(args('favicon')),
+            ).url,
+            remove: onWorkspace(
+                settingsRoutes.statusPage.image.destroy(args('favicon')),
+            ).url,
+        },
+    };
+});
+
+function save(): void {
+    form.put(
+        onWorkspace(settingsRoutes.statusPage.update(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => form.defaults(),
+        },
+    );
 }
 
 function pickMonitor(id: number, on: boolean): void {
@@ -248,7 +284,7 @@ const focusRing =
             </p>
             <Link
                 v-if="selfHosted"
-                :href="LICENSE_SETTINGS_PATH"
+                :href="licenseSettingsPath()"
                 :class="appButtonClasses('primary', 'sm')"
             >
                 {{ $t('Add a license') }}
@@ -437,8 +473,8 @@ const focusRing =
                                 .charAt(0)
                                 .toUpperCase()
                         "
-                        upload-url="/settings/status-page/icon"
-                        remove-url="/settings/status-page/icon"
+                        :upload-url="imageUrls.icon.upload"
+                        :remove-url="imageUrls.icon.remove"
                         :disabled="!editable"
                     />
                 </SettingsLine>
@@ -460,8 +496,8 @@ const focusRing =
                         "
                         :image-url="page.faviconUrl"
                         fallback=""
-                        upload-url="/settings/status-page/favicon"
-                        remove-url="/settings/status-page/favicon"
+                        :upload-url="imageUrls.favicon.upload"
+                        :remove-url="imageUrls.favicon.remove"
                         :disabled="!editable"
                     />
                 </SettingsLine>
@@ -637,7 +673,11 @@ const focusRing =
                                     machine.name
                                 }}</span>
                                 <Link
-                                    :href="`/machines/${machine.id}/settings/status`"
+                                    :href="
+                                        workspacePath(
+                                            `/machines/${machine.id}/settings/status`,
+                                        )
+                                    "
                                     class="shrink-0 text-xs text-(--ds-text-muted) hover:text-(--ds-text) hover:underline"
                                     @click.stop
                                 >
@@ -888,7 +928,7 @@ const focusRing =
                         {{ ' '
                         }}{{ $t('No uptime monitors outside a machine yet.') }}
                         <Link
-                            href="/monitors"
+                            :href="monitorsHref"
                             class="text-(--ds-text) underline-offset-2 hover:underline"
                             >{{ $t('Add one') }}</Link
                         >

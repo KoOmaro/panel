@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Http\Middleware\SetLocale;
 use App\Models\Workspace;
 use App\Support\Extensions\Extensions;
+use App\Support\Workspaces\Dashboard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\App;
@@ -65,11 +66,14 @@ class ErrorPage
             return ['href' => '/', 'label' => 'Back to the docs'];
         }
 
-        if ($host !== $domain && str_ends_with($host, ".{$domain}")) {
-            $slug = substr($host, 0, -strlen(".{$domain}"));
-            if ($request->user() !== null && Workspace::query()->where('slug', $slug)->exists()) {
-                return ['href' => '/', 'label' => 'Back to dashboard'];
-            }
+        if (Dashboard::on($request) && $request->user() !== null) {
+            $slug = explode('/', ltrim($request->getPathInfo(), '/'), 2)[0];
+            $back = $slug !== '' && Workspace::query()->where('slug', $slug)->exists() ? '/'.$slug : route('dashboard', absolute: false);
+
+            return ['href' => $back, 'label' => 'Back to dashboard'];
+        }
+        if ($request->attributes->has('custom_domain') && $request->user() !== null) {
+            return ['href' => '/', 'label' => 'Back to dashboard'];
         }
 
         return ['href' => $site, 'label' => 'Go to the homepage'];

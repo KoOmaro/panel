@@ -10,6 +10,10 @@ return [
 
     'edition' => env('SERVEROS_EDITION', 'self-hosted'),
 
+    // Where workspaces live: https://<this>/<workspace-slug>/... Empty means
+    // cloud.<APP_DOMAIN> on ServerOS Cloud and APP_DOMAIN itself when self-hosted.
+    'dashboard_domain' => env('DASHBOARD_DOMAIN'),
+
     'sign_ups' => env('SERVEROS_SIGN_UPS', 'closed'),
 
     // The Agents page (coding agents on your own machines). A preview: off
@@ -28,6 +32,7 @@ return [
         'terms_url' => env('SERVEROS_TERMS_URL'),
         'privacy_url' => env('SERVEROS_PRIVACY_URL'),
         'source_url' => env('SERVEROS_SOURCE_URL', 'https://github.com/serveroshq/panel'),
+        'discord_url' => env('SERVEROS_DISCORD_URL', 'https://discord.gg/serveros'),
         'agent_email' => env('SERVEROS_AGENT_EMAIL'),
     ],
 

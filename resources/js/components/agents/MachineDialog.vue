@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { Check, Loader2, Search } from '@lucide/vue';
 import {
     computed,
@@ -18,6 +18,8 @@ import {
 import type { ServiceTemplate } from '@/components/workspace/DeployServiceDialog.vue';
 import { appButtonClasses } from '@/lib/appButton';
 import { toast } from '@/lib/toast';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 import ServersIcon from '@/components/icons/ServersIcon.vue';
 import { buyAgentTime } from './agentTasks';
 import type { Hosting } from './agentTasks';
@@ -53,6 +55,9 @@ const emit = defineEmits<{
     pick: [machineId: number, service: string];
     pickHosted: [];
 }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
+const billingHref = computed(() => workspacePath('/billing'));
 
 // With ServerOS offered, the picker is wide: its card on the left, the
 // workspace's own machines on the right.
@@ -180,10 +185,18 @@ const waiting = ref<{ machineId: number; known: string[] } | null>(null);
 async function deployOn(box: Box): Promise<void> {
     loadingTemplates.value = box.id;
     try {
-        const response = await fetch(`/agents/machines/${box.id}/templates`, {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-        });
+        const response = await fetch(
+            onWorkspace(
+                agentsRoutes.templates({
+                    workspace: page.props.workspace.slug,
+                    machine: box.id,
+                }),
+            ).url,
+            {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            },
+        );
         if (!response.ok) throw new Error();
         deploying.value = {
             machine: box,
@@ -471,7 +484,7 @@ watch(
                     >
                         {{ $t('Agents on your own machines come with Pro.') }}
                         <a
-                            href="/billing"
+                            :href="billingHref"
                             class="font-medium text-(--ds-blue) hover:underline hover:underline-offset-4"
                             >{{ $t('Choose a plan') }}</a
                         >

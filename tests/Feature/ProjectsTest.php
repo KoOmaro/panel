@@ -13,6 +13,7 @@ use App\Support\Projects\Connections;
 use App\Support\Projects\Placement;
 use App\Support\Projects\Previews;
 use App\Support\Projects\ProjectData;
+use App\Support\Projects\ProjectFacts;
 use App\Support\Projects\ProjectLinks;
 use App\Support\Projects\ProjectNetwork;
 use App\Support\ServiceTemplates\ServiceTemplateCatalog;
@@ -46,7 +47,7 @@ function projectSetup(bool $sameMachine = false): array
     $spec = (new TemplateDeployment($template, $db, ['service' => 'shop-db', 'port' => 5432, 'env' => ['POSTGRES_PASSWORD' => 's3cret']]))->job();
     projectDeploy($db, 'shop-db', json_decode(json_encode($spec), true));
 
-    return [$workspace, $web, $db, 'https://'.$workspace->host()];
+    return [$workspace, $web, $db, $workspace->url()];
 }
 
 /** @param  list<array<string, mixed>>  $services */
@@ -292,7 +293,7 @@ test('production is never written into, and a copy that exits badly is marked fa
     expect($original->fresh()->data_state)->toBeNull()
         ->and(DaemonJob::query()->where('kind', 'service_exec')->exists())->toBeFalse();
 
-    $this->actingAs($workspace->owner)->post('https://'.$workspace->host()."/projects/{$project->uid}/environments/{$project->production()->id}/refresh")
+    $this->actingAs($workspace->owner)->post($workspace->url()."/projects/{$project->uid}/environments/{$project->production()->id}/refresh")
         ->assertSessionHasErrors('environment');
 });
 
@@ -977,4 +978,99 @@ test('deleting an app from a project removes every version of it from the machin
         ->and($after->where('job.type', 'deploy')->where('job.service', 'shop'))->toBeEmpty()
         ->and($after->firstWhere('job.service', 'docker:shop-old')['job'])->toMatchArray(['type' => 'service_remove', 'delete_data' => false])
         ->and($after->firstWhere('job.service', 'docker:shop')['job']['type'])->toBe('adopt');
+});
+
+test('the projects list shows each environment’s app, stack, machine, domain, status and who deployed it', function () {
+    [$workspace, $web, $db, $base] = projectSetup();
+    $owner = $workspace->owner;
+    $job = (new TemplateDeployment(app(ServiceTemplateCatalog::class)->find('nextjs'), $web, [
+        'service' => 'shop', 'repo' => 'https://github.com/acme/shop', 'commit' => str_repeat('b', 40), 'domain' => 'shop.example.com',
+    ]))->job();
+    projectDeploy($web, 'shop', json_decode(json_encode($job), true));
+    $project = $workspace->projects()->create(['name' => 'Shop']);
+    $production = $project->production();
+    $project->nodes()->create(['environment_id' => $production->id, 'machine_id' => $web->id, 'name' => 'shop', 'kind' => 'app']);
+    $project->nodes()->create(['environment_id' => $production->id, 'machine_id' => $db->id, 'name' => 'shop-db', 'kind' => 'database', 'template' => 'postgres']);
+    $project->environments()->create(['name' => 'Staging', 'position' => 1, 'source_id' => $production->id]);
+
+    $this->actingAs($owner)->get($base.'/projects')->assertInertia(fn (Assert $page) => $page
+        ->component('workspace/Projects')
+        ->where('projects.0.name', 'Shop')
+        ->where('projects.0.environments.0.name', 'Production')
+        ->where('projects.0.environments.0.kind', ['slug' => 'nextjs', 'name' => 'Next.js'])
+        ->where('projects.0.environments.0.machine.name', 'web-1')
+        ->where('projects.0.environments.0.domain', 'shop.example.com')
+        ->where('projects.0.environments.0.state', 'live')
+        ->where('projects.0.environments.0.by.name', $owner->name)
+        ->where('projects.0.environments.0.stack.0', ['name' => 'shop-db', 'kind' => 'database', 'template' => 'postgres', 'label' => 'PostgreSQL'])
+        ->where('projects.0.environments.1.name', 'Staging')
+        ->where('projects.0.environments.1.state', null)
+        ->where('projects.0.environments.1.stack', []));
+});
+
+test('a project shows as deploying while a deploy runs, stopped when its app is stopped, and down when its only deploy failed', function () {
+    [$workspace, $web, , $base] = projectSetup();
+    $project = $workspace->projects()->create(['name' => 'Shop']);
+    $project->nodes()->create(['environment_id' => $project->production()->id, 'machine_id' => $web->id, 'name' => 'shop', 'kind' => 'app']);
+    $state = fn () => $this->actingAs($workspace->owner)->get($base.'/projects')->inertiaProps('projects.0.environments.0.state');
+
+    expect($state())->toBe('live');
+
+    $running = projectDeploy($web, 'shop', ['type' => 'deploy', 'service' => 'shop', 'repo' => 'https://github.com/acme/shop', 'commit' => str_repeat('d', 40)]);
+    $running->forceFill(['state' => 'running'])->save();
+    expect($state())->toBe('deploying');
+
+    $running->forceFill(['state' => 'succeeded'])->save();
+    $web->forceFill(['inventory' => ['services' => [['key' => 'docker:shop', 'name' => 'serveros-shop-aaaaaaaaaaaa', 'kind' => 'app', 'status' => 'exited', 'details' => []]]]])->save();
+    expect($state())->toBe('stopped');
+
+    $failed = projectDeploy($web, 'vote', ['type' => 'deploy', 'service' => 'vote', 'repo' => 'https://github.com/acme/vote', 'commit' => str_repeat('c', 40)]);
+    $failed->forceFill(['state' => 'failed'])->save();
+    $vote = $workspace->projects()->create(['name' => 'Vote']);
+    $vote->forceFill(['created_at' => now()->addMinute()])->save();
+    $vote->nodes()->create(['environment_id' => $vote->production()->id, 'machine_id' => $web->id, 'name' => 'vote', 'kind' => 'app']);
+
+    $this->actingAs($workspace->owner)->get($base.'/projects')->assertInertia(fn (Assert $page) => $page
+        ->where('projects.0.name', 'Vote')
+        ->where('projects.0.environments.0.state', 'down'));
+});
+
+test('an app’s framework is told from the template it was deployed from, and a repository’s own Dockerfile tells nothing', function () {
+    [, $web] = projectSetup();
+    $catalog = app(ServiceTemplateCatalog::class);
+    $facts = app(ProjectFacts::class);
+    $job = fn (string $slug, array $input = []) => new DaemonJob(['command' => ['job' => json_decode(json_encode(
+        (new TemplateDeployment($catalog->find($slug), $web, ['service' => 'x', 'repo' => 'https://github.com/acme/x', 'commit' => str_repeat('e', 40), ...$input]))->job()
+    ), true)]]);
+
+    expect($facts->kindOf($job('nextjs')))->toBe(['slug' => 'nextjs', 'name' => 'Next.js'])
+        ->and($facts->kindOf($job('node')))->toBe(['slug' => 'node', 'name' => 'Node.js'])
+        ->and($facts->kindOf($job('laravel', ['php' => '8.3'])))->toBe(['slug' => 'laravel', 'name' => 'Laravel'])
+        ->and($facts->kindOf($job('ghost')))->toBe(['slug' => 'ghost', 'name' => 'Ghost'])
+        ->and($facts->kindOf(new DaemonJob(['command' => ['job' => ['type' => 'deploy', 'repo' => 'https://github.com/acme/x', 'commit' => str_repeat('f', 40), 'dockerfile' => 'Dockerfile']]])))->toBeNull()
+        ->and($facts->kindOf(null))->toBeNull();
+});
+
+test('a project page gives each service its state, framework, domain, port and page, and each environment a summary', function () {
+    [$workspace, $project, $web, $db, , $base] = projectWithPreviews();
+    $production = $project->production();
+    $project->environments()->create(['name' => 'PR #7', 'position' => 1, 'source_id' => $production->id])->forceFill(['pull_request' => 7])->save();
+
+    $this->actingAs($workspace->owner)->get($base."/projects/{$project->uid}")->assertInertia(fn (Assert $page) => $page
+        ->component('workspace/ProjectShow')
+        ->where('nodes.0.name', 'shop')
+        ->where('nodes.0.state', 'live')
+        ->where('nodes.0.domain', 'shop.example.com')
+        ->where('nodes.0.port', 3000)
+        ->where('nodes.0.machine.name', 'web-1')
+        ->where('nodes.0.href', $workspace->url("machines/{$web->id}/services/docker:shop"))
+        ->where('nodes.1.name', 'shop-db')
+        ->where('nodes.1.software', ['slug' => 'postgres', 'name' => 'PostgreSQL'])
+        ->where('nodes.1.domain', null)
+        ->where("overview.{$production->id}.state", 'live')
+        ->where("overview.{$production->id}.domain", 'shop.example.com')
+        ->where("overview.{$production->id}.stack.0.name", 'shop-db')
+        ->where('members.0.name', 'web-1')
+        ->where('members.1.name', 'db-1')
+        ->where('previews.open', 1));
 });

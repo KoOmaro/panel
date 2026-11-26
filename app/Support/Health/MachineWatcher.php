@@ -50,7 +50,7 @@ class MachineWatcher
         $state = $machine->alert_state ?? [];
         $before = $state;
         $sent = 0;
-        $url = 'https://'.$machine->workspace->host().'/machines/'.$machine->id;
+        $url = $machine->workspace->url('/machines/'.$machine->id);
         $quiet = $machine->last_seen_at->lt(now()->subSeconds(self::OFFLINE_ALERT_SECONDS));
         $online = $machine->isOnline();
 

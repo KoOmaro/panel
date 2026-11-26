@@ -32,7 +32,7 @@ function connectedWorkspace(string $login = 'acme'): array
 
 function workspaceUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('a token is minted for just the one repository, signed as the app, and reused', function () {
@@ -329,12 +329,12 @@ test('the repository list says when GitHub isn’t set up or nothing is connecte
     Http::fake();
 
     $this->actingAs($workspace->owner)->getJson(workspaceUrl($workspace, '/github/repositories'))
-        ->assertOk()->assertExactJson(['enabled' => true, 'connected' => false, 'repositories' => []]);
+        ->assertOk()->assertExactJson(['enabled' => true, 'connected' => false, 'accounts' => [], 'repositories' => []]);
 
     $workspace->githubInstallations()->create(['installation_id' => 777, 'account_login' => 'acme']);
     config()->set('services.github_app', []);
     $this->actingAs($workspace->owner)->getJson(workspaceUrl($workspace, '/github/repositories'))
-        ->assertOk()->assertExactJson(['enabled' => false, 'connected' => false, 'repositories' => []]);
+        ->assertOk()->assertExactJson(['enabled' => false, 'connected' => false, 'accounts' => [], 'repositories' => []]);
     Http::assertNothingSent();
 });
 

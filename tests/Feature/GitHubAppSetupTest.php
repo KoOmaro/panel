@@ -32,7 +32,7 @@ function selfHostedForGitHub(): void
 
 function onWorkspaceHost(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().'/'.ltrim($path, '/');
+    return $workspace->url().'/'.ltrim($path, '/');
 }
 
 function fakeGitHubApp(string $id = '4242', string $slug = 'serveros-acme'): void
@@ -54,7 +54,19 @@ test('the setup page is only for self-hosted installs', function () {
 
     $this->actingAs($workspace->owner)->get(onWorkspaceHost($workspace, 'settings/github/app'))->assertNotFound();
     $this->actingAs($workspace->owner)->get(onWorkspaceHost($workspace, 'settings/general'))
-        ->assertInertia(fn (Assert $page) => $page->where('githubSetup', null));
+        ->assertInertia(fn (Assert $page) => $page->where('githubSetup', null)->where('githubAppSetup', false));
+});
+
+test('the sidebar links to the setup page only for whoever can open it', function () {
+    selfHostedForGitHub();
+    $workspace = Workspace::factory()->create();
+    $admin = User::factory()->create();
+    $workspace->members()->attach($admin, ['role' => 'admin']);
+
+    $this->actingAs($workspace->owner)->get(onWorkspaceHost($workspace, 'machines'))
+        ->assertInertia(fn (Assert $page) => $page->where('githubAppSetup', true));
+    $this->actingAs($admin)->get(onWorkspaceHost($workspace, 'machines'))
+        ->assertInertia(fn (Assert $page) => $page->where('githubAppSetup', false));
 });
 
 test('a self-hosted owner without an app is offered setup, with a manifest GitHub can make the app from', function () {

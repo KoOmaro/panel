@@ -29,6 +29,8 @@ import WorkspaceMenu from '@/components/workspace/WorkspaceMenu.vue';
 import { since, taskStatus, toneDot } from './agentTasks';
 import type { Hosting, TaskRow } from './agentTasks';
 import type { AiBrand } from '@/lib/aiBrands';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 
 // The Agents side of ServerOS: its own sidebar, like a chat app's. A new
 // task, then every task by when it last moved, then what agents run on.
@@ -45,6 +47,7 @@ const emit = defineEmits<{ toggle: []; close: [] }>();
 
 const page = usePage<{
     name: string;
+    workspace: { slug: string };
     tasks?: TaskRow[];
     task?: { id: number };
     hosting?: Hosting | null;
@@ -56,6 +59,16 @@ const page = usePage<{
 }>();
 
 const keysOpen = ref(false);
+
+const agentsHref = computed(
+    () => onWorkspace(agentsRoutes.index(page.props.workspace.slug)).url,
+);
+
+function taskHref(id: number): string {
+    return onWorkspace(
+        agentsRoutes.show({ workspace: page.props.workspace.slug, task: id }),
+    ).url;
+}
 
 const search = ref('');
 const tasks = computed(() => page.props.tasks ?? []);
@@ -181,7 +194,7 @@ const iconButton = `flex size-7 shrink-0 cursor-pointer items-center justify-cen
 
             <div class="mt-3 flex flex-col gap-1 px-2">
                 <Link
-                    href="/agents"
+                    :href="agentsHref"
                     :class="[
                         row,
                         'font-medium hover:bg-(--ds-hover)',
@@ -220,7 +233,7 @@ const iconButton = `flex size-7 shrink-0 cursor-pointer items-center justify-cen
                     <Link
                         v-for="task in active"
                         :key="task.id"
-                        :href="`/agents/${task.id}`"
+                        :href="taskHref(task.id)"
                         class="flex flex-col gap-1 rounded-[11px] px-2.5 py-2.5 transition-colors duration-150"
                         :class="[
                             focusRing,
@@ -323,7 +336,7 @@ const iconButton = `flex size-7 shrink-0 cursor-pointer items-center justify-cen
                         <Link
                             v-for="task in settledShown"
                             :key="task.id"
-                            :href="`/agents/${task.id}`"
+                            :href="taskHref(task.id)"
                             :class="[
                                 row,
                                 current === task.id
@@ -384,7 +397,7 @@ const iconButton = `flex size-7 shrink-0 cursor-pointer items-center justify-cen
             <div class="flex shrink-0 flex-col gap-1 px-2 pb-1">
                 <Link
                     v-if="page.props.hosting"
-                    href="/agents"
+                    :href="agentsHref"
                     :class="[row, 'h-auto py-2 hover:bg-(--ds-hover)']"
                 >
                     <span class="flex min-w-0 flex-1 flex-col">
@@ -427,7 +440,7 @@ const iconButton = `flex size-7 shrink-0 cursor-pointer items-center justify-cen
         </div>
         <Link
             v-if="collapsed"
-            href="/agents"
+            :href="agentsHref"
             :class="[iconButton, 'mx-auto mt-3 size-8']"
             :aria-label="$t('New task')"
         >

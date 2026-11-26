@@ -29,7 +29,7 @@ function fakeGitHubRepo(array $files, string $branch = 'main'): void
 
 function detectUrl(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host().'/services/detect';
+    return $workspace->url().'/services/detect';
 }
 
 test('a Laravel repository is detected as a web app on its latest commit', function () {

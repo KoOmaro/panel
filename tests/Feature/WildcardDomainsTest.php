@@ -33,7 +33,7 @@ function wildcardApp(array $domains = ['acme.io'], string $version = '0.1.1-pre.
         ]],
     ]);
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 function sentDeploy(): array

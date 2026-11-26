@@ -48,7 +48,7 @@ function offerLogs(Machine $machine, string $service, int $lines): void
 
 function offerUrl(Workspace $workspace, Machine $machine, string $path): string
 {
-    return 'https://'.$workspace->host().'/machines/'.$machine->id.'/'.$path;
+    return $workspace->url().'/machines/'.$machine->id.'/'.$path;
 }
 
 function offerLines(Machine $machine, ?string $service = null): int
@@ -238,7 +238,7 @@ test('turning logs off in a policy can delete what its machines already sent, wh
     $machine = offerMachine($workspace);
     offerLogs($machine, 'shop', 12);
     $policy = MachinePolicies::defaultFor($workspace);
-    $url = 'https://'.$workspace->host().'/settings/machine-policies/'.$policy->id;
+    $url = $workspace->url().'/settings/machine-policies/'.$policy->id;
     $settings = ['name' => 'Default', ...$policy->settings()];
 
     $this->actingAs($workspace->owner)->put($url, [...$settings, 'logs' => false])->assertSessionHasNoErrors();

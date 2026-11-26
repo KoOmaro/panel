@@ -51,7 +51,7 @@ function fixWorkspace(): array
 
 function fixUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/fixes'.$path;
+    return $workspace->url().'/fixes'.$path;
 }
 
 function groqAnswer(array $answer): void

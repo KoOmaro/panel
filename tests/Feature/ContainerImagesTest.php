@@ -163,7 +163,7 @@ test('updating a container queues the update with the registry logins, and its r
     app(ImageUpdates::class)->check($machine);
     $db = $machine->containerImages()->where('container', 'shop-db-1')->firstOrFail();
 
-    $queued = $this->actingAs($workspace->owner)->postJson('https://'.$workspace->host().'/container-images/update', ['ids' => [$db->id]])
+    $queued = $this->actingAs($workspace->owner)->postJson($workspace->url().'/container-images/update', ['ids' => [$db->id]])
         ->assertAccepted()
         ->json('queued');
     $job = DaemonJob::query()->findOrFail($queued[$db->id]);
@@ -173,7 +173,7 @@ test('updating a container queues the update with the registry logins, and its r
     expect(Activity::query()->where('action', 'service.image_update')->value('meta'))->toBe(['image' => 'postgres:16']);
 
     // Asking again while it runs doesn't queue a second one.
-    $this->actingAs($workspace->owner)->postJson('https://'.$workspace->host().'/container-images/update', ['ids' => [$db->id]])->assertAccepted();
+    $this->actingAs($workspace->owner)->postJson($workspace->url().'/container-images/update', ['ids' => [$db->id]])->assertAccepted();
     expect(DaemonJob::query()->where('kind', 'image_update')->count())->toBe(1);
 
     $job->forceFill(['state' => 'succeeded', 'result' => ['service' => 'docker:fff000000000', 'updated' => true, 'image_id' => NEW_PG]])->save();
@@ -189,16 +189,16 @@ test('only people who manage machines can update, on machines whose daemon knows
 
     $viewer = User::factory()->create();
     $workspace->members()->attach($viewer, ['role' => 'viewer']);
-    $this->actingAs($viewer)->postJson('https://'.$workspace->host().'/container-images/update', ['ids' => [$db->id]])->assertForbidden();
+    $this->actingAs($viewer)->postJson($workspace->url().'/container-images/update', ['ids' => [$db->id]])->assertForbidden();
 
     $machine->forceFill(['daemon_version' => 'v0.1.1-pre.48'])->save();
-    $this->actingAs($workspace->owner)->postJson('https://'.$workspace->host().'/container-images/update', ['ids' => [$db->id]])
+    $this->actingAs($workspace->owner)->postJson($workspace->url().'/container-images/update', ['ids' => [$db->id]])
         ->assertConflict()
         ->assertJsonFragment(['error' => 'Its ServerOS daemon is too old to update container images. Update it from the machine’s page first.']);
 
     // Another workspace's container isn't found.
     $other = Workspace::factory()->create();
-    $this->actingAs($other->owner)->postJson('https://'.$other->host().'/container-images/update', ['ids' => [$db->id]])->assertNotFound();
+    $this->actingAs($other->owner)->postJson($other->url().'/container-images/update', ['ids' => [$db->id]])->assertNotFound();
 });
 
 test('the Updates page lists containers, newer images first', function () {
@@ -206,7 +206,7 @@ test('the Updates page lists containers, newer images first', function () {
     [$workspace, $machine] = imageMachine();
     app(ImageUpdates::class)->check($machine);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/updates?view=containers')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/updates?view=containers')
         ->assertOk()
         ->assertInertia(fn ($page) => $page->component('workspace/Updates')
             ->where('view', 'containers')
@@ -219,7 +219,7 @@ test('the Updates page lists containers, newer images first', function () {
 test('the machine lists Docker’s images and volumes and removes only what was picked', function () {
     Http::fake(['127.0.0.1:8090/*' => Http::response(['queued' => true], 202)]);
     [$workspace, $machine] = imageMachine();
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $url = $workspace->url().'/machines/'.$machine->id;
 
     $jobId = $this->actingAs($workspace->owner)->postJson("{$url}/docker")->assertAccepted()->json('jobId');
     expect(DaemonJob::query()->findOrFail($jobId)->command['job'])->toBe(['type' => 'docker_resources']);
@@ -255,7 +255,7 @@ test('the machine lists Docker’s images and volumes and removes only what was 
     $this->actingAs($viewer)->postJson("{$url}/docker/prune", ['build_cache' => true])->assertForbidden();
 
     [$old, $oldMachine] = imageMachine([], 'v0.1.1-pre.48');
-    $this->actingAs($old->owner)->postJson('https://'.$old->host().'/machines/'.$oldMachine->id.'/docker')->assertConflict();
+    $this->actingAs($old->owner)->postJson($old->url().'/machines/'.$oldMachine->id.'/docker')->assertConflict();
 });
 
 test('an image’s packages are matched against OSV, keeping only what its distribution has fixed', function () {
@@ -298,7 +298,7 @@ test('an image’s packages are matched against OSV, keeping only what its distr
         ->and($finding->vulnerability->severity)->toBe('critical')
         ->and([$finding->source, $finding->installed, $finding->fixed_in])->toBe(['openssl', '3.0.15-1~deb12u1', '3.0.16-1~deb12u1']);
 
-    $this->actingAs($workspace->owner)->getJson('https://'.$workspace->host().'/container-images/'.$row->id.'/vulnerabilities')
+    $this->actingAs($workspace->owner)->getJson($workspace->url().'/container-images/'.$row->id.'/vulnerabilities')
         ->assertOk()
         ->assertJsonPath('findings.0.cve', 'CVE-2026-1111')
         ->assertJsonPath('findings.0.fixedIn', '3.0.16-1~deb12u1');

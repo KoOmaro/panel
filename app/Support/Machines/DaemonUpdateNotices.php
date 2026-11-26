@@ -33,7 +33,7 @@ final class DaemonUpdateNotices
             $lines[] = "What’s in it: {$release->notes_url}";
         }
         $this->alerts->notify($workspace, 'daemon.update_waiting', "Daemon {$release->version} is ready to install", $lines,
-            'https://'.$workspace->host().'/settings/machine-policies', false, 'Review the update',
+            $workspace->url('/settings/machine-policies'), false, 'Review the update',
             ['release' => ['version' => $release->version, 'notes' => $release->notes_url], 'machines' => $count]);
     }
 

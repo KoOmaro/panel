@@ -52,7 +52,7 @@ class MachineServiceController extends Controller
         $found = $this->find($machine, $service);
 
         if (str_starts_with($service, 'docker:') && $found['app'] !== null) {
-            return redirect("/machines/{$machine->id}/services/app:{$found['app']}".($request->getQueryString() ? '?'.$request->getQueryString() : ''));
+            return redirect($workspace->url("/machines/{$machine->id}/services/app:{$found['app']}").($request->getQueryString() ? '?'.$request->getQueryString() : ''));
         }
 
         $service = $found['key'];

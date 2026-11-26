@@ -19,7 +19,7 @@ function alertWorkspace(array $attributes = []): Workspace
 
 function sendAlert(Workspace $workspace, string $event): void
 {
-    app(MonitorAlerts::class)->notify($workspace, $event, 'Something happened', ['A line.'], 'https://'.$workspace->host(), true, 'Open it');
+    app(MonitorAlerts::class)->notify($workspace, $event, 'Something happened', ['A line.'], $workspace->url(), true, 'Open it');
 }
 
 test('a kind of alert switched off is sent neither by email nor webhook, the rest still are', function () {
@@ -38,7 +38,7 @@ test('a kind of alert switched off is sent neither by email nor webhook, the res
 
 test('the alerts dialog saves which kinds are off, and leaving them out keeps them', function () {
     $workspace = alertWorkspace();
-    $url = 'https://'.$workspace->host().'/monitor-alerts';
+    $url = $workspace->url().'/monitor-alerts';
 
     $this->actingAs($workspace->owner)->put($url, ['email' => true, 'webhook' => '', 'muted' => ['services', 'nope']])->assertSessionHasErrors('muted.1');
 

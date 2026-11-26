@@ -200,7 +200,7 @@ const labelClass = 'text-[13px]/5 font-medium text-(--ds-text-muted)';
 <template>
     <Head :title="$t('Machine policies')" />
 
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col">
         <Tile
             :title="$t('Machine policies')"
             :description="

@@ -23,7 +23,7 @@ function retryMachine(): array
     $machine = Machine::factory()->for($workspace)->create();
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now()])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 test('a deploy keeps its command encrypted and a retry sends it again unchanged', function () {

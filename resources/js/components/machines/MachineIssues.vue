@@ -4,9 +4,14 @@ import { Check } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import AskAiButton from '@/components/workspace/AskAiButton.vue';
 import type { HealthIssue } from '@/lib/healthIssues';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import issueRoutes from '@/routes/workspace/issues';
 
 const props = defineProps<{ issues: HealthIssue[] }>();
-const page = usePage<{ workspaceAccess?: { permissions: string[] } }>();
+const page = usePage<{
+    workspace: { slug: string };
+    workspaceAccess?: { permissions: string[] };
+}>();
 
 const shown = computed(() =>
     props.issues.filter((issue) => issue.ask && issue.severity !== 'notice'),
@@ -28,7 +33,7 @@ const dismissing = ref<string[]>([]);
 function dismiss(id: string): void {
     dismissing.value = [id];
     router.post(
-        '/issues/dismiss',
+        onWorkspace(issueRoutes.dismiss(page.props.workspace.slug)).url,
         { ids: [id] },
         {
             preserveScroll: true,
@@ -73,7 +78,7 @@ const focusRing =
             <div class="flex shrink-0 items-center gap-1.5">
                 <AskAiButton :prompt="issue.ask!" />
                 <Link
-                    :href="issue.href"
+                    :href="workspacePath(issue.href)"
                     class="ds-raised-button shrink-0 text-[13px]!"
                     :class="focusRing"
                 >

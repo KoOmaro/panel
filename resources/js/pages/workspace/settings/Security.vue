@@ -142,7 +142,7 @@ const joinError = ref<string | null>(null);
 function saveJoin(): void {
     joinError.value = null;
     router.put(
-        '/settings/domain-join',
+        onWorkspace(settings.domainJoin(props.workspace.slug)).url,
         { mode: joinMode.value, role: joinRole.value },
         {
             preserveScroll: true,
@@ -159,7 +159,7 @@ const requireGoogleError = ref<string | null>(null);
 function saveRequireGoogle(value: boolean): void {
     requireGoogleError.value = null;
     router.put(
-        '/settings/require-google',
+        onWorkspace(settings.requireGoogle(props.workspace.slug)).url,
         { require: value },
         {
             preserveScroll: true,
@@ -181,7 +181,7 @@ function onPassword(event: Event): void {
 <template>
     <Head :title="$t('Security')" />
 
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col">
         <Tile
             id="workspace-security"
             v-if="canManageSettings"

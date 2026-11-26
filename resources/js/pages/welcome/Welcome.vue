@@ -32,6 +32,8 @@ import {
 } from '@/lib/solarIcons';
 import { trialCardsCopy } from '@/lib/trialCards';
 import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
+import settingsRoutes from '@/routes/workspace/settings';
 import welcomeRoutes from '@/routes/workspace/welcome';
 import type { Workspace } from '@/types';
 
@@ -69,6 +71,10 @@ const props = defineProps<{
     apiUrl: string;
     choosePlan: boolean;
 }>();
+
+const apiSettingsHref = computed(
+    () => onWorkspace(settingsRoutes.api(props.workspace.slug)).url,
+);
 
 const focusRing =
     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)';
@@ -424,14 +430,15 @@ const timeLeft = computed(() => {
 async function poll(): Promise<void> {
     if (enrolmentId.value === null) return;
     try {
-        const response = await fetch(
-            `/machines/connect/${enrolmentId.value}/status`,
-            {
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json' },
-                cache: 'no-store',
-            },
-        );
+        const route = machinesRoutes.connect.status({
+            workspace: props.workspace.slug,
+            enrolment: enrolmentId.value,
+        });
+        const response = await fetch(onWorkspace(route).url, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+            cache: 'no-store',
+        });
         if (!response.ok) return;
         const result = await response.json();
         const before = connectState.value;
@@ -454,7 +461,10 @@ async function createCommand(): Promise<void> {
     connectState.value = 'waiting';
     stopPolling();
     try {
-        const response = await fetch('/machines/connect', {
+        const url = onWorkspace(
+            machinesRoutes.connect(props.workspace.slug),
+        ).url;
+        const response = await fetch(url, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -509,7 +519,10 @@ async function createApiKey(): Promise<void> {
     apiKeyBusy.value = true;
     apiKeyError.value = '';
     try {
-        const response = await fetch('/settings/api/keys', {
+        const url = onWorkspace(
+            settingsRoutes.api.keys.store(props.workspace.slug),
+        ).url;
+        const response = await fetch(url, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -1369,7 +1382,7 @@ onBeforeUnmount(() =>
                                             )
                                         }}
                                         <a
-                                            href="/settings/api"
+                                            :href="apiSettingsHref"
                                             class="font-medium text-(--ds-text) underline decoration-(--ds-border-hover) underline-offset-2"
                                             >{{ $t('Your keys') }}</a
                                         >

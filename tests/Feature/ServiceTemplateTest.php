@@ -28,7 +28,7 @@ function templateMachine(): array
     $machine = Machine::factory()->for($workspace)->create(['ip_address' => '203.0.113.7']);
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now()])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/deploy'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/deploy'];
 }
 
 /** @return array<string, mixed> */
@@ -191,7 +191,7 @@ test('stacks publish to apps on the machine at its own Docker bridge, and the no
         ->and(sentJob()['env']['DOCKER_BRIDGE'])->toBe('172.18.0.1')
         ->and($response->json('notes'))->toContain('connect through 172.18.0.1 instead of 127.0.0.1');
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines/'.$machine->id)
+    $this->actingAs($workspace->owner)->get($workspace->url().'/machines/'.$machine->id)
         ->assertInertia(fn ($page) => $page->where('templates', fn ($templates) => str_contains(
             (string) collect($templates)->firstWhere('slug', 'postgres')['notes'], '172.18.0.1'
         ))->etc());
@@ -478,7 +478,9 @@ test('the deploy dialog learns which names and ports are taken, so a second data
 
     $this->actingAs($workspace->owner)->getJson($url.'/taken')
         ->assertOk()
-        ->assertExactJson(['services' => ['postgres', 'shop'], 'ports' => [80, 5432], 'proxy' => null, 'canChooseProxy' => false, 'canChooseHttps' => false, 'freeAddress' => '203-0-113-7.sslip.io']);
+        ->assertExactJson(['services' => ['postgres', 'shop'], 'ports' => [80, 5432], 'proxy' => null, 'canChooseProxy' => false, 'canChooseHttps' => false, 'freeAddress' => '203-0-113-7.sslip.io', 'machines' => [
+            ['id' => $machine->id, 'name' => $machine->name, 'provider' => $machine->provider, 'online' => true],
+        ]]);
 
     $this->actingAs(User::factory()->create())->getJson($url.'/taken')->assertForbidden();
 });

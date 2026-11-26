@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Support\Audit\AuditContext;
 use App\Support\Domains\CustomDomains;
 use App\Support\Extensions\Extensions;
+use App\Support\Workspaces\Dashboard;
 use Closure;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Http\Request;
@@ -73,7 +74,7 @@ class BindCustomDomainSession
         if (in_array($route, [...self::ACCOUNT_ROUTES, ...app(Extensions::class)->accountRoutes(), ...self::WORKSPACE_ACCOUNT_ROUTES], true)) {
             $slug = CustomDomains::resolve($host)['slug'] ?? '';
             $base = $slug !== '' && in_array($route, self::WORKSPACE_ACCOUNT_ROUTES, true)
-                ? 'https://'.$slug.'.'.config('app.domain')
+                ? Dashboard::url($slug)
                 : rtrim((string) config('app.url'), '/');
             $url = $base.$request->getRequestUri();
             AuditContext::nothingChanged();

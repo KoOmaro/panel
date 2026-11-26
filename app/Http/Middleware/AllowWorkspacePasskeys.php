@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Workspaces\Dashboard;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -13,7 +14,7 @@ class AllowWorkspacePasskeys
         $domain = (string) config('app.domain');
         $host = strtolower($request->getHost());
 
-        if ($domain !== '' && str_ends_with($host, '.'.$domain)) {
+        if (($domain !== '' && str_ends_with($host, '.'.$domain)) || Dashboard::on($request)) {
             config(['passkeys.allowed_origins' => array_values(array_unique([
                 ...(array) config('passkeys.allowed_origins', []),
                 $request->getSchemeAndHttpHost(),

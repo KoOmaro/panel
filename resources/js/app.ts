@@ -23,7 +23,19 @@ import { initializeWorkspaceTheme } from '@/lib/workspaceTheme';
 
 const appName = import.meta.env.VITE_APP_NAME || 'ServerOS';
 
-function pickLayout(name: string): Component | Component[] | null {
+function isSettingsItem(name: string, props: Record<string, unknown>): boolean {
+    const extensions = props.extensions as
+        | { settings?: { component: string }[] }
+        | null
+        | undefined;
+
+    return (extensions?.settings ?? []).some((item) => item.component === name);
+}
+
+function pickLayout(
+    name: string,
+    props: Record<string, unknown>,
+): Component | Component[] | null {
     switch (true) {
         case name.startsWith('errors/'):
         case name.startsWith('status/'):
@@ -39,6 +51,7 @@ function pickLayout(name: string): Component | Component[] | null {
         case name.startsWith('settings/'):
             return [AppLayout, SettingsLayout];
         case name.startsWith('workspace/settings/'):
+        case name.startsWith('workspace/') && isSettingsItem(name, props):
             return [WorkspaceLayout, WorkspaceSettingsLayout];
         case name.startsWith('workspace/'):
             return WorkspaceLayout;
@@ -57,8 +70,8 @@ void createInertiaApp({
             : page?.props.pageTitle && page.component === 'status/Show'
               ? title
               : `${title} - ${appName}`,
-    layout: (name) => {
-        const layout = pickLayout(name);
+    layout: (name, page) => {
+        const layout = pickLayout(name, page?.props ?? {});
 
         return layout === null
             ? null

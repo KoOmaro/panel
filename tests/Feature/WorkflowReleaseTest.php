@@ -191,7 +191,7 @@ test('a newer push to another branch does not hold back this one', function () {
 test('run by hand, a release takes the branch’s latest commit', function () {
     [$workspace, , $workflow] = releaseFlow();
 
-    $this->actingAs($workspace->owner)->post('https://'.$workspace->host()."/workflows/{$workflow->id}/run")->assertRedirect();
+    $this->actingAs($workspace->owner)->post($workspace->url()."/workflows/{$workflow->id}/run")->assertRedirect();
 
     expect(DaemonJob::query()->sole()->command['job']['commit'])->toBe(str_repeat('b', 40));
 });
@@ -219,7 +219,7 @@ test('a release needs a managed service, a folder, a non-root user and two-facto
 test('the Laravel template releases on push', function () {
     $workspace = Workspace::factory()->onPlan(Plan::Pro)->create();
 
-    $this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/workflows', ['template' => 'laravel-push'])->assertRedirect();
+    $this->actingAs($workspace->owner)->post($workspace->url().'/workflows', ['template' => 'laravel-push'])->assertRedirect();
     $workflow = Workflow::query()->sole();
 
     expect($workflow->trigger)->toBe('git.push')
@@ -254,7 +254,7 @@ test('atomic releases share .env and storage, restart what runs the app, and can
     $run = WorkflowRun::query()->sole();
     expect($run->steps['r']['rollbackTo'])->toBe(str_repeat('c', 40));
 
-    $url = 'https://'.$workspace->host()."/workflows/{$workflow->id}/runs/{$run->id}/rollback/r";
+    $url = $workspace->url()."/workflows/{$workflow->id}/runs/{$run->id}/rollback/r";
     $this->actingAs($workspace->owner)->post($url)->assertRedirect();
 
     $back = DaemonJob::query()->latest('created_at')->where('id', '!=', $job->id)->sole();

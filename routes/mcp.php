@@ -8,18 +8,28 @@ use App\Http\Controllers\Mcp\OAuthTokenController;
 use App\Http\Controllers\Mcp\ServerCardController;
 use App\Http\Middleware\McpCors;
 use App\Support\Extensions\Extensions;
+use App\Support\Workspaces\Dashboard;
+use App\Support\WorkspaceSlugs;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(McpCors::class)->group(function () {
     app(Extensions::class)->loadRoutes(Extensions::MCP);
 
+    Route::domain(Dashboard::host())->where(['workspace' => WorkspaceSlugs::routePattern()])->group(function () {
+        Route::post('{workspace:slug}/mcp', McpController::class)->name('mcp');
+        Route::get('{workspace:slug}/mcp', [McpController::class, 'stream']);
+        Route::delete('{workspace:slug}/mcp', [McpController::class, 'close']);
+        Route::options('{workspace:slug}/mcp', fn () => response('', 204));
+        Route::get('.well-known/oauth-protected-resource/{workspace:slug}/mcp', [OAuthMetadataController::class, 'resource'])->name('mcp.resource-metadata');
+    });
+
     Route::domain('{workspace:slug}.'.config('app.domain'))->group(function () {
-        Route::post('mcp', McpController::class)->name('mcp');
+        Route::post('mcp', [McpController::class, 'legacy'])->name('mcp.legacy');
         Route::get('mcp', [McpController::class, 'stream']);
         Route::delete('mcp', [McpController::class, 'close']);
         Route::options('mcp', fn () => response('', 204));
-        Route::get('.well-known/oauth-protected-resource/mcp', [OAuthMetadataController::class, 'resource'])->name('mcp.resource-metadata');
-        Route::get('.well-known/oauth-protected-resource', [OAuthMetadataController::class, 'resource']);
+        Route::get('.well-known/oauth-protected-resource/mcp', [OAuthMetadataController::class, 'resource'])->name('mcp.legacy.resource-metadata');
+        Route::get('.well-known/oauth-protected-resource', [OAuthMetadataController::class, 'resource'])->name('mcp.legacy.resource-root');
     });
 
     // serveros.com/mcp: installs ServerOS on someone's own server, through

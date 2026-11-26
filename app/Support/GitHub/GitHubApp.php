@@ -266,7 +266,7 @@ final class GitHubApp
      * most recently pushed first, for picking one to deploy. Kept for a minute
      * when every connection answered; a connection changing forgets it.
      *
-     * @return list<array{name: string, url: string, private: bool, branch: string, pushed: string}>
+     * @return list<array{name: string, url: string, private: bool, branch: string, pushed: string, language: string|null}>
      */
     public function repositoriesFor(Workspace $workspace): array
     {
@@ -282,7 +282,7 @@ final class GitHubApp
         return $list['repositories'];
     }
 
-    /** @return array{complete: bool, repositories: list<array{name: string, url: string, private: bool, branch: string, pushed: string}>} */
+    /** @return array{complete: bool, repositories: list<array{name: string, url: string, private: bool, branch: string, pushed: string, language: string|null}>} */
     private function listRepositories(Workspace $workspace): array
     {
         $found = [];
@@ -318,6 +318,7 @@ final class GitHubApp
                         'private' => ($repository['private'] ?? false) === true,
                         'branch' => (string) ($repository['default_branch'] ?? ''),
                         'pushed' => (string) ($repository['pushed_at'] ?? ''),
+                        'language' => is_string($repository['language'] ?? null) ? $repository['language'] : null,
                     ];
                 }
             }

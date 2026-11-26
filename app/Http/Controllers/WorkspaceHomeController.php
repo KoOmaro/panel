@@ -50,11 +50,6 @@ class WorkspaceHomeController extends Controller
             'workspace' => $workspace->toPageProps(),
             'fixesWaiting' => AgentFix::query()->where('workspace_id', $workspace->id)->where('state', 'needs_approval')
                 ->latest()->limit(20)->get(['id', 'title'])->map(fn (AgentFix $f) => ['id' => $f->id, 'title' => $f->title])->values(),
-            'onboarding' => $this->onboarding($workspace, $machines),
-            'onboardingDismissed' => $workspace->members()
-                ->whereKey($request->user()->id)
-                ->whereNotNull('user_workspace.onboarding_dismissed_at')
-                ->exists(),
             'stats' => $this->stats($machines, $this->range($request)),
             'providers' => $this->providers($machines),
             'issues' => $health->issues($workspace, $machines),
@@ -65,21 +60,6 @@ class WorkspaceHomeController extends Controller
             'supportAsk' => SupportAsk::for($workspace, $request->user(), $machines->count()),
             ...app(Extensions::class)->pagePropsFor('workspace/Home', $request, $workspace),
         ]);
-    }
-
-    /**
-     * @param  Collection<int, Machine>  $machines
-     * @return list<array{key: string, done: bool}>
-     */
-    private function onboarding(Workspace $workspace, Collection $machines): array
-    {
-        return [
-            ['key' => 'workspace', 'done' => true],
-            ['key' => 'machine', 'done' => $machines->isNotEmpty()],
-            ['key' => 'service', 'done' => $machines->sum('services_count') > 0],
-            ['key' => 'backups', 'done' => $machines->contains(fn (Machine $machine) => $machine->last_backup_at !== null)],
-            ...(Edition::selfHosted() || app(Extensions::class)->upgradeLink() === null ? [] : [['key' => 'plan', 'done' => $workspace->plan !== null]]),
-        ];
     }
 
     private function range(Request $request): string

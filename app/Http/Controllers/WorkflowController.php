@@ -9,6 +9,8 @@ use App\Models\Workspace;
 use App\Support\Audit\AuditContext;
 use App\Support\Audit\Audited;
 use App\Support\DaemonJobQueue;
+use App\Support\Deploys\AppReleases;
+use App\Support\Deploys\ServiceLabels;
 use App\Support\Workflows\ReleaseSpec;
 use App\Support\Workflows\WorkflowEngine;
 use App\Support\Workflows\WorkflowInputs;
@@ -102,6 +104,7 @@ class WorkflowController extends Controller
         $canManage = Gate::allows('manageMachines', $workspace);
         $runId = $request->integer('run') ?: null;
         $run = $runId ? $workflow->runs()->find($runId) : null;
+        $runProps = fn (WorkflowRun $r) => [...$r->toPageProps($canManage), 'graph' => $canManage ? $r->graph : WorkflowSteps::withoutSecrets($r->graph)];
 
         return Inertia::render('workspace/WorkflowEditor', [
             'workspace' => $workspace->toPageProps(),
@@ -118,7 +121,7 @@ class WorkflowController extends Controller
                 'updatedAt' => $workflow->updated_at?->toIso8601String(),
             ],
             'problems' => (object) WorkflowSteps::problems(WorkflowSteps::clean($workflow->graph), $workspace),
-            'options' => WorkflowInputs::options($workspace),
+            'options' => $this->options($workspace),
             'runs' => fn () => $workflow->runs()->with('user:id,name')->latest('id')->limit(30)->get()
                 ->map(fn (WorkflowRun $r) => [
                     'id' => $r->id,
@@ -129,7 +132,8 @@ class WorkflowController extends Controller
                     'startedAt' => $r->started_at->toIso8601String(),
                     'seconds' => (int) $r->started_at->diffInSeconds($r->finished_at ?? now()),
                 ])->values(),
-            'run' => fn () => $run ? [...$run->toPageProps($canManage), 'graph' => $canManage ? $run->graph : WorkflowSteps::withoutSecrets($run->graph)] : null,
+            'run' => fn () => $run ? $runProps($run) : null,
+            'lastRun' => fn () => ($last = $workflow->runs()->latest('id')->first()) ? $runProps($last) : null,
             'canManage' => $canManage,
             'planAllows' => $workspace->hasAutomations(),
             'twoFactor' => $request->user()->hasEnabledTwoFactorAuthentication(),
@@ -303,6 +307,47 @@ class WorkflowController extends Controller
         }
 
         return response()->json(['run' => $run->id, 'state' => $run->state], 202);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function options(Workspace $workspace): array
+    {
+        $options = WorkflowInputs::options($workspace);
+        $machines = $workspace->machines()->get()->keyBy('id');
+        $monitors = $workspace->monitors()->get()->keyBy('id');
+
+        $options['monitors'] = array_map(fn (array $m) => [
+            ...$m,
+            'target' => ($monitor = $monitors->get($m['id'])) === null ? null
+                : ($monitor->type === 'tcp' ? $monitor->target() : (parse_url((string) $monitor->url, PHP_URL_HOST) ?: $monitor->target())),
+        ], $options['monitors']);
+        $options['machines'] = array_map(function (array $m) use ($machines) {
+            $machine = $machines->get($m['id']);
+            $inventory = [];
+            foreach ((array) ($machine?->inventory['services'] ?? []) as $service) {
+                if (is_array($service) && is_string($service['key'] ?? null)) {
+                    $inventory[$service['key']] = $service;
+                }
+            }
+
+            return [...$m, 'services' => array_map(function (array $s) use ($machine, $inventory) {
+                $found = $inventory[$s['key']] ?? null;
+                $image = $found['image'] ?? $found['details']['image'] ?? null;
+
+                return [
+                    ...$s,
+                    'label' => $machine !== null && $found !== null
+                        ? (ServiceLabels::for($machine, $found) ?? AppReleases::parse($s['name'])['app'] ?? null)
+                        : null,
+                    'image' => is_string($image) ? $image : null,
+                    'icon' => $machine !== null && $found !== null ? ServiceLabels::iconUrl($machine, $found) : null,
+                ];
+            }, $m['services'])];
+        }, $options['machines']);
+
+        return $options;
     }
 
     private function own(Workspace $workspace, Workflow $workflow): void

@@ -19,10 +19,10 @@ class McpController extends Controller
     {
         $token = $this->token($request);
         if ($token === null) {
-            return $this->unauthorized($workspace, $request->bearerToken() === null ? null : 'The access token is invalid, expired or revoked.');
+            return $this->unauthorized($request, $workspace, $request->bearerToken() === null ? null : 'The access token is invalid, expired or revoked.');
         }
         if ($token->audience !== McpToken::WORKSPACE || $token->workspace_id !== $workspace->id) {
-            return $this->unauthorized($workspace, 'This token is for a different workspace.');
+            return $this->unauthorized($request, $workspace, 'This token is for a different workspace.');
         }
 
         $user = $token->user;
@@ -63,6 +63,11 @@ class McpController extends Controller
         return $answer === null ? response('', 202) : response()->json($answer);
     }
 
+    public function legacy(Request $request, Workspace $workspace, McpServer $server): Response
+    {
+        return $this($request, $workspace, $server);
+    }
+
     public function stream(): Response
     {
         return response()->json(McpServer::error(null, -32600, 'This server answers POST requests only.'), 405)->header('Allow', 'POST');
@@ -82,9 +87,9 @@ class McpController extends Controller
             : null;
     }
 
-    private function unauthorized(Workspace $workspace, ?string $problem): JsonResponse
+    private function unauthorized(Request $request, Workspace $workspace, ?string $problem): JsonResponse
     {
-        $metadata = route('mcp.resource-metadata', ['workspace' => $workspace->slug]);
+        $metadata = route($request->routeIs('mcp.legacy') ? 'mcp.legacy.resource-metadata' : 'mcp.resource-metadata', ['workspace' => $workspace->slug]);
         $header = 'Bearer resource_metadata="'.$metadata.'"'
             .($problem === null ? '' : ', error="invalid_token", error_description="'.addslashes($problem).'"');
 

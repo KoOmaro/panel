@@ -75,7 +75,7 @@ final class WorkflowText
             'trigger' => $run->trigger['summary'] ?? '',
             'machine' => (string) ($data['machine'] ?? ''),
             'service' => (string) ($data['service'] ?? ''),
-            'run_url' => 'https://'.$workflow->workspace->host()."/workflows/{$workflow->id}?run={$run->id}",
+            'run_url' => $workflow->workspace->url("/workflows/{$workflow->id}?run={$run->id}"),
         ];
         $agent = self::lastAgent($run);
         $values['agent.summary'] = $agent['summary'] ?? '';

@@ -40,7 +40,9 @@ import type { AiBrand } from '@/lib/aiBrands';
 import { appButtonClasses } from '@/lib/appButton';
 import { MCP_CLIENTS } from '@/lib/mcpClients';
 import { timeAgo } from '@/lib/timeAgo';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import mcpTerms from '@/routes/mcp-terms';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { McpCallsUsage, Workspace } from '@/types';
 import { describe, errorMessage } from '@/lib/errors';
 
@@ -199,7 +201,10 @@ async function createKey(): Promise<void> {
     creating.value = true;
     keyErrors.value = {};
     try {
-        const response = await fetch('/settings/mcp/keys', {
+        const url = onWorkspace(
+            settingsRoutes.mcp.keys.store(props.workspace.slug),
+        ).url;
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
@@ -270,7 +275,11 @@ const revokeBusy = ref(false);
 
 function revoke(): void {
     if (!revoking.value) return;
-    router.delete(`/settings/mcp/connections/${revoking.value.id}`, {
+    const route = settingsRoutes.mcp.connections.destroy({
+        workspace: props.workspace.slug,
+        token: revoking.value.id,
+    });
+    router.delete(onWorkspace(route).url, {
         preserveScroll: true,
         onStart: () => (revokeBusy.value = true),
         onFinish: () => {
@@ -318,7 +327,7 @@ const snippet = computed(() =>
 <template>
     <Head :title="$t('AI and MCP')" />
 
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col">
         <AiProviders v-bind="ai" />
 
         <Tile

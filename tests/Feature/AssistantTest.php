@@ -54,7 +54,7 @@ test('Ask AI answers from matching docs, with its tools, and streams what it doe
     $viewer = User::factory()->create();
     $workspace->members()->attach($viewer, ['role' => 'viewer']);
 
-    $response = $this->actingAs($viewer)->post('https://'.$workspace->host().'/assistant', [
+    $response = $this->actingAs($viewer)->post($workspace->url().'/assistant', [
         'message' => 'How do I point my domain at an app?',
         'path' => '/machines',
     ]);
@@ -91,7 +91,7 @@ test('a change Ask AI wants to make waits for approval, then runs', function () 
         ->push(groqTurn('Done: the Web group is ready.'))]);
 
     $workspace = Workspace::factory()->create(['mcp_call_limit_override' => -1]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $events = assistantEvents($this->actingAs($workspace->owner)->post($url, ['message' => 'Make a group called Web'])->streamedContent());
     $approval = collect($events)->firstWhere('type', 'approval');
@@ -124,7 +124,7 @@ test('Approve all covers later changes in the chat, but never changes to the mac
         ->push(groqTurn(calls: [['install_packages', ['machine' => 'web-1', 'packages' => ['git'], 'confirm' => 'web-1']]]))]);
 
     $workspace = Workspace::factory()->create(['mcp_call_limit_override' => -1]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $events = assistantEvents($this->actingAs($workspace->owner)->post($url, ['message' => 'Groups, then git'])->streamedContent());
     $approval = collect($events)->firstWhere('type', 'approval');
@@ -150,7 +150,7 @@ test('Approve all never covers invites, role changes or deploys', function () {
         ->push(groqTurn(calls: [['invite_member', ['email' => 'evil@example.com', 'role' => 'admin']]]))]);
 
     $workspace = Workspace::factory()->create(['mcp_call_limit_override' => -1]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $events = assistantEvents($this->actingAs($workspace->owner)->post($url, ['message' => 'x'])->streamedContent());
     $approval = collect($events)->firstWhere('type', 'approval');
@@ -180,7 +180,7 @@ test('the approval card shows every argument in full, settings and nested values
         ]]]))]);
 
     $workspace = Workspace::factory()->create(['mcp_call_limit_override' => -1]);
-    $events = assistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'x'])->streamedContent());
+    $events = assistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'x'])->streamedContent());
     $fields = collect(collect($events)->firstWhere('type', 'approval')['fields'])->pluck('value', 'label');
 
     expect($fields['Set'])->toContain('API_URL')->toContain('https://evil.test')->toContain($long)
@@ -201,7 +201,7 @@ test('a call to a tool it has not loaded yet runs anyway, instead of Groq’s 40
         ->push(groqTurn('You have no groups yet.'))]);
 
     $workspace = Workspace::factory()->create();
-    $events = assistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'Any groups?'])->streamedContent());
+    $events = assistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'Any groups?'])->streamedContent());
 
     expect(array_column($events, 'type'))->toBe(['chat', 'step', 'result', 'text', 'done'])
         ->and($events[1]['tool'])->toBe('list_machine_groups')
@@ -217,7 +217,7 @@ test('saying it started a change without making one gets it told once to make it
         ->push(groqTurn(calls: [['create_machine_group', ['name' => 'Web']]]))]);
 
     $workspace = Workspace::factory()->create(['mcp_call_limit_override' => -1]);
-    $events = assistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'Make a Web group'])->streamedContent());
+    $events = assistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'Make a Web group'])->streamedContent());
 
     expect(collect($events)->firstWhere('type', 'approval')['tool'])->toBe('create_machine_group');
     Http::assertSent(fn (Request $request) => str_contains((string) end($request->data()['messages'])['content'], 'you described a change but didn’t make it'));
@@ -231,7 +231,7 @@ test('a stray thought from the model instead of an answer is asked again, not sh
         ->push(groqTurn('You have two machines.'))]);
 
     $workspace = Workspace::factory()->create();
-    $events = assistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'Machines?'])->streamedContent());
+    $events = assistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'Machines?'])->streamedContent());
 
     expect(array_column($events, 'type'))->toBe(['chat', 'text', 'done']);
     Http::assertSentCount(2);
@@ -249,7 +249,7 @@ test('a call Groq refuses over the letter of the schema still runs, so the tool 
         ->push(groqTurn('None yet.'))]);
 
     $workspace = Workspace::factory()->create();
-    $events = assistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'Machines?'])->streamedContent());
+    $events = assistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'Machines?'])->streamedContent());
 
     expect(array_column($events, 'type'))->toBe(['chat', 'step', 'result', 'text', 'done'])
         ->and($events[1]['tool'])->toBe('list_machines');
@@ -265,7 +265,7 @@ test('naming a tool as the next step instead of calling it, or asking leave in w
         ->push(groqTurn('Connect one from Machines › Connect machine.'))]);
 
     $workspace = Workspace::factory()->create();
-    $events = assistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'Show my machines'])->streamedContent());
+    $events = assistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'Show my machines'])->streamedContent());
 
     expect(collect($events)->where('type', 'step')->pluck('tool')->all())->toBe(['list_machines'])
         ->and(collect($events)->where('type', 'text')->pluck('text')->last())->toContain('Let me know');
@@ -282,7 +282,7 @@ test('with its own key a workspace picks the model in the chat, from the provide
         ]]),
         'api.anthropic.com/v1/messages' => Http::response(['model' => 'claude-opus-5-5', 'content' => [['type' => 'text', 'text' => 'Hi.']]]),
     ]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $options = $this->actingAs($workspace->owner)->getJson("{$url}/models")->assertOk()->json('options');
     expect($options)->toHaveCount(1)
@@ -300,7 +300,7 @@ test('with its own key a workspace picks the model in the chat, from the provide
 
 test('without its own key there’s nothing to pick, and a failed model list falls back to the current models', function () {
     $workspace = Workspace::factory()->create();
-    $url = 'https://'.$workspace->host().'/assistant/models';
+    $url = $workspace->url().'/assistant/models';
     expect($this->actingAs($workspace->owner)->getJson($url)->json('options'))->toBe([]);
 
     WorkspaceAiKey::query()->create(['workspace_id' => $workspace->id, 'provider' => 'openai', 'key' => 'sk-theirs', 'hint' => '…eirs']);
@@ -324,7 +324,7 @@ test('Ask AI reads and changes but never runs commands, and secrets in arguments
 
 test('Ask AI says so when it is not set up, or is out of messages', function () {
     $workspace = Workspace::factory()->create();
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     config()->set('services.groq.key', null);
     $events = assistantEvents($this->actingAs($workspace->owner)->post($url, ['message' => 'Hi'])->streamedContent());
@@ -347,7 +347,7 @@ test('with no docs installed Ask AI still answers, and its prompt has no docs se
     Http::fake(['api.groq.com/*' => Http::response(groqTurn('Add an A record.'))]);
     $workspace = Workspace::factory()->create();
 
-    $response = $this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'How do I point my domain at an app?']);
+    $response = $this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'How do I point my domain at an app?']);
 
     $response->assertOk();
     expect(array_column(assistantEvents($response->streamedContent()), 'text'))->toBe(['Add an A record.']);

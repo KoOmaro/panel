@@ -64,7 +64,7 @@ function firewallMachine(array|false|null $firewall = null): array
     }
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), 'inventory' => $inventory])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host()."/machines/{$machine->id}"];
+    return [$workspace, $machine, $workspace->url()."/machines/{$machine->id}"];
 }
 
 function firewallJobsSent(): array
@@ -175,7 +175,7 @@ test('marking a machine issue as read hides it on the machine page too', functio
     $id = "machine-{$machine->id}-exposed-5432";
     expect(collect(app(WorkspaceHealth::class)->forMachine($machine))->pluck('id'))->toContain($id);
 
-    $this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/issues/dismiss', ['ids' => [$id]])->assertRedirect();
+    $this->actingAs($workspace->owner)->post($workspace->url().'/issues/dismiss', ['ids' => [$id]])->assertRedirect();
 
     expect(collect(app(WorkspaceHealth::class)->forMachine($machine->fresh()))->pluck('id'))->not->toContain($id)
         ->and(collect(app(WorkspaceHealth::class)->issues($workspace->fresh()))->pluck('id'))->not->toContain($id);

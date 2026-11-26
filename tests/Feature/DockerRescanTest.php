@@ -21,7 +21,7 @@ function machineScannedBeforeDocker(): array
         'inventory' => ['scanned_at' => now()->subMinute()->toIso8601String(), 'services' => [['key' => 'systemd:ssh.service']]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 /** @return list<string> */

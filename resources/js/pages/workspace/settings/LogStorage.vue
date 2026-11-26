@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-    LICENSE_SETTINGS_PATH,
+    licenseSettingsPath,
     useSelfHosted,
 } from '@/composables/useSelfHosted';
 import { useUpgradeLink } from '@/composables/useUpgradeLink';
@@ -23,8 +23,10 @@ import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import Tile from '@/components/workspace/Tile.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { appButtonClasses } from '@/lib/appButton';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import { SolarDatabase as Database, SolarCopy as Copy } from '@/lib/solarIcons';
 import { timeAgo } from '@/lib/timeAgo';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
 const upgrade = useUpgradeLink();
@@ -73,13 +75,16 @@ const keepsPassword = computed(
 );
 
 function save(): void {
-    form.put('/settings/log-storage', {
-        preserveScroll: true,
-        onSuccess: () => {
-            form.password = '';
-            form.defaults();
+    form.put(
+        onWorkspace(settingsRoutes.logStorage.update(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                form.password = '';
+                form.defaults();
+            },
         },
-    });
+    );
 }
 
 const page = usePage();
@@ -108,12 +113,25 @@ function send(
         onSuccess,
     };
     if (action === 'remove') {
-        router.delete('/settings/log-storage', options);
+        router.delete(
+            onWorkspace(settingsRoutes.logStorage.destroy(props.workspace.slug))
+                .url,
+            options,
+        );
     } else if (action === 'test') {
         const { prune: _prune, ...connection } = form.data();
-        router.post('/settings/log-storage/test', connection, options);
+        router.post(
+            onWorkspace(settingsRoutes.logStorage.test(props.workspace.slug))
+                .url,
+            connection,
+            options,
+        );
     } else {
-        router.post(`/settings/log-storage/${action}`, {}, options);
+        const route =
+            action === 'enable'
+                ? settingsRoutes.logStorage.enable(props.workspace.slug)
+                : settingsRoutes.logStorage.disable(props.workspace.slug);
+        router.post(onWorkspace(route).url, {}, options);
     }
 }
 
@@ -229,7 +247,7 @@ async function copyIp(): Promise<void> {
             </p>
             <Link
                 v-if="selfHosted"
-                :href="LICENSE_SETTINGS_PATH"
+                :href="licenseSettingsPath()"
                 :class="appButtonClasses('primary', 'sm')"
             >
                 {{ $t('Add a license') }}

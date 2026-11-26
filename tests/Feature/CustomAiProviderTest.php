@@ -28,7 +28,7 @@ beforeEach(function () {
 
 function customAiUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function customAiKey(Workspace $workspace, string $url = 'https://openrouter.ai/api/v1', string $model = 'deepseek/deepseek-chat'): WorkspaceAiKey
@@ -248,7 +248,7 @@ test('the chat lists the API’s own models, unfiltered, and a chat can pick one
         ]]),
         'openrouter.ai/api/v1/chat/completions' => Http::response(['model' => 'qwen/qwen3-coder', 'choices' => [['message' => ['role' => 'assistant', 'content' => 'Hi.']]]]),
     ]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $options = $this->actingAs($workspace->owner)->getJson("{$url}/models")->assertOk()->json('options');
     expect($options)->toHaveCount(1)

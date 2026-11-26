@@ -123,7 +123,7 @@ test('list_machines filters, sorts and pages like the machines page', function (
     $row = collect($all['data']['machines'])->firstWhere('name', 'db-1');
     expect($row)->toMatchArray(['environment' => 'staging', 'status' => 'online', 'group' => ['id' => $group->id, 'name' => 'EU'], 'services' => 3])
         ->and($row['maintenance']['reason'])->toBe('Upgrade')
-        ->and($row['url'])->toBe('https://'.$workspace->host().'/machines/'.$db->id);
+        ->and($row['url'])->toBe($workspace->url().'/machines/'.$db->id);
 
     expect(collect(mcpCall($workspace, $key, 'list_machines', ['environment' => 'staging'])['data']['machines'])->pluck('name')->all())->toBe(['db-1'])
         ->and(collect(mcpCall($workspace, $key, 'list_machines', ['status' => 'offline'])['data']['machines'])->pluck('name')->all())->toBe(['old-box'])

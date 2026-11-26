@@ -2,22 +2,11 @@ import { trans } from 'laravel-vue-i18n';
 import { usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import type { Component, ComputedRef } from 'vue';
-import {
-    SolarBuilding2,
-    SolarCode,
-    SolarDatabase,
-    SolarGlobe,
-    SolarLayers,
-    SolarLockKeyhole,
-    SolarPalette,
-    SolarPulse,
-    SolarServerCog,
-    SolarSparkles,
-    SolarUserRound,
-    SolarUsers,
-} from '@/lib/solarIcons';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import { extensionIcon } from '@/lib/extensionIcons';
-import { onWorkspace } from '@/lib/workspaceRoute';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import { home } from '@/routes/workspace';
+import code from '@/routes/workspace/code';
 import members from '@/routes/workspace/members';
 import settings from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
@@ -28,10 +17,13 @@ export type Section = {
     keywords?: string;
 };
 
+export type NavIcon = FilledIconName | Component;
+
 export type NavItem = {
     key: string;
     label: string;
-    icon: Component;
+    description: string | null;
+    icon: NavIcon;
     href: string;
     current: boolean;
     keywords: string;
@@ -42,13 +34,24 @@ export type Result = {
     key: string;
     label: string;
     page: string | null;
-    icon: Component;
+    icon: NavIcon;
     href: string;
+};
+
+export type GroupKey = 'workspace' | 'machines' | 'developers' | 'account';
+
+export type Group = {
+    key: GroupKey;
+    label: string;
+    href: string;
+    inSidebar: boolean;
+    items: NavItem[];
 };
 
 type ExtensionSettingsItem = {
     key: string;
     label: string;
+    description?: string;
     icon: string;
     path: string;
     group: string;
@@ -57,7 +60,20 @@ type ExtensionSettingsItem = {
     sections: Section[];
 };
 
-export type Group = { key: string; label: string; items: NavItem[] };
+const EXTENSION_ICONS: Record<string, FilledIconName> = {
+    billing: 'setup-fill',
+    'credit-card': 'setup-fill',
+    key: 'key-fill',
+    lock: 'lock-fill',
+    globe: 'globe-fill',
+    database: 'database-fill',
+    code: 'code-fill',
+    users: 'user-fill',
+};
+
+function extensionNavIcon(name: string): NavIcon {
+    return EXTENSION_ICONS[name] ?? extensionIcon(name);
+}
 
 export function useSettingsNav(): ComputedRef<Group[]> {
     const page = usePage<{
@@ -67,11 +83,15 @@ export function useSettingsNav(): ComputedRef<Group[]> {
 
     return computed<Group[]>(() =>
         withExtensions(
-            ownGroups(page.props.workspace.slug, page.component),
+            ownGroups(page.props.workspace, page.component),
             page.props.extensions?.settings ?? [],
             page.component,
         ),
     );
+}
+
+export function backHref(slug: string): string {
+    return onWorkspace(home(slug)).url;
 }
 
 function withExtensions(
@@ -87,8 +107,9 @@ function withExtensions(
                 .filter((extension) => extension.group === group.key)
                 .map((extension) => ({
                     label: extension.label,
-                    icon: extensionIcon(extension.icon),
-                    href: extension.path,
+                    description: extension.description || null,
+                    icon: extensionNavIcon(extension.icon),
+                    href: workspacePath(extension.path),
                     key: extension.component,
                     current: component === extension.component,
                     keywords: extension.keywords,
@@ -98,16 +119,19 @@ function withExtensions(
     }));
 }
 
-function ownGroups(slug: string, component: string): Group[] {
+function ownGroups(workspace: Workspace, component: string): Group[] {
+    const slug = workspace.slug;
     const item = (
         label: string,
-        icon: Component,
+        icon: NavIcon,
         href: string,
         name: string,
         keywords: string,
         sections: Section[] = [],
+        description: string | null = null,
     ): NavItem => ({
         label,
+        description,
         icon,
         href,
         key: `workspace/settings/${name}`,
@@ -120,10 +144,12 @@ function ownGroups(slug: string, component: string): Group[] {
         {
             key: 'workspace',
             label: trans('Workspace'),
+            href: onWorkspace(settings.general(slug)).url,
+            inSidebar: true,
             items: [
                 item(
                     trans('General'),
-                    SolarBuilding2,
+                    'settings-fill',
                     onWorkspace(settings.general(slug)).url,
                     'General',
                     'name logo address',
@@ -132,7 +158,7 @@ function ownGroups(slug: string, component: string): Group[] {
                             label: trans('Alerts'),
                             anchor: 'alerts',
                             keywords:
-                                'notifications email webhook slack discord mute',
+                                'notifications email webhook slack discord telegram mute',
                         },
                         {
                             label: 'GitHub',
@@ -140,15 +166,23 @@ function ownGroups(slug: string, component: string): Group[] {
                             keywords: 'git repositories repos deploy connect',
                         },
                         {
+                            label: trans('Container registries'),
+                            anchor: 'registries',
+                            keywords: 'docker images ghcr private login',
+                        },
+                        {
                             label: trans('Danger zone'),
                             anchor: 'danger-zone',
                             keywords: 'delete workspace remove',
                         },
                     ],
+                    trans('These apply to everyone in :name.', {
+                        name: workspace.name,
+                    }),
                 ),
                 item(
                     trans('Members'),
-                    SolarUsers,
+                    'user-fill',
                     onWorkspace(members.index(slug)).url,
                     'Members',
                     'team people users',
@@ -169,24 +203,27 @@ function ownGroups(slug: string, component: string): Group[] {
                             keywords: 'permissions admin owner access',
                         },
                     ],
+                    trans('Who’s in :name, and what they can do.', {
+                        name: workspace.name,
+                    }),
                 ),
                 item(
                     trans('Domains'),
-                    SolarGlobe,
+                    'globe-fill',
                     onWorkspace(settings.domains(slug)).url,
                     'Domains',
                     'custom domain dns cname ssl',
                 ),
                 item(
                     trans('Status page'),
-                    SolarPulse,
+                    'monitors-fill',
                     onWorkspace(settings.statusPage(slug)).url,
                     'StatusPage',
                     'public uptime incidents',
                 ),
                 item(
                     trans('Theme'),
-                    SolarLayers,
+                    'layers-fill',
                     onWorkspace(settings.theme(slug)).url,
                     'Theme',
                     'custom css colours colors brand look style template ai',
@@ -196,17 +233,19 @@ function ownGroups(slug: string, component: string): Group[] {
         {
             key: 'machines',
             label: trans('Machines'),
+            href: onWorkspace(settings.machinePolicies(slug)).url,
+            inSidebar: true,
             items: [
                 item(
                     trans('Machine policies'),
-                    SolarServerCog,
+                    'machines-fill',
                     onWorkspace(settings.machinePolicies(slug)).url,
                     'MachinePolicies',
                     'daemon updates releases collect metrics defaults groups',
                 ),
                 item(
                     trans('Log storage'),
-                    SolarDatabase,
+                    'database-fill',
                     onWorkspace(settings.logStorage(slug)).url,
                     'LogStorage',
                     'logs s3 bucket retention',
@@ -216,13 +255,15 @@ function ownGroups(slug: string, component: string): Group[] {
         {
             key: 'developers',
             label: trans('Developers'),
+            href: onWorkspace(code.index(slug)).url,
+            inSidebar: false,
             items: [
                 item(
-                    'API',
-                    SolarCode,
+                    trans('API keys'),
+                    'terminal-fill',
                     onWorkspace(settings.api(slug)).url,
                     'Api',
-                    'rest tokens',
+                    'api rest tokens',
                     [
                         {
                             label: trans('API keys'),
@@ -234,10 +275,11 @@ function ownGroups(slug: string, component: string): Group[] {
                             anchor: 'requests',
                         },
                     ],
+                    trans('Use ServerOS from your own scripts and tools.'),
                 ),
                 item(
                     trans('AI and MCP'),
-                    SolarSparkles,
+                    'sparkle-fill',
                     onWorkspace(settings.mcp(slug)).url,
                     'Mcp',
                     'claude chatgpt cursor assistant',
@@ -257,16 +299,21 @@ function ownGroups(slug: string, component: string): Group[] {
                             keywords: 'tokens',
                         },
                     ],
+                    trans('Let your AI apps work with :name.', {
+                        name: workspace.name,
+                    }),
                 ),
             ],
         },
         {
             key: 'account',
             label: trans('Your account'),
+            href: onWorkspace(settings.profile(slug)).url,
+            inSidebar: true,
             items: [
                 item(
                     trans('Profile'),
-                    SolarUserRound,
+                    'user-fill',
                     onWorkspace(settings.profile(slug)).url,
                     'Profile',
                     'name avatar picture',
@@ -277,17 +324,20 @@ function ownGroups(slug: string, component: string): Group[] {
                             keywords: 'notifications digest unsubscribe',
                         },
                     ],
+                    trans(
+                        'Only you see these. They follow you to every workspace.',
+                    ),
                 ),
                 item(
                     trans('Appearance'),
-                    SolarPalette,
+                    'layout-grid',
                     onWorkspace(settings.appearance(slug)).url,
                     'Appearance',
-                    'theme dark light mode navigation sidebar top bar layout',
+                    'theme dark light mode',
                 ),
                 item(
                     trans('Security'),
-                    SolarLockKeyhole,
+                    'lock-fill',
                     onWorkspace(settings.security(slug)).url,
                     'Security',
                     'login sign in',

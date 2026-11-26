@@ -149,7 +149,7 @@ final class AgentSpec
             'SERVEROS_AGENT_RUN_ID' => (string) $run->id,
             'SERVEROS_AGENT_TRIGGER' => mb_substr((string) ($run->trigger['summary'] ?? ''), 0, 200),
             'SERVEROS_AGENT_ASK' => mb_substr(trim(self::text((string) ($rules['prompt'] ?? ''), $run)), 0, 3000),
-            'SERVEROS_AGENT_RUN_URL' => 'https://'.$run->workflow->workspace->host()."/workflows/{$run->workflow->id}?run={$run->id}",
+            'SERVEROS_AGENT_RUN_URL' => $run->workflow->workspace->url("/workflows/{$run->workflow->id}?run={$run->id}"),
         ];
         foreach (['model' => 'SERVEROS_AGENT_MODEL', 'setup' => 'SERVEROS_AGENT_SETUP', 'check' => 'SERVEROS_AGENT_CHECK'] as $rule => $name) {
             $value = trim((string) ($rules[$rule] ?? ''));
@@ -435,7 +435,7 @@ final class AgentSpec
         $esc = fn (?string $v): string => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $agent = self::AGENTS[(string) (($rules['agent'] ?? '') ?: 'claude')] ?? 'The agent';
         $model = $outcome['model'] ?? 'its default model';
-        $url = 'https://'.$run->workflow->workspace->host()."/workflows/{$run->workflow->id}?run={$run->id}";
+        $url = $run->workflow->workspace->url("/workflows/{$run->workflow->id}?run={$run->id}");
         $name = mb_substr("{$run->workflow->name}, run #{$run->id}", 0, 120);
         $trigger = mb_substr((string) ($run->trigger['summary'] ?? ''), 0, 200);
         $check = trim((string) ($rules['check'] ?? ''));

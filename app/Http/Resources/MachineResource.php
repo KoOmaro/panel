@@ -32,12 +32,13 @@ class MachineResource extends JsonResource
             'labels' => (object) ($this->labels ?? []),
             'services' => $this->services_count,
             'memory' => $this->memory_used_mb === null
-                ? '—'
+                ? '–'
                 : number_format($this->memory_used_mb / 1024, 1).' GiB',
             'memoryMb' => $this->memory_used_mb,
             'cpu' => $this->cpu_percent ?? 0,
             'groupId' => $this->machine_group_id,
             'lastBackup' => $this->last_backup_at?->diffForHumans(['short' => true]) ?? __('Never'),
+            'lastBackupAt' => $this->last_backup_at?->toIso8601String(),
             'uid' => $this->uid,
             'iconUrl' => $this->iconUrl(),
             'connection' => self::connection($this->resource),

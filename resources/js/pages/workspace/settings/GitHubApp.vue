@@ -18,6 +18,9 @@ import {
     SolarKey as Key,
 } from '@/lib/solarIcons';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import githubRoutes from '@/routes/workspace/github';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
 type Props = {
@@ -44,6 +47,14 @@ type Props = {
 };
 
 const props = defineProps<Props>();
+
+const connectHref = computed(
+    () => onWorkspace(githubRoutes.connect(props.workspace.slug)).url,
+);
+const backHref = computed(
+    () =>
+        `${onWorkspace(settingsRoutes.general(props.workspace.slug)).url}#github`,
+);
 
 const form = useForm({
     app_id: '',
@@ -129,7 +140,9 @@ function createOnGitHub(): void {
 }
 
 function save(): void {
-    form.put('/settings/github/app', { preserveScroll: true });
+    form.put(onWorkspace(githubRoutes.app.store(props.workspace.slug)).url, {
+        preserveScroll: true,
+    });
 }
 
 function readKey(event: Event): void {
@@ -154,7 +167,10 @@ function remove(): void {
     ) {
         return;
     }
-    router.delete('/settings/github/app', { preserveScroll: true });
+    router.delete(
+        onWorkspace(githubRoutes.app.destroy(props.workspace.slug)).url,
+        { preserveScroll: true },
+    );
 }
 
 async function copy(text: string, what: string): Promise<void> {
@@ -240,7 +256,7 @@ const textarea =
                     </p>
                     <div class="flex flex-wrap gap-2">
                         <a
-                            href="/settings/github/connect"
+                            :href="connectHref"
                             :class="appButtonClasses('primary', 'sm')"
                         >
                             {{
@@ -250,7 +266,7 @@ const textarea =
                             }}
                         </a>
                         <Link
-                            href="/settings/general#github"
+                            :href="backHref"
                             :class="appButtonClasses('quiet', 'sm')"
                         >
                             {{ $t('Back to settings') }}

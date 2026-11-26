@@ -55,7 +55,7 @@ function logLine(string $line, array $overrides = []): array
 
 function logsUrl(Workspace $workspace, string $path = '/logs'): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('shipped lines are stored with a level and a stable service name', function () {
@@ -286,7 +286,7 @@ test('lines past the plan\'s daily allowance are dropped and shown on the logs p
 
 test('a service whose logs are muted has its lines dropped, and they don\'t count', function () {
     [$workspace, $machine] = logsMachine();
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id.'/services/docker:aaa/logs';
+    $url = $workspace->url().'/machines/'.$machine->id.'/services/docker:aaa/logs';
 
     $this->actingAs($workspace->owner)->put($url, ['muted' => true])->assertRedirect();
     expect($machine->fresh()->log_muted_services)->toBe(['container:umami-umami-1'])
@@ -307,7 +307,7 @@ test('only people who manage machines can mute a service\'s logs', function () {
     $viewer = User::factory()->create();
     $workspace->members()->attach($viewer, ['role' => 'viewer']);
 
-    $this->actingAs($viewer)->put('https://'.$workspace->host().'/machines/'.$machine->id.'/services/docker:aaa/logs', ['muted' => true])
+    $this->actingAs($viewer)->put($workspace->url().'/machines/'.$machine->id.'/services/docker:aaa/logs', ['muted' => true])
         ->assertForbidden();
     expect($machine->fresh()->log_muted_services)->toBeNull();
 });

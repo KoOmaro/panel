@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { trans } from 'laravel-vue-i18n';
-import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { Plus } from '@lucide/vue';
-import {
-    SolarClock,
-    SolarGitBranch,
-    SolarPlay,
-    SolarSiren,
-    SolarWorkflow as WorkflowIcon,
-} from '@/lib/solarIcons';
+import { trans } from 'laravel-vue-i18n';
 import { computed, onMounted, ref } from 'vue';
-import type { Component } from 'vue';
-import { toast } from '@/lib/toast';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTable from '@/components/dash/DashTable.vue';
+import DashTd from '@/components/dash/DashTd.vue';
+import DashTh from '@/components/dash/DashTh.vue';
+import DashTr from '@/components/dash/DashTr.vue';
+import FilterPills from '@/components/dash/FilterPills.vue';
+import SearchWell from '@/components/dash/SearchWell.vue';
+import StatusBadge from '@/components/dash/StatusBadge.vue';
+import type { DashStatus } from '@/components/dash/StatusBadge.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
+import MonitorTabs from '@/components/monitors/MonitorTabs.vue';
 import {
     Dialog,
     DialogContent,
@@ -21,11 +25,12 @@ import {
 import { EVENTS } from '@/components/workflows/kinds';
 import type { Graph, Options } from '@/components/workflows/kinds';
 import TemplatePicker from '@/components/workflows/TemplatePicker.vue';
-import WorkflowPreview from '@/components/workflows/WorkflowPreview.vue';
 import type { Template } from '@/components/workflows/TemplatePicker.vue';
+import WorkflowPreview from '@/components/workflows/WorkflowPreview.vue';
 import PlanLock from '@/components/workspace/PlanLock.vue';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
-import { appButtonClasses } from '@/lib/appButton';
+import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import workflowsRoutes from '@/routes/workspace/workflows';
 import type { Workspace, WorkspaceAccess } from '@/types';
 
 type WorkflowRow = {
@@ -60,6 +65,10 @@ const canManage = computed(
 
 const picking = ref(false);
 const creating = ref<string | null>(null);
+const search = ref('');
+
+type Group = 'all' | 'deploys' | 'incidents' | 'scheduled' | 'manual';
+const filter = ref<Group>('all');
 
 onMounted(() => {
     if (
@@ -75,7 +84,7 @@ onMounted(() => {
 function create(key: string): void {
     creating.value = key;
     router.post(
-        '/workflows',
+        onWorkspace(workflowsRoutes.store(props.workspace.slug)).url,
         { template: key },
         {
             onError: (errors) =>
@@ -87,8 +96,92 @@ function create(key: string): void {
     );
 }
 
+function showHref(row: WorkflowRow): string {
+    return onWorkspace(
+        workflowsRoutes.show({
+            workspace: props.workspace.slug,
+            workflow: row.id,
+        }),
+    ).url;
+}
+
+const groups: {
+    key: Exclude<Group, 'all'>;
+    label: string;
+    triggers: string[];
+}[] = [
+    {
+        key: 'deploys',
+        label: trans('Deploys'),
+        triggers: ['git.push', 'deploy.finished', 'webhook'],
+    },
+    {
+        key: 'incidents',
+        label: trans('Incidents'),
+        triggers: [
+            'service.down',
+            'service.crash_loop',
+            'monitor.down',
+            'monitor.up',
+            'machine.offline',
+            'machine.disk_full',
+            'backup.failed',
+        ],
+    },
+    { key: 'scheduled', label: trans('Scheduled'), triggers: ['schedule'] },
+    { key: 'manual', label: trans('By hand'), triggers: ['manual'] },
+];
+
+function groupOf(row: WorkflowRow): Exclude<Group, 'all'> {
+    return (
+        groups.find((g) => g.triggers.includes(row.trigger))?.key ?? 'manual'
+    );
+}
+
+const pills = computed(() => [
+    {
+        value: 'all' as Group,
+        label: trans('All'),
+        count: props.workflows.length,
+    },
+    ...groups
+        .map((g) => ({
+            value: g.key as Group,
+            label: g.label,
+            count: props.workflows.filter((w) => groupOf(w) === g.key).length,
+        }))
+        .filter((pill) => pill.count > 0),
+]);
+
+const shown = computed(() => {
+    const needle = search.value.trim().toLowerCase();
+
+    return props.workflows.filter(
+        (w) =>
+            (filter.value === 'all' || groupOf(w) === filter.value) &&
+            (!needle ||
+                `${w.name} ${w.description ?? ''}`
+                    .toLowerCase()
+                    .includes(needle)),
+    );
+});
+
+const triggerIcons: Record<string, FilledIconName> = {
+    manual: 'user-fill',
+    schedule: 'history',
+    webhook: 'globe-fill',
+    'git.push': 'branch-fill',
+    'deploy.finished': 'update-fill',
+    'service.down': 'layers-fill',
+    'service.crash_loop': 'layers-fill',
+    'monitor.down': 'monitors-fill',
+    'monitor.up': 'monitors-fill',
+    'machine.offline': 'machines-fill',
+    'machine.disk_full': 'database-fill',
+    'backup.failed': 'archive',
+};
+
 function triggerLabel(row: WorkflowRow): string {
-    const event = EVENTS.find((e) => e.id === row.trigger);
     if (row.trigger === 'schedule') {
         const every = row.rules.every;
 
@@ -104,7 +197,7 @@ function triggerLabel(row: WorkflowRow): string {
             : trans('On a schedule');
     }
 
-    return event?.label ?? row.trigger;
+    return EVENTS.find((e) => e.id === row.trigger)?.label ?? row.trigger;
 }
 
 function ago(iso: string | null): string {
@@ -115,292 +208,260 @@ function ago(iso: string | null): string {
     );
     if (s < 60) return trans('just now');
     if (s < 3600)
-        return trans(':floor min ago', { floor: String(Math.floor(s / 60)) });
+        return trans(':count min ago', { count: String(Math.floor(s / 60)) });
     if (s < 86400)
         return trans(':count h ago', { count: String(Math.floor(s / 3600)) });
 
-    return trans(':count d ago', { count: String(Math.floor(s / 86400)) });
+    return trans(':count days ago', { count: String(Math.floor(s / 86400)) });
 }
 
-const runTone: Record<string, string> = {
-    running: 'bg-(--ds-blue)',
-    succeeded: 'bg-(--ds-green)',
-    failed: 'bg-(--ds-red)',
-    cancelled: 'bg-(--ds-text-faint)',
+const runLook: Record<string, { status: DashStatus; label: string }> = {
+    running: { status: 'deploying', label: trans('Running') },
+    succeeded: { status: 'live', label: trans('Succeeded') },
+    failed: { status: 'down', label: trans('Failed') },
+    cancelled: { status: 'stopped', label: trans('Cancelled') },
 };
-
-type Group = 'deploys' | 'incidents' | 'scheduled' | 'manual';
-
-const groups: {
-    key: Group;
-    label: string;
-    icon: Component;
-    tone: string;
-    triggers: string[];
-}[] = [
-    {
-        key: 'deploys',
-        label: trans('Deploys'),
-        icon: SolarGitBranch,
-        tone: 'text-(--ds-text)',
-        triggers: ['git.push', 'deploy.finished', 'webhook'],
-    },
-    {
-        key: 'incidents',
-        label: trans('Incidents'),
-        icon: SolarSiren,
-        tone: 'text-(--ds-amber)',
-        triggers: [
-            'service.down',
-            'service.crash_loop',
-            'monitor.down',
-            'monitor.up',
-            'machine.offline',
-            'machine.disk_full',
-            'backup.failed',
-        ],
-    },
-    {
-        key: 'scheduled',
-        label: trans('Scheduled'),
-        icon: SolarClock,
-        tone: 'text-(--ds-blue)',
-        triggers: ['schedule'],
-    },
-    {
-        key: 'manual',
-        label: trans('By hand'),
-        icon: SolarPlay,
-        tone: 'text-(--ds-text-muted)',
-        triggers: ['manual'],
-    },
-];
-
-function groupOf(row: WorkflowRow) {
-    return (
-        groups.find((group) => group.triggers.includes(row.trigger)) ??
-        groups[3]
-    );
-}
-
-const shownGroups = computed(() =>
-    groups.filter((group) =>
-        props.workflows.some((row) => groupOf(row).key === group.key),
-    ),
-);
-
-const filter = ref<Group | null>(null);
-
-const shown = computed(() =>
-    filter.value === null
-        ? props.workflows
-        : props.workflows.filter((row) => groupOf(row).key === filter.value),
-);
-const focusRing =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)';
 </script>
 
 <template>
     <Head :title="$t('Workflows')" />
 
-    <WorkspacePage :title="$t('Workflows')">
-        <template #description>
-            {{
-                ' ' +
-                $t(
-                    'Deploys, restarts, checks and alerts, drawn as steps and run for you: when CI pushes, when something breaks, or on a schedule.',
-                ) +
-                ' '
-            }}
-        </template>
-
-        <PlanLock
-            :locked="!planAllows"
-            feature="Workflows"
-            plan="pro"
-            :description="
-                $t(
-                    'Deploy when CI passes, restart what falls over and tell the team, drawn as steps and run for you.',
-                )
-            "
-        >
-            <WorkflowPreview
-                v-if="preview"
-                :graph="preview.graph"
-                :options="preview.options"
+    <DashHeader :crumbs="[{ label: $t('Workflows') }]">
+        <template v-if="canManage && planAllows && workflows.length" #actions>
+            <DashButton
+                variant="primary"
+                :icon="Plus"
+                :label="$t('New workflow')"
+                @click="picking = true"
             />
-            <div v-else-if="!workflows.length" class="flex flex-col gap-5">
-                <div
-                    class="ds-tile flex flex-col items-center px-6 pt-12 pb-8 text-center"
+        </template>
+    </DashHeader>
+
+    <div class="flex min-h-full flex-col">
+        <MonitorTabs active="workflows" />
+
+        <div v-if="preview" class="p-5">
+            <PlanLock
+                :locked="!planAllows"
+                feature="Workflows"
+                plan="pro"
+                :description="
+                    $t(
+                        'Deploy when CI passes, restart what falls over and tell the team, drawn as steps and run for you.',
+                    )
+                "
+            >
+                <WorkflowPreview
+                    :graph="preview.graph"
+                    :options="preview.options"
+                />
+            </PlanLock>
+        </div>
+
+        <div
+            v-else-if="!workflows.length"
+            class="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-12"
+        >
+            <div class="flex flex-col items-center text-center">
+                <span
+                    class="flex size-10 items-center justify-center rounded-[10px] border-[0.5px] border-edge-control bg-surface-raised text-fg-tertiary shadow-tile"
+                    aria-hidden="true"
                 >
-                    <div class="ds-icon-chip" aria-hidden="true">
-                        <WorkflowIcon class="size-4.5" :stroke-width="2" />
-                    </div>
-                    <h2 class="mt-5 text-base/6 font-semibold">
-                        {{ ' ' + $t('Automate what you do by hand') + ' ' }}
-                    </h2>
-                    <p
-                        class="mt-1.5 max-w-md text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                    >
-                        {{
-                            ' ' +
-                            $t(
-                                'Pick a starting point for how you work. Each one opens ready to use with your machines filled in; change anything you like, and nothing runs until you turn it on.',
-                            ) +
-                            ' '
-                        }}
-                    </p>
-                </div>
+                    <FilledIcon name="branch-fill" :size="20" />
+                </span>
+                <h2
+                    class="mt-4 text-[15px]/6 font-medium tracking-[-0.01em] text-fg-primary"
+                >
+                    {{ $t('Automate what you do by hand') }}
+                </h2>
+                <p class="mt-1 max-w-md text-[13px]/5 text-fg-tertiary">
+                    {{
+                        $t(
+                            'Pick a starting point for how you work. Each one opens ready to use with your machines filled in; change anything you like, and nothing runs until you turn it on.',
+                        )
+                    }}
+                </p>
+            </div>
+            <TemplatePicker
+                :templates="templates"
+                :disabled="!canManage || !planAllows"
+                :creating="creating"
+                @pick="create"
+            />
+        </div>
+
+        <template v-else>
+            <div class="flex min-h-14 flex-wrap items-center gap-2 px-5 py-3">
+                <SearchWell
+                    v-model="search"
+                    :placeholder="$t('Search workflows')"
+                    :width="300"
+                    class="max-sm:w-full!"
+                />
+                <FilterPills
+                    v-model="filter"
+                    :label="$t('Show')"
+                    :options="pills"
+                />
+                <span class="min-w-0 flex-1" />
+                <span class="text-[12px]/4 text-fg-muted">{{
+                    $t(
+                        'Deploys, restarts, checks and alerts, run for you when something happens.',
+                    )
+                }}</span>
+            </div>
+
+            <DashTable class="border-t-[0.5px] border-edge-tabs">
+                <template #head>
+                    <DashTh icon="branch-fill" :width="300" first>{{
+                        $t('Workflow')
+                    }}</DashTh>
+                    <DashTh icon="activity-fill" :width="220">{{
+                        $t('Starts when')
+                    }}</DashTh>
+                    <DashTh icon="layers-fill" :width="80">{{
+                        $t('Steps')
+                    }}</DashTh>
+                    <DashTh icon="history" :width="210">{{
+                        $t('Last run')
+                    }}</DashTh>
+                    <DashTh icon="table-fill" :width="120">{{
+                        $t('Last 7 days')
+                    }}</DashTh>
+                    <DashTh icon="setup-fill" fill>{{ $t('State') }}</DashTh>
+                </template>
+                <DashTr
+                    v-for="w in shown"
+                    :key="w.id"
+                    clickable
+                    @click="router.visit(showHref(w))"
+                >
+                    <DashTd first>
+                        <span class="flex max-w-[164px] min-w-0 flex-col">
+                            <a
+                                :href="showHref(w)"
+                                class="truncate font-medium tracking-[-0.01em] text-fg-primary"
+                                @click.prevent
+                                >{{ w.name }}</a
+                            >
+                        </span>
+                        <span
+                            v-if="w.description"
+                            class="max-w-[96px] truncate text-[12px]/4 text-fg-faint"
+                            :title="w.description"
+                            >{{ w.description }}</span
+                        >
+                    </DashTd>
+                    <DashTd>
+                        <FilledIcon
+                            :name="triggerIcons[w.trigger] ?? 'activity-fill'"
+                            class="text-fg-muted"
+                        />
+                        <span class="truncate">{{ triggerLabel(w) }}</span>
+                    </DashTd>
+                    <DashTd>
+                        <span class="font-ui-mono text-[12px]/4">{{
+                            w.steps
+                        }}</span>
+                    </DashTd>
+                    <DashTd>
+                        <template v-if="w.lastRun && runLook[w.lastRun.state]">
+                            <StatusBadge
+                                :status="runLook[w.lastRun.state].status"
+                                :label="runLook[w.lastRun.state].label"
+                            />
+                            <span class="text-[12px]/4 text-fg-tertiary">{{
+                                ago(w.lastRun.at)
+                            }}</span>
+                        </template>
+                        <span v-else class="text-[12px]/4 text-fg-faint">{{
+                            w.lastRunAt ? ago(w.lastRunAt) : $t('Never run')
+                        }}</span>
+                    </DashTd>
+                    <DashTd>
+                        <span class="font-ui-mono text-[12px]/4">{{
+                            w.runs7d
+                        }}</span>
+                        <span
+                            v-if="w.failed7d"
+                            class="text-[12px]/4 text-status-down"
+                            >{{
+                                $t(':count failed', {
+                                    count: String(w.failed7d),
+                                })
+                            }}</span
+                        >
+                    </DashTd>
+                    <DashTd>
+                        <span
+                            class="inline-flex h-[22px] items-center gap-1.5 rounded-[6px] border px-2 text-[12px]/4 font-medium"
+                            :class="
+                                w.enabled
+                                    ? 'border-[rgb(62_196_109/0.22)] bg-[rgb(62_196_109/0.1)] text-[#23a050] dark:text-[#5fd88a]'
+                                    : 'border-edge-control bg-surface-control text-fg-tertiary'
+                            "
+                        >
+                            <span
+                                class="size-1.5 rounded-full"
+                                :class="
+                                    w.enabled
+                                        ? 'bg-status-live'
+                                        : 'bg-status-stopped'
+                                "
+                            />
+                            {{ w.enabled ? $t('Active') : $t('Off') }}
+                        </span>
+                        <span
+                            v-if="w.enabled && w.nextRunAt"
+                            class="text-[12px]/4 text-fg-faint"
+                            >{{
+                                $t('next :when', {
+                                    when: new Date(
+                                        w.nextRunAt,
+                                    ).toLocaleTimeString(undefined, {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                    }),
+                                })
+                            }}</span
+                        >
+                    </DashTd>
+                </DashTr>
+            </DashTable>
+            <p
+                v-if="shown.length === 0"
+                class="px-5 py-10 text-center text-[13px]/5 text-fg-muted"
+            >
+                {{ $t('Nothing matches.') }}
+            </p>
+        </template>
+    </div>
+
+    <Dialog v-model:open="picking">
+        <DialogContent
+            class="flex max-h-[min(86vh,760px)] flex-col gap-0 overflow-hidden p-0 font-ui sm:max-w-2xl"
+        >
+            <div class="flex shrink-0 flex-col gap-1 px-5 pt-5 pb-3">
+                <DialogTitle
+                    class="text-[15px]/6 font-medium text-fg-primary"
+                    >{{ $t('New workflow') }}</DialogTitle
+                >
+                <DialogDescription class="text-[13px]/5 text-fg-tertiary">
+                    {{
+                        $t(
+                            'Start from one of these and change anything you like. It stays off until you turn it on.',
+                        )
+                    }}
+                </DialogDescription>
+            </div>
+            <div class="flex min-h-0 flex-1 flex-col px-5 pb-5">
                 <TemplatePicker
                     :templates="templates"
-                    :disabled="!canManage || !planAllows"
                     :creating="creating"
+                    compact
                     @pick="create"
                 />
             </div>
-
-            <div v-else class="flex flex-col gap-4">
-                <div class="flex flex-wrap items-center gap-2">
-                    <div
-                        class="ds-segments"
-                        role="group"
-                        :aria-label="$t('Show')"
-                    >
-                        <button
-                            type="button"
-                            :aria-pressed="filter === null"
-                            @click="filter = null"
-                        >
-                            {{ $t('All') }}
-                        </button>
-                        <button
-                            v-for="group in shownGroups"
-                            :key="group.key"
-                            type="button"
-                            :aria-pressed="filter === group.key"
-                            @click="filter = group.key"
-                        >
-                            {{ group.label }}
-                        </button>
-                    </div>
-                    <button
-                        v-if="canManage && planAllows"
-                        type="button"
-                        class="ml-auto max-sm:grow"
-                        :class="appButtonClasses('primary')"
-                        @click="picking = true"
-                    >
-                        <Plus class="size-3.5" /> {{ $t('New workflow') + ' ' }}
-                    </button>
-                </div>
-
-                <ul
-                    class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-                    :aria-label="$t('Workflows')"
-                >
-                    <li v-for="w in shown" :key="w.id">
-                        <Link
-                            :href="`/workflows/${w.id}`"
-                            class="flex h-full min-h-38 flex-col rounded-[12px] bg-(--ds-card) p-4 shadow-[inset_0_0_0_1px_var(--ds-border)] transition-colors hover:bg-(--ds-hover)"
-                            :class="focusRing"
-                        >
-                            <span
-                                class="truncate text-[15px]/5 font-medium tracking-[-0.01em]"
-                                :class="
-                                    w.enabled
-                                        ? 'text-(--ds-text)'
-                                        : 'text-(--ds-text-faint)'
-                                "
-                                >{{ w.name }}</span
-                            >
-                            <span
-                                class="mt-1 line-clamp-2 text-[13px]/5 text-(--ds-text-muted)"
-                            >
-                                {{
-                                    w.description ||
-                                    `${w.steps} ${w.steps === 1 ? $t('step') : $t('steps')}`
-                                }}
-                            </span>
-                            <span
-                                class="mt-auto flex items-end justify-between gap-3 pt-5"
-                            >
-                                <span
-                                    class="flex min-w-0 flex-col gap-0.5 text-[12.5px]/4"
-                                >
-                                    <span
-                                        class="truncate text-(--ds-text-secondary)"
-                                        >{{ triggerLabel(w) }}</span
-                                    >
-                                    <span
-                                        class="flex items-center gap-1.5 truncate text-(--ds-text-faint) tabular-nums"
-                                    >
-                                        <span
-                                            v-if="w.lastRun"
-                                            class="size-1.5 shrink-0 rounded-full"
-                                            :class="runTone[w.lastRun.state]"
-                                        />
-                                        <template v-if="!w.enabled">{{
-                                            $t('Off')
-                                        }}</template>
-                                        <template v-else>{{
-                                            ago(w.lastRunAt)
-                                        }}</template>
-                                        <span
-                                            v-if="w.failed7d"
-                                            class="text-(--ds-red)"
-                                            >{{
-                                                $t('· :failed7d failed', {
-                                                    failed7d: String(
-                                                        w.failed7d,
-                                                    ),
-                                                })
-                                            }}</span
-                                        >
-                                    </span>
-                                </span>
-                                <component
-                                    :is="groupOf(w).icon"
-                                    class="size-7 shrink-0"
-                                    :class="groupOf(w).tone"
-                                    :stroke-width="1.6"
-                                    aria-hidden="true"
-                                />
-                            </span>
-                        </Link>
-                    </li>
-                </ul>
-            </div>
-        </PlanLock>
-
-        <Dialog v-model:open="picking">
-            <DialogContent
-                class="workspace-panel ds-modal flex max-h-[min(86vh,760px)] flex-col gap-0 overflow-hidden p-0 font-ui text-foreground sm:max-w-2xl"
-            >
-                <div class="flex shrink-0 flex-col gap-1 px-5 pt-5 pb-3">
-                    <DialogTitle class="text-base/6 font-semibold">{{
-                        $t('New workflow')
-                    }}</DialogTitle>
-                    <DialogDescription
-                        class="text-[13px]/5 text-(--ds-text-muted)"
-                    >
-                        {{
-                            ' ' +
-                            $t(
-                                'Start from one of these and change anything you like. It stays off until you turn it on.',
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </div>
-                <div class="flex min-h-0 flex-1 flex-col px-5 pb-5">
-                    <TemplatePicker
-                        :templates="templates"
-                        :creating="creating"
-                        compact
-                        @pick="create"
-                    />
-                </div>
-            </DialogContent>
-        </Dialog>
-    </WorkspacePage>
+        </DialogContent>
+    </Dialog>
 </template>

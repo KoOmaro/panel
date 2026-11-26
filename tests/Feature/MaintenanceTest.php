@@ -31,7 +31,7 @@ function maintenanceMachine(): array
 
 function on(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('maintenance holds alerts and workflows, and what is still wrong afterwards is alerted', function () {
@@ -153,7 +153,7 @@ test('search finds machines, services, monitors and workflows in the workspace o
     $this->actingAs($workspace->owner)->getJson(on($workspace, '/search?q=umami'))
         ->assertOk()
         ->assertJsonPath('services.0.label', 'Umami')
-        ->assertJsonPath('services.0.url', "/machines/{$machine->id}/services/docker:abc")
+        ->assertJsonPath('services.0.url', $workspace->url("/machines/{$machine->id}/services/docker:abc"))
         ->assertJsonPath('monitors.0.label', 'Umami site')
         ->assertJsonPath('workflows.0.label', 'Redeploy umami');
 

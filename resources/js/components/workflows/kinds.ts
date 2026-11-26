@@ -276,9 +276,9 @@ export const STEP_GROUPS: { label: string; kinds: StepKind[] }[] = [
 ];
 
 export const PORT_LABELS: Partial<Record<PortId, string>> = {
-    true: 'TRUE',
-    false: 'FALSE',
-    failed: 'FAILED',
+    true: trans('yes'),
+    false: trans('no'),
+    failed: trans('failed'),
 };
 
 export type EventId =
@@ -420,6 +420,9 @@ export type MachineOption = {
         name: string;
         managed: boolean;
         container: boolean;
+        label?: string | null;
+        image?: string | null;
+        icon?: string | null;
     }[];
     deploys: string[];
 };
@@ -432,7 +435,7 @@ export type ProjectOption = {
 
 export type Options = {
     machines: MachineOption[];
-    monitors: { id: number; name: string }[];
+    monitors: { id: number; name: string; target?: string | null }[];
     projects?: ProjectOption[];
 };
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Controllers\GitHubAppSetupController;
 use App\Models\Workspace;
 use App\Support\Admin\Impersonation;
 use App\Support\Brand;
@@ -11,6 +12,7 @@ use App\Support\Extensions\MarketingSite;
 use App\Support\GitHub\GitHubApp;
 use App\Support\SetupGuide;
 use App\Support\Theme\DashboardTheme;
+use App\Support\Workspaces\Dashboard;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Route as Router;
@@ -55,6 +57,17 @@ class HandleInertiaRequests extends Middleware
     /** @return array<string, mixed> */
     public function share(Request $request): array
     {
+        $setup = null;
+        $setupGuide = function () use ($request, &$setup): ?array {
+            $workspace = $request->route('workspace');
+
+            if (! $request->routeIs('workspace.*') || ! $workspace instanceof Workspace || $request->user() === null) {
+                return null;
+            }
+
+            return $setup ??= SetupGuide::sidebar($workspace, $request->user());
+        };
+
         $shared = [
             ...parent::share($request),
             'name' => config('app.name'),
@@ -62,6 +75,7 @@ class HandleInertiaRequests extends Middleware
                 ? (bool) $request->session()->pull('celebrate_trial', false)
                 : false,
             'appUrl' => rtrim((string) config('app.url'), '/'),
+            'dashboardUrl' => Dashboard::root(),
             'siteOrigin' => $this->siteOrigin($request),
             'openSource' => (bool) config('serveros.open_source'),
             'statusUrl' => filled(config('serveros.status_page')) ? 'https://status.'.config('app.domain') : null,
@@ -104,6 +118,8 @@ class HandleInertiaRequests extends Middleware
 
                 return $workspace === null ? null : app(Extensions::class)->upgradeFor($workspace);
             },
+            'workspaceBase' => fn () => ($workspace = self::workspacePage($request)) === null ? null
+                : ($request->attributes->has('custom_domain') ? '' : '/'.$workspace->slug),
             'workspaceAccess' => function () use ($request): ?array {
                 $workspace = $request->route('workspace');
                 $role = $workspace instanceof Workspace && $request->user()
@@ -123,16 +139,13 @@ class HandleInertiaRequests extends Middleware
 
                 return $workspace === null || $request->user() === null ? null : app(DashboardTheme::class)->shared($workspace, $request->user(), $request);
             },
-            'setupGuide' => function () use ($request): ?array {
-                $workspace = $request->route('workspace');
-
-                return $request->routeIs('workspace.*') && $workspace instanceof Workspace && $request->user() !== null
-                    ? SetupGuide::for($workspace, $request->user())
-                    : null;
-            },
+            'setupGuide' => fn () => $setupGuide()['guide'] ?? null,
+            'setupStepsLeft' => fn () => $setupGuide()['left'] ?? null,
             'locale' => app()->getLocale(),
             'locales' => config('app.locales'),
             'githubApp' => GitHubApp::enabled(),
+            'githubAppSetup' => fn () => $request->routeIs('workspace.*') && ($workspace = $request->route('workspace')) instanceof Workspace
+                && GitHubAppSetupController::canManage($request->user(), $workspace),
             'agentsPreview' => (bool) config('serveros.agents'),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'staff' => fn () => [
@@ -162,7 +175,7 @@ class HandleInertiaRequests extends Middleware
     {
         $route = $request->route();
 
-        if (! $route instanceof Route || ! str_starts_with((string) $route->getDomain(), '{workspace}.')) {
+        if (! $route instanceof Route || ! Dashboard::isWorkspaceRoute($route)) {
             return null;
         }
 

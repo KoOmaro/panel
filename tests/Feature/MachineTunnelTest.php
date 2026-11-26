@@ -37,7 +37,7 @@ function tunnelMachine(string $daemon = '0.1.1-pre.37'): array
     $machine = Machine::factory()->for($workspace)->create(['name' => 'web-1', 'ip_address' => '203.0.113.7']);
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), 'daemon_version' => $daemon])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host()."/machines/{$machine->id}"];
+    return [$workspace, $machine, $workspace->url()."/machines/{$machine->id}"];
 }
 
 /** @return list<array<string, mixed>> */
@@ -208,5 +208,5 @@ test('the installer’s address step checks the tunnel and the gateway’s own n
     config()->set('daemon.gateway_host', 'panel.example.com:8443');
     $result = $check(['panel.example.com' => ['104.21.10.20']])->check('panel.example.com', Request::create('https://panel.example.com/install'));
     expect($result['status'])->toBe('fail')
-        ->and(collect($result['lines'])->pluck('text')->implode(' '))->toContain('Advanced Certificate Manager')->toContain('SERVEROS_GATEWAY_HOST');
+        ->and(collect($result['lines'])->pluck('text')->implode(' '))->toContain('SERVEROS_GATEWAY_HOST')->not->toContain('*.panel.example.com');
 });

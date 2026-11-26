@@ -105,7 +105,7 @@ test('once the month’s calls are used up, tools are refused with where to get 
     $result = mcpCall($workspace, $key, 'get_workspace');
     expect($result['error'])->toBeTrue()
         ->and($result['data']['error'])->toContain('used all 500 of its AI tool calls')
-        ->and($result['data']['error'])->toContain('in Billing: https://'.$workspace->host().'/settings/general');
+        ->and($result['data']['error'])->toContain('in Billing: '.$workspace->url('/settings/general'));
     expect(McpUsage::used($workspace))->toBe(500);
 
     mcpRequest($workspace, $key, 'tools/list')->assertOk()->assertJsonStructure(['result' => ['tools']]);

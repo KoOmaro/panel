@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useForm } from '@inertiajs/vue3';
+import { useForm, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
@@ -13,9 +13,16 @@ import { Input } from '@/components/ui/input';
 import AppButton from '@/components/workspace/AppButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 const props = defineProps<{ machineId: number; machineName: string }>();
 const open = defineModel<boolean>('open', { default: false });
+const page = usePage<{ workspace: { slug: string } }>();
+
+function machineArgs() {
+    return { workspace: page.props.workspace.slug, machine: props.machineId };
+}
 
 const durations = [
     [30, '30 min'],
@@ -68,7 +75,7 @@ async function loadQuiet(): Promise<void> {
     quiet.value = null;
     try {
         const response = await fetch(
-            `/machines/${props.machineId}/maintenance/quiet-time`,
+            onWorkspace(machinesRoutes.maintenance.suggest(machineArgs())).url,
             { headers: { Accept: 'application/json' } },
         );
         if (response.ok)
@@ -131,10 +138,13 @@ function submit(): void {
             minutes: data.minutes,
             reason: data.reason,
             public: data.public,
-        })).post(`/machines/${props.machineId}/maintenance`, {
-            preserveScroll: true,
-            onSuccess: () => (open.value = false),
-        });
+        })).post(
+            onWorkspace(machinesRoutes.maintenance.start(machineArgs())).url,
+            {
+                preserveScroll: true,
+                onSuccess: () => (open.value = false),
+            },
+        );
 
         return;
     }
@@ -142,10 +152,13 @@ function submit(): void {
     form.transform((data) => ({
         ...data,
         starts_at: data.starts_at ? new Date(data.starts_at).toISOString() : '',
-    })).post(`/machines/${props.machineId}/maintenance/scheduled`, {
-        preserveScroll: true,
-        onSuccess: () => (open.value = false),
-    });
+    })).post(
+        onWorkspace(machinesRoutes.maintenance.schedule(machineArgs())).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (open.value = false),
+        },
+    );
 }
 </script>
 

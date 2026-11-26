@@ -68,12 +68,13 @@ final class WorkspaceAudience extends OAuthAudience
             pending: [
                 'scopes' => $requested,
                 'workspace' => $resource !== null ? $workspaces->first()->id : null,
+                'resource' => is_string($resource) ? $resource : null,
             ],
             props: [
                 'workspaces' => $workspaces->map(fn (Workspace $w) => [
                     'id' => $w->id,
                     'name' => $w->name,
-                    'host' => $w->host(),
+                    'host' => $w->address(),
                     'role' => $w->roleOf($user)?->label(),
                     'canChange' => $w->allows($user, WorkspacePermission::ManageMachines),
                 ])->values(),
@@ -115,7 +116,7 @@ final class WorkspaceAudience extends OAuthAudience
             }
         }
 
-        return new OAuthGrant($scopes, OAuth::resource($workspace), $workspace);
+        return new OAuthGrant($scopes, OAuth::resourceFor($workspace, $pending['resource'] ?? null), $workspace);
     }
 
     private static function signedInAsRequired(Workspace $workspace, User $user): bool

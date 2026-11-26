@@ -2,6 +2,7 @@ import { trans } from 'laravel-vue-i18n';
 import { usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import type { ComputedRef } from 'vue';
+import { workspacePath } from '@/lib/workspaceRoute';
 import type { Workspace } from '@/types';
 
 export type SubscriptionNotice = {
@@ -187,7 +188,7 @@ export function useSubscriptionNotice(): ComputedRef<SubscriptionNotice | null> 
                 tone: 'urgent',
                 dismissible: true,
                 promo: null,
-                href: '/cloud?new',
+                href: workspacePath('/cloud?new'),
                 dismiss: () => hideCredit(workspace.id),
             };
         }

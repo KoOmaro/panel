@@ -46,7 +46,7 @@ function tplWorkspace(): array
 
 function tplUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/workflows'.$path;
+    return $workspace->url().'/workflows'.$path;
 }
 
 /**

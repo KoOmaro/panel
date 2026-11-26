@@ -30,8 +30,11 @@ import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import SettingsRow from '@/components/workspace/SettingsRow.vue';
 import Tile from '@/components/workspace/Tile.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import settingsRoutes from '@/routes/workspace/settings';
 
 const props = defineProps<{
+    workspace: { slug: string };
     mustVerifyEmail: boolean;
     status?: string;
     notifications: {
@@ -69,10 +72,13 @@ const notify = useForm({
 });
 
 function saveNotifications(): void {
-    notify.put('/settings/notifications', {
-        preserveScroll: true,
-        onSuccess: () => toast.success(trans('Saved')),
-    });
+    notify.put(
+        onWorkspace(settingsRoutes.notifications(props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => toast.success(trans('Saved')),
+        },
+    );
 }
 
 const page = usePage();

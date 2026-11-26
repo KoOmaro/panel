@@ -67,7 +67,7 @@ class MonitorAlerts
         }
 
         $workspace = $monitor->workspace;
-        $this->notify($workspace, $event, $subject, $lines, 'https://'.$workspace->host().'/monitors/'.$monitor->id, $bad, 'Open the monitor', [
+        $this->notify($workspace, $event, $subject, $lines, $workspace->url('/monitors/'.$monitor->id), $bad, 'Open the monitor', [
             'monitor' => [
                 'id' => $monitor->id,
                 'name' => $monitor->name,

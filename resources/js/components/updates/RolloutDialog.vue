@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref, watch } from 'vue';
 import {
@@ -15,6 +16,8 @@ import type { PickerOption } from '@/components/workspace/PickerMenu.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import updatesRoutes from '@/routes/workspace/updates';
 import { sendJson } from './updates';
 import type {
     MachineGroupChoice,
@@ -31,6 +34,8 @@ const props = defineProps<{
 }>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ created: [rollout: Rollout] }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
 
 type Segment<V> = { value: V; label: string };
 
@@ -223,7 +228,8 @@ async function submit(): Promise<void> {
     try {
         const { rollout } = await sendJson<{ rollout: Rollout }>(
             'POST',
-            '/updates/rollouts',
+            onWorkspace(updatesRoutes.rollouts.store(page.props.workspace.slug))
+                .url,
             {
                 packages: props.packages.map((p) => ({
                     name: p.name,

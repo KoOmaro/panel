@@ -224,7 +224,7 @@ class ServiceWatcher
      */
     private function alert(Machine $machine, string $key, string $name, string $event, string $subject, array $lines, bool $bad): void
     {
-        $url = 'https://'.$machine->workspace->host().'/machines/'.$machine->id.'/services/'.$key;
+        $url = $machine->workspace->url('/machines/'.$machine->id.'/services/'.$key);
         $this->alerts->notify($machine->workspace, $event, $subject, $lines, $url, $bad, 'Open the service', [
             'machine' => ['id' => $machine->id, 'name' => $machine->name],
             'service' => ['key' => $key, 'name' => $name],

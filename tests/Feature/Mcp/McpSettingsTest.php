@@ -14,7 +14,7 @@ beforeEach(fn () => config()->set('mcp.groups', [WorkspaceTools::class]));
 
 function mcpSettings(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/settings/mcp'.$path;
+    return $workspace->url().'/settings/mcp'.$path;
 }
 
 test('keys need the experimental terms accepted first, and are shown once', function () {
@@ -37,7 +37,7 @@ test('keys need the experimental terms accepted first, and are shown once', func
     $this->actingAs($owner)->get(mcpSettings($workspace))
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/settings/Mcp')
-            ->where('mcpUrl', 'https://'.$workspace->host().'/mcp')
+            ->where('mcpUrl', $workspace->url().'/mcp')
             ->where('connections.0.name', 'Laptop')
             ->where('connections.0.prefix', substr($secret, 0, 12))
             ->missing('connections.0.secret'));
@@ -111,7 +111,7 @@ test('a key that can run commands needs a fresh two-factor code, for MCP and the
     app()->instance(TwoFactorAuthenticationProvider::class, $provider);
 
     foreach (['/settings/mcp/keys', '/settings/api/keys'] as $path) {
-        $url = 'https://'.$workspace->host().$path;
+        $url = $workspace->url().$path;
         $this->actingAs($owner)->postJson($url, ['name' => 'Shell', 'access' => 'commands'])->assertStatus(422)->assertJsonValidationErrors('code');
         $this->actingAs($owner)->postJson($url, ['name' => 'Shell', 'access' => 'commands', 'code' => '000000'])->assertStatus(422)->assertJsonValidationErrors('code');
         $this->actingAs($owner)->postJson($url, ['name' => 'Laptop', 'access' => 'write'])->assertCreated();
@@ -129,7 +129,7 @@ test('wrong two-factor codes share one limit across the console and the key form
     $provider = Mockery::mock(TwoFactorAuthenticationProvider::class);
     $provider->shouldReceive('verify')->andReturnUsing(fn ($secret, $code) => $code === '123456');
     app()->instance(TwoFactorAuthenticationProvider::class, $provider);
-    $host = 'https://'.$workspace->host();
+    $host = $workspace->url();
 
     foreach (['/settings/mcp/keys', '/settings/api/keys', '/settings/mcp/keys', '/settings/api/keys', '/settings/mcp/keys'] as $path) {
         $this->actingAs($owner)->postJson($host.$path, ['name' => 'Shell', 'access' => 'commands', 'code' => '000000'])->assertJsonValidationErrors('code');

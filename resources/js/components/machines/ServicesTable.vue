@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { Check, ChevronDown, Search } from '@lucide/vue';
 import {
     SolarEye as Eye,
@@ -31,6 +31,9 @@ import {
 import GroupDialog from '@/components/workspace/GroupDialog.vue';
 import ImageUploadField from '@/components/workspace/ImageUploadField.vue';
 import type { GroupDialogItem } from '@/components/workspace/GroupDialog.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
+import serviceGroupsRoutes from '@/routes/workspace/service-groups';
 
 export type { Service, ServiceStat } from '@/components/machines/serviceFormat';
 
@@ -52,6 +55,7 @@ const props = withDefaults(
     }>(),
     { groups: () => [], canManage: false, building: () => [] },
 );
+const page = usePage<{ workspace: { slug: string } }>();
 
 const emit = defineEmits<{ 'open-log': [jobId: string] }>();
 
@@ -95,7 +99,12 @@ function setHidden(hidden: boolean): void {
     if (keys.length === 0) return;
 
     router.put(
-        `/machines/${props.machineId}/hidden-services`,
+        onWorkspace(
+            machinesRoutes.services.hide({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+            }),
+        ).url,
         { services: keys, hidden },
         {
             preserveScroll: true,
@@ -388,7 +397,17 @@ function startEdit(group: ServiceGroup): void {
     dialogOpen.value = true;
 }
 
-const base = computed(() => `/machines/${props.machineId}/service-groups`);
+function groupArgs(group: number) {
+    return {
+        workspace: page.props.workspace.slug,
+        machine: props.machineId,
+        group,
+    };
+}
+
+function groupIconUrl(group: number): string {
+    return onWorkspace(serviceGroupsRoutes.icon.update(groupArgs(group))).url;
+}
 
 function save({ name, ids }: { name: string; ids: string[] }): void {
     const group = editing.value;
@@ -413,18 +432,34 @@ function save({ name, ids }: { name: string; ids: string[] }): void {
     };
 
     if (group) {
-        router.put(`${base.value}/${group.id}`, payload, options);
+        router.put(
+            onWorkspace(serviceGroupsRoutes.update(groupArgs(group.id))).url,
+            payload,
+            options,
+        );
     } else {
-        router.post(base.value, payload, options);
+        router.post(
+            onWorkspace(
+                serviceGroupsRoutes.store({
+                    workspace: page.props.workspace.slug,
+                    machine: props.machineId,
+                }),
+            ).url,
+            payload,
+            options,
+        );
     }
 }
 
 function remove(group: ServiceGroup): void {
-    router.delete(`${base.value}/${group.id}`, {
-        preserveScroll: true,
-        preserveState: true,
-        onSuccess: () => (dialogOpen.value = false),
-    });
+    router.delete(
+        onWorkspace(serviceGroupsRoutes.destroy(groupArgs(group.id))).url,
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: () => (dialogOpen.value = false),
+        },
+    );
 }
 
 function keepStack(entry: Entry): void {
@@ -732,8 +767,8 @@ defineExpose({ startNew });
                     :label="$t('Icon')"
                     :image-url="editingNow.iconUrl ?? null"
                     :fallback="editingNow.name.charAt(0).toUpperCase()"
-                    :upload-url="`${base}/${editingNow.id}/icon`"
-                    :remove-url="`${base}/${editingNow.id}/icon`"
+                    :upload-url="groupIconUrl(editingNow.id)"
+                    :remove-url="groupIconUrl(editingNow.id)"
                 />
             </template>
         </GroupDialog>

@@ -13,6 +13,7 @@ use App\Support\Auth\GoogleTeamAccess;
 use App\Support\Domains\CustomDomains;
 use App\Support\Extensions\Extensions;
 use App\Support\Extensions\SignInHooks;
+use App\Support\Workspaces\Dashboard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -67,7 +68,7 @@ function domainWorkspace(Plan $plan = Plan::Business, string $slug = 'acme'): ar
 {
     $workspace = Workspace::factory()->onPlan($plan)->create(['slug' => $slug]);
 
-    return [$workspace, 'https://'.$workspace->subdomain().'/settings/domains'];
+    return [$workspace, Dashboard::url($workspace->slug, '/settings/domains')];
 }
 
 function liveDomain(Workspace $workspace, string $hostname = 'ops.acme.test', string $purpose = WorkspaceDomain::DASHBOARD): WorkspaceDomain
@@ -119,7 +120,8 @@ test('a live domain serves the dashboard, and links point at it, except MCP', fu
         ->and($domain->verification)->toBeNull()
         ->and($workspace->host())->toBe('ops.acme.test')
         ->and(route('workspace.machines.index', ['workspace' => 'acme']))->toBe('https://ops.acme.test/machines')
-        ->and(route('mcp', ['workspace' => 'acme']))->toStartWith('https://acme.'.config('app.domain'))
+        ->and(route('workspace.home', ['workspace' => 'acme']))->toBe('https://ops.acme.test')
+        ->and(route('mcp', ['workspace' => 'acme']))->toBe(Dashboard::url('acme', '/mcp'))
         ->and(Activity::query()->pluck('action')->all())->toContain('domain.add', 'domain.active');
 
     $this->actingAs($workspace->owner)->get('https://ops.acme.test/machines')
@@ -132,10 +134,36 @@ test('a live domain serves the dashboard, and links point at it, except MCP', fu
     $this->get('https://elsewhere.acme.test/machines')->assertNotFound();
 });
 
-test('the old subdomain hands people over to the domain, signed in', function () {
+test('a domain serves its own workspace at its root, and no other workspace', function () {
     [$workspace] = domainWorkspace();
     liveDomain($workspace);
-    $sub = 'https://'.$workspace->subdomain();
+    [$other] = domainWorkspace(Plan::Business, 'other');
+    $member = User::factory()->create();
+    $workspace->members()->attach($member, ['role' => 'member']);
+    $other->members()->attach($member, ['role' => 'member']);
+
+    $this->actingAs($member)->get('https://ops.acme.test/')->assertOk()->assertInertia(fn (Assert $page) => $page
+        ->component('workspace/Home')
+        ->where('workspace.slug', 'acme')
+        ->where('workspaceBase', '')
+        ->url('/'));
+    $this->actingAs($member)->get('https://ops.acme.test/projects')->assertOk()->assertInertia(fn (Assert $page) => $page->component('workspace/Projects')->url('/projects'));
+    $this->actingAs($member)->post('https://ops.acme.test/projects', ['name' => 'Shop'])->assertRedirect();
+    expect($workspace->projects()->where('name', 'Shop')->exists())->toBeTrue();
+    $this->actingAs($member)->get('https://ops.acme.test/acme/projects')->assertOk();
+
+    $this->actingAs($member)->get('https://ops.acme.test/other')->assertNotFound();
+    $this->actingAs($member)->get('https://ops.acme.test/other/machines')->assertNotFound();
+    $this->get('https://ops.acme.test/nope')->assertNotFound();
+    $this->actingAs($member)->get('https://ops.acme.test/login')->assertRedirect();
+});
+
+test('the dashboard host hands people over to the domain, signed in', function () {
+    [$workspace] = domainWorkspace();
+    liveDomain($workspace);
+    $sub = Dashboard::url($workspace->slug);
+
+    $this->get('https://acme.'.config('app.domain').'/machines')->assertStatus(301)->assertRedirect("{$sub}/machines");
 
     $this->actingAs($workspace->owner)->get("{$sub}/machines")->assertRedirect("{$sub}/domains/go?to=%2Fmachines");
     $go = $this->actingAs($workspace->owner)->get("{$sub}/domains/go?to=/machines")->assertRedirect()->headers->get('Location');
@@ -153,7 +181,7 @@ test('the old subdomain hands people over to the domain, signed in', function ()
 test('a hand-off works only for the browser it was made for', function () {
     [$workspace] = domainWorkspace();
     liveDomain($workspace);
-    $sub = 'https://'.$workspace->subdomain();
+    $sub = Dashboard::url($workspace->slug);
     $go = fn () => $this->actingAs($workspace->owner)->withServerVariables(['REMOTE_ADDR' => '203.0.113.7'])
         ->withHeader('User-Agent', 'Owner browser')->get("{$sub}/domains/go?to=/machines")->headers->get('Location');
 
@@ -191,7 +219,7 @@ test('the hand-off carries what a package adds to it, and gives it back there', 
     liveDomain($workspace);
     $member = User::factory()->create(['email' => 'ada@acme.com']);
     $workspace->members()->attach($member, ['role' => 'member']);
-    $sub = 'https://'.$workspace->subdomain();
+    $sub = Dashboard::url($workspace->slug);
     app(Extensions::class)->addSignInHooks(new class extends SignInHooks
     {
         public function handoff(Request $request): array
@@ -253,11 +281,12 @@ test('disconnecting removes the hostname from Cloudflare, and the subdomain is h
     $domain = liveDomain($workspace);
 
     $this->actingAs($workspace->owner)->delete('https://ops.acme.test/settings/domains/'.$domain->id)
-        ->assertRedirect('https://acme.'.config('app.domain').'/settings/domains');
+        ->assertRedirect(Dashboard::url('acme', '/settings/domains'));
 
     Http::assertSent(fn ($request) => $request->method() === 'DELETE' && str_ends_with($request->url(), '/custom_hostnames/'.$domain->cloudflare_id));
     expect(WorkspaceDomain::query()->count())->toBe(0)
-        ->and($workspace->host())->toBe('acme.'.config('app.domain'));
+        ->and($workspace->host())->toBe(Dashboard::host())
+        ->and($workspace->url())->toBe(Dashboard::url('acme'));
 });
 
 test('status.{our domain} serves our own status page, when one is set', function () {
@@ -297,7 +326,7 @@ test('a private status page on its own hostname says so there, with a way to sig
         ->where('status.hostname', 'status.acme.test')
         ->where('statusPages.0.fleet', true)
         ->where('statusPages.0.public', false)
-        ->where('statusPages.0.settingsUrl', 'https://acme.'.config('app.domain').'/settings/status-page'));
+        ->where('statusPages.0.settingsUrl', Dashboard::url('acme', '/settings/status-page')));
 });
 
 function domainStatusPage(Workspace $workspace, string $slug): StatusPage
@@ -317,7 +346,7 @@ test('a session handed off to a domain works only there', function () {
     $workspace->members()->attach($member, ['role' => 'member']);
     $other->members()->attach($member, ['role' => 'admin']);
 
-    $go = $this->actingAs($member)->get('https://'.$workspace->subdomain().'/domains/go?to=/machines')->headers->get('Location');
+    $go = $this->actingAs($member)->get(Dashboard::url($workspace->slug, '/domains/go?to=/machines'))->headers->get('Location');
     auth()->logout();
     session()->flush();
 
@@ -325,7 +354,7 @@ test('a session handed off to a domain works only there', function () {
     $this->get('https://ops.acme.test/machines')->assertOk();
     $this->assertAuthenticatedAs($member);
 
-    $this->get('https://'.$other->subdomain().'/machines')->assertRedirect(rtrim(config('app.url'), '/').'/login');
+    $this->get($other->url().'/machines')->assertRedirect(rtrim(config('app.url'), '/').'/login');
     $this->assertGuest();
     expect(session(BindCustomDomainSession::KEY))->toBeNull();
 });
@@ -336,7 +365,7 @@ test('account settings on a domain open on ours, and the dashboard stays there',
     $user = $workspace->owner;
     $email = $user->email;
     $main = rtrim(config('app.url'), '/');
-    $sub = 'https://'.$workspace->subdomain();
+    $sub = Dashboard::url($workspace->slug);
 
     $this->actingAs($user)->get('https://ops.acme.test/settings/security')->assertRedirect("{$sub}/settings/security");
     $this->actingAs($user)->get('https://ops.acme.test/settings/api')->assertRedirect("{$sub}/settings/api");
@@ -358,13 +387,13 @@ test('account settings on a domain open on ours, and the dashboard stays there',
 test('a package’s account routes on a domain open on ours too', function () {
     [$workspace] = domainWorkspace();
     liveDomain($workspace);
-    Route::middleware('web')->get('/extension-account', fn () => 'here')->name('extension.account');
+    Route::middleware('web')->get('/extension/account', fn () => 'here')->name('extension.account');
     $main = rtrim(config('app.url'), '/');
 
-    $this->actingAs($workspace->owner)->get('https://ops.acme.test/extension-account')->assertOk()->assertSee('here');
+    $this->actingAs($workspace->owner)->get('https://ops.acme.test/extension/account')->assertOk()->assertSee('here');
 
     app(Extensions::class)->addAccountRoutes(['extension.account']);
-    $this->actingAs($workspace->owner)->get('https://ops.acme.test/extension-account')->assertRedirect("{$main}/extension-account");
+    $this->actingAs($workspace->owner)->get('https://ops.acme.test/extension/account')->assertRedirect("{$main}/extension/account");
 });
 
 test('signing in on a domain doesn’t remember the browser', function () {

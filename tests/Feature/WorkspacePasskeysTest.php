@@ -10,8 +10,8 @@ test('passkeys work on a workspace address, not on other domains', function () {
     config()->set('passkeys.allowed_origins', ['https://serveros.test']);
     $pass = fn () => new Response;
 
-    (new AllowWorkspacePasskeys)->handle(Request::create('https://acme.serveros.test/settings/security'), $pass);
-    expect(config('passkeys.allowed_origins'))->toBe(['https://serveros.test', 'https://acme.serveros.test']);
+    (new AllowWorkspacePasskeys)->handle(Request::create('https://cloud.serveros.test/acme/settings/security'), $pass);
+    expect(config('passkeys.allowed_origins'))->toBe(['https://serveros.test', 'https://cloud.serveros.test']);
 
     config()->set('passkeys.allowed_origins', ['https://serveros.test']);
     (new AllowWorkspacePasskeys)->handle(Request::create('https://serveros.test.evil.com/'), $pass);
@@ -22,7 +22,7 @@ test('passkeys work on a workspace address, not on other domains', function () {
 test('a workspace page allows its own address for passkeys', function () {
     $workspace = Workspace::factory()->create();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/')->assertOk();
+    $this->actingAs($workspace->owner)->get($workspace->url())->assertOk();
 
     expect(config('passkeys.allowed_origins'))->toContain('https://'.$workspace->host());
 });

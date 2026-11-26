@@ -215,6 +215,6 @@ final class McpContext
 
     public function url(string $path = '/'): string
     {
-        return rtrim($this->workspace->url(), '/').'/'.ltrim($path, '/');
+        return $this->workspace->url($path);
     }
 }

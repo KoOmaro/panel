@@ -109,7 +109,7 @@ test('the old workspace can’t act on a machine that moved through anything lef
     $web->forceFill(['workspace_id' => Workspace::factory()->create()->id])->save();
     $before = DaemonJob::query()->count();
 
-    $this->actingAs($member)->patch('https://'.$workspace->host()."/projects/{$project->uid}/nodes/{$app->id}/settings", ['set' => ['X' => 'y']])->assertNotFound();
+    $this->actingAs($member)->patch($workspace->url()."/projects/{$project->uid}/nodes/{$app->id}/settings", ['set' => ['X' => 'y']])->assertNotFound();
     expect(fn () => app(FixRunner::class)->approve($fix->load('machine'), $member))->toThrow(RuntimeException::class, 'moved to another workspace');
     app(PackageRollouts::class)->advance($rollout);
     app(ScheduledMaintenance::class)->tick();

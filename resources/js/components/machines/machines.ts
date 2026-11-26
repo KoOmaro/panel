@@ -18,6 +18,7 @@ export type Machine = {
     cpu: number;
     groupId?: number | null;
     lastBackup: string;
+    lastBackupAt?: string | null;
     installing?: boolean;
     setup?: 'connecting' | 'discovering' | 'securing' | null;
     setupFindings?: number | null;

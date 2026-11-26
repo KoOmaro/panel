@@ -22,6 +22,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const props = defineProps<{
     machineId: number;
@@ -124,16 +125,19 @@ async function change(
     busy.value = key;
 
     try {
-        const response = await fetch(`/machines/${props.machineId}/firewall`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
+        const response = await fetch(
+            workspacePath(`/machines/${props.machineId}/firewall`),
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+                body: JSON.stringify({ action, port, proto }),
             },
-            body: JSON.stringify({ action, port, proto }),
-        });
+        );
         const body = await response.json().catch(() => ({}));
         if (response.status !== 202) {
             throw new Error(describe(response.status, body));
@@ -157,7 +161,9 @@ function follow(
         const check = async () => {
             try {
                 const response = await fetch(
-                    `/machines/${props.machineId}/firewall/${jobId}`,
+                    workspacePath(
+                        `/machines/${props.machineId}/firewall/${jobId}`,
+                    ),
                     {
                         credentials: 'same-origin',
                         headers: { Accept: 'application/json' },

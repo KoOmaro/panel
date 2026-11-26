@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { themeColour } from '@/lib/themeColour';
+import { workspacePath } from '@/lib/workspaceRoute';
 import { trans } from 'laravel-vue-i18n';
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { Ellipsis } from '@lucide/vue';
@@ -157,7 +158,7 @@ const removing = ref(false);
 function checkNow(): void {
     busy.value = 'check';
     router.post(
-        `/monitors/${props.monitor.id}/check`,
+        workspacePath(`/monitors/${props.monitor.id}/check`),
         {},
         { preserveScroll: true, onFinish: () => (busy.value = null) },
     );
@@ -165,7 +166,7 @@ function checkNow(): void {
 
 function mute(minutes: number): void {
     router.post(
-        `/monitors/${props.monitor.id}/mute`,
+        workspacePath(`/monitors/${props.monitor.id}/mute`),
         { minutes },
         { preserveScroll: true },
     );
@@ -174,19 +175,19 @@ function mute(minutes: number): void {
 function togglePause(): void {
     busy.value = 'pause';
     router.patch(
-        `/monitors/${props.monitor.id}/pause`,
+        workspacePath(`/monitors/${props.monitor.id}/pause`),
         { paused: !props.monitor.paused },
         { preserveScroll: true, onFinish: () => (busy.value = null) },
     );
 }
 
 function remove(): void {
-    router.delete(`/monitors/${props.monitor.id}`);
+    router.delete(workspacePath(`/monitors/${props.monitor.id}`));
 }
 
 function setRange(range: '24h' | '7d'): void {
     router.get(
-        `/monitors/${props.monitor.id}`,
+        workspacePath(`/monitors/${props.monitor.id}`),
         range === '24h' ? {} : { range },
         { only: ['chart', 'range'], preserveScroll: true, replace: true },
     );
@@ -261,7 +262,7 @@ const focusRing =
             <template v-if="machine">
                 {{ ' ' + $t('· on') }}
                 <a
-                    :href="`/machines/${machine.id}`"
+                    :href="workspacePath(`/machines/${machine.id}`)"
                     class="text-(--ds-text) hover:underline hover:underline-offset-4"
                     >{{ machine.name }}</a
                 >
@@ -271,7 +272,7 @@ const focusRing =
         <template v-if="canManage" #actions>
             <a
                 v-if="monitor.status === 'down' && agentsPreview"
-                :href="`/agents?from=monitor:${monitor.id}`"
+                :href="workspacePath(`/agents?from=monitor:${monitor.id}`)"
                 class="ds-raised-button cursor-pointer"
                 :class="focusRing"
             >
@@ -356,7 +357,7 @@ const focusRing =
             <MaintenanceBanner
                 v-if="monitor.mutedUntil"
                 :until="monitor.mutedUntil"
-                :end-url="`/monitors/${monitor.id}/mute`"
+                :end-url="workspacePath(`/monitors/${monitor.id}/mute`)"
                 :can-manage="canManage"
                 noun="Alerts muted"
             />
@@ -440,7 +441,7 @@ const focusRing =
                                     : `${certificate.days} days`
                             }}
                         </span>
-                        <span v-else class="text-xl/7 font-semibold">—</span>
+                        <span v-else class="text-xl/7 font-semibold">–</span>
                     </template>
                     <span v-else class="text-xl/7 font-semibold tabular-nums">
                         {{ ago(monitor.lastCheckedAt, now) }}

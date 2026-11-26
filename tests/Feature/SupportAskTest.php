@@ -25,7 +25,7 @@ function supportWorkspace(int $daysOld = 10): Workspace
 test('a self-hosted workspace’s admins are asked to donate or get a license after a week', function () {
     $workspace = supportWorkspace();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/')
         ->assertInertia(fn (Assert $page) => $page->where('supportAsk', [
             'donateUrl' => 'https://serveros.com/donate',
             'licenseUrl' => 'https://serveros.com/pricing',

@@ -3,9 +3,14 @@ import { Link, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import AppButton from '@/components/workspace/AppButton.vue';
 import { appButtonClasses } from '@/lib/appButton';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import type { WorkspaceTheme } from '@/lib/workspaceTheme';
+import themeRoutes from '@/routes/workspace/settings/theme';
 
-const page = usePage<{ workspaceTheme?: WorkspaceTheme | null }>();
+const page = usePage<{
+    workspaceTheme?: WorkspaceTheme | null;
+    workspace: { slug: string };
+}>();
 const editClasses = appButtonClasses('secondary', 'sm');
 
 const theme = computed(() => page.props.workspaceTheme ?? null);
@@ -29,6 +34,20 @@ function act(method: 'post' | 'delete', url: string): void {
         preserveState: true,
         onFinish: () => (busy.value = false),
     });
+}
+
+function discard(): void {
+    act(
+        'delete',
+        onWorkspace(themeRoutes.draft.destroy(page.props.workspace.slug)).url,
+    );
+}
+
+function publish(): void {
+    act(
+        'post',
+        onWorkspace(themeRoutes.publish(page.props.workspace.slug)).url,
+    );
 }
 
 function turnBackOn(): void {
@@ -55,7 +74,7 @@ function turnBackOn(): void {
                     size="sm"
                     variant="quiet"
                     :disabled="busy"
-                    @click="act('delete', '/settings/theme/draft')"
+                    @click="discard"
                 >
                     {{ $t('Discard') }}
                 </AppButton>
@@ -66,7 +85,7 @@ function turnBackOn(): void {
                     size="sm"
                     variant="primary"
                     :disabled="busy"
-                    @click="act('post', '/settings/theme/publish')"
+                    @click="publish"
                 >
                     {{ $t('Publish') }}
                 </AppButton>

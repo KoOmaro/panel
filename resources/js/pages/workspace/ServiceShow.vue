@@ -92,6 +92,12 @@ import { useZipUpload } from '@/composables/useZipUpload';
 import { fixed } from '@/lib/formatting';
 import { timeAgo } from '@/lib/timeAgo';
 import { edit as securityEdit } from '@/routes/security';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import appsRoutes from '@/routes/workspace/apps';
+import consoleRoutes from '@/routes/workspace/console';
+import fixesRoutes from '@/routes/workspace/fixes';
+import logsRoutes from '@/routes/workspace/logs';
+import machinesRoutes from '@/routes/workspace/machines';
 import type { Workspace, WorkspaceAccess } from '@/types';
 import {
     describe,
@@ -207,10 +213,34 @@ const canControl = computed(
         online.value &&
         managed.value,
 );
-const serviceUrl = computed(
-    () =>
-        `/machines/${props.machine.id}/services/${props.service.app ? `app:${props.service.app}` : props.service.key}`,
+const machineArgs = computed(() => ({
+    workspace: props.workspace.slug,
+    machine: props.machine.id!,
+}));
+const serviceArgs = computed(() => ({
+    ...machineArgs.value,
+    service: props.service.app ? `app:${props.service.app}` : props.service.key,
+}));
+const appArgs = computed(() => ({
+    ...machineArgs.value,
+    service: props.app?.service ?? '',
+}));
+const machineUrl = computed(
+    () => onWorkspace(machinesRoutes.show(machineArgs.value)).url,
 );
+const serviceUrl = computed(
+    () => onWorkspace(machinesRoutes.services.show(serviceArgs.value)).url,
+);
+const serviceIconUrl = computed(
+    () =>
+        onWorkspace(machinesRoutes.services.icon.update(serviceArgs.value)).url,
+);
+
+function jobUrl(job: string): string {
+    return onWorkspace(
+        machinesRoutes.show(machineArgs.value, { query: { job } }),
+    ).url;
+}
 const displayName = computed(
     () =>
         props.service.label ??
@@ -233,7 +263,7 @@ function openRename(): void {
 function saveLabel(label: string | null): void {
     renameBusy.value = true;
     router.put(
-        `${serviceUrl.value}/label`,
+        onWorkspace(machinesRoutes.services.rename(serviceArgs.value)).url,
         { label },
         {
             preserveScroll: true,
@@ -253,8 +283,7 @@ function saveLabel(label: string | null): void {
     );
 }
 const actionUrl = computed(
-    () =>
-        `/machines/${props.machine.id}/services/${props.service.app ? `app:${props.service.app}` : props.service.key}/actions`,
+    () => onWorkspace(machinesRoutes.services.action(serviceArgs.value)).url,
 );
 
 const tab = usePathTab(serviceUrl.value, [
@@ -566,7 +595,12 @@ watch(
             ) {
                 pending.value = null;
                 router.visit(
-                    `/machines/${props.machine.id}/services/${encodeURIComponent(repairedKey)}`,
+                    onWorkspace(
+                        machinesRoutes.services.show({
+                            ...machineArgs.value,
+                            service: encodeURIComponent(repairedKey),
+                        }),
+                    ).url,
                 );
                 return;
             }
@@ -630,7 +664,7 @@ async function rollback(): Promise<void> {
 
     try {
         const response = await fetch(
-            `/machines/${props.machine.id}/apps/${props.app.service}/rollback`,
+            onWorkspace(appsRoutes.rollback(appArgs.value)).url,
             {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -706,7 +740,7 @@ const databaseOptions = computed(() => {
 async function saveDatabase(value: string): Promise<void> {
     if (!props.app) return;
     const response = await fetch(
-        `/machines/${props.machine.id}/apps/${props.app.service}/settings`,
+        onWorkspace(appsRoutes.settings(appArgs.value)).url,
         {
             method: 'PUT',
             credentials: 'same-origin',
@@ -748,7 +782,7 @@ async function savePushSettings(body: {
     if (!props.app) return false;
     pushBranchError.value = null;
     const response = await fetch(
-        `/machines/${props.machine.id}/apps/${props.app.service}/settings`,
+        onWorkspace(appsRoutes.settings(appArgs.value)).url,
         {
             method: 'PUT',
             credentials: 'same-origin',
@@ -797,7 +831,7 @@ async function savePushBranch(): Promise<void> {
 async function saveSnapshotBefore(on: boolean): Promise<void> {
     if (!props.app) return;
     const response = await fetch(
-        `/machines/${props.machine.id}/apps/${props.app.service}/settings`,
+        onWorkspace(appsRoutes.settings(appArgs.value)).url,
         {
             method: 'PUT',
             credentials: 'same-origin',
@@ -846,7 +880,7 @@ function adopt() {
 function toggleHidden(): void {
     const hidden = !props.service.hidden;
     router.put(
-        `/machines/${props.machine.id}/hidden-services`,
+        onWorkspace(machinesRoutes.services.hide(machineArgs.value)).url,
         { services: [props.service.key], hidden },
         {
             preserveScroll: true,
@@ -868,7 +902,12 @@ function toggleHidden(): void {
 function toggleLogs(): void {
     const muted = !props.service.logsMuted;
     router.put(
-        `/machines/${props.machine.id}/services/${encodeURIComponent(props.service.key)}/logs`,
+        onWorkspace(
+            machinesRoutes.services.logs({
+                ...machineArgs.value,
+                service: encodeURIComponent(props.service.key),
+            }),
+        ).url,
         { muted },
         {
             preserveScroll: true,
@@ -959,7 +998,7 @@ const limitsOpen = ref(false);
 
 function variablesSaved(jobId: string | null): void {
     if (jobId && props.machine.id) {
-        router.visit(`/machines/${props.machine.id}?job=${jobId}`);
+        router.visit(jobUrl(jobId));
     }
 }
 
@@ -976,7 +1015,7 @@ async function shipVersion(file: File | undefined) {
     shipping.value = true;
     try {
         const json = await zip.post(
-            `/machines/${props.machine.id}/apps/${props.app.service}/versions`,
+            onWorkspace(appsRoutes.versions.store(appArgs.value)).url,
             JSON.stringify({
                 source: source.repo
                     .split('/')
@@ -986,7 +1025,7 @@ async function shipVersion(file: File | undefined) {
             'application/json',
         );
         toast.success(trans('Building the new version…'));
-        router.visit(`/machines/${props.machine.id}?job=${json.jobId}`);
+        router.visit(jobUrl(json.jobId));
     } catch (cause) {
         zip.error.value = errorMessage(
             cause,
@@ -1061,7 +1100,7 @@ watch([newDomain, moveWildcard], ([value]) => {
     moveDnsTimer = setTimeout(async () => {
         try {
             const check = (await zip.post(
-                `/machines/${props.machine.id}/domain-check`,
+                onWorkspace(machinesRoutes.domainCheck(machineArgs.value)).url,
                 JSON.stringify({ domain, wildcard: moveWildcard.value }),
                 'application/json',
             )) as DomainCheck;
@@ -1079,7 +1118,7 @@ async function moveDomain() {
 
     try {
         const json = await zip.post(
-            `/machines/${props.machine.id}/apps/${props.app.service}/domain`,
+            onWorkspace(appsRoutes.domain(appArgs.value)).url,
             JSON.stringify({
                 domain: newDomain.value,
                 wildcard: moveWildcard.value,
@@ -1093,7 +1132,7 @@ async function moveDomain() {
                 bareDomain: String(bareDomain(newDomain.value)),
             }),
         );
-        router.visit(`/machines/${props.machine.id}?job=${json.jobId}`);
+        router.visit(jobUrl(json.jobId));
     } catch (cause) {
         moveError.value = errorMessage(
             cause,
@@ -1108,7 +1147,25 @@ const logLines = ref(300);
 const logFilter = ref('');
 const historyUrl = computed(
     () =>
-        `/logs?${new URLSearchParams({ machine: String(props.machine.id), service: props.service.name })}`,
+        onWorkspace(
+            logsRoutes.index(props.workspace.slug, {
+                query: {
+                    machine: String(props.machine.id),
+                    service: props.service.name,
+                },
+            }),
+        ).url,
+);
+const fixesUrl = computed(
+    () =>
+        onWorkspace(
+            fixesRoutes.index(props.workspace.slug, {
+                query: {
+                    machine: props.machine.id,
+                    service: props.service.key,
+                },
+            }),
+        ).url,
 );
 
 const logsJob = computed(
@@ -1211,19 +1268,26 @@ onMounted(() => (clock = setInterval(() => (now.value = Date.now()), 1000)));
 onBeforeUnmount(() => clearInterval(clock));
 
 async function consoleRequest(path: 'unlock' | 'lock', body = {}) {
-    return fetch(`/console/${path}`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN':
-                document.querySelector<HTMLMetaElement>(
-                    'meta[name="csrf-token"]',
-                )?.content ?? '',
+    return fetch(
+        onWorkspace(
+            path === 'unlock'
+                ? consoleRoutes.unlock(props.workspace.slug)
+                : consoleRoutes.lock(props.workspace.slug),
+        ).url,
+        {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN':
+                    document.querySelector<HTMLMetaElement>(
+                        'meta[name="csrf-token"]',
+                    )?.content ?? '',
+            },
+            body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-    });
+    );
 }
 
 async function unlock(): Promise<void> {
@@ -1353,7 +1417,7 @@ async function remove(): Promise<void> {
                 displayName: String(displayName.value),
             }),
         );
-        router.visit(`/machines/${props.machine.id}`);
+        router.visit(machineUrl.value);
     } else {
         removeError.value = reasonIn(body) ?? trans('Couldn’t remove it.');
     }
@@ -1435,7 +1499,7 @@ const focusRing =
             </template>
             {{ $t('· on') }}
             <a
-                :href="`/machines/${machine.id}`"
+                :href="machineUrl"
                 class="text-(--ds-text) hover:underline hover:underline-offset-4"
                 >{{ machine.name }}</a
             >
@@ -1464,7 +1528,7 @@ const focusRing =
 
         <template v-if="managed && canManage" #actions>
             <Link
-                :href="`/fixes?machine=${machine.id}&service=${encodeURIComponent(service.key)}`"
+                :href="fixesUrl"
                 class="ds-raised-button cursor-pointer"
                 :class="focusRing"
                 :title="
@@ -2796,8 +2860,8 @@ const focusRing =
                         :label="$t('Icon')"
                         :image-url="service.icon ?? null"
                         :fallback="displayName.charAt(0).toUpperCase()"
-                        :upload-url="`${serviceUrl}/icon`"
-                        :remove-url="`${serviceUrl}/icon`"
+                        :upload-url="serviceIconUrl"
+                        :remove-url="serviceIconUrl"
                     />
                     <div class="flex items-center justify-between gap-2">
                         <AppButton

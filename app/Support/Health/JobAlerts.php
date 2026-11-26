@@ -28,7 +28,7 @@ final class JobAlerts
             ->value('state');
 
         $machine = $backup->machine;
-        $url = 'https://'.$machine->workspace->host().'/backups';
+        $url = $machine->workspace->url('/backups');
         $extra = ['machine' => ['id' => $machine->id, 'name' => $machine->name], 'service' => $backup->service_name];
 
         if ($backup->state === 'failed' && $previous !== 'failed') {
@@ -62,7 +62,7 @@ final class JobAlerts
         $previousFailed = in_array($previous, self::DEPLOY_FAILED, true);
 
         $machine = $job->machine;
-        $url = 'https://'.$machine->workspace->host().'/machines/'.$machine->id;
+        $url = $machine->workspace->url('/machines/'.$machine->id);
         $extra = ['machine' => ['id' => $machine->id, 'name' => $machine->name], 'service' => $job->service, 'job_id' => $job->id];
 
         if ($failed && ! $previousFailed) {

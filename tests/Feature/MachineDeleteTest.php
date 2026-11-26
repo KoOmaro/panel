@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 
 function machineDeleteUrl(Workspace $workspace, Machine $machine): string
 {
-    return 'https://'.$workspace->host().'/machines/'.$machine->id;
+    return $workspace->url().'/machines/'.$machine->id;
 }
 
 test('a machine manager can remove a machine and its jobs', function () {

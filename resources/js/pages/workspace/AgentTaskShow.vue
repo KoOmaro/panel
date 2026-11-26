@@ -54,6 +54,9 @@ import { appButtonClasses } from '@/lib/appButton';
 import { jobStatus } from '@/lib/jobStatus';
 import { renderMarkdown } from '@/lib/markdown';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
+import machinesRoutes from '@/routes/workspace/machines';
 import type { Workspace } from '@/types';
 
 const props = defineProps<{
@@ -66,6 +69,19 @@ const props = defineProps<{
     /** ServerOS's machine still being made for it. */
     setup?: Setup | null;
 }>();
+
+const agentsHref = computed(
+    () => onWorkspace(agentsRoutes.index(props.workspace.slug)).url,
+);
+
+function machineHref(machine: number, job?: string): string {
+    return onWorkspace(
+        machinesRoutes.show(
+            { workspace: props.workspace.slug, machine },
+            job === undefined ? undefined : { query: { job } },
+        ),
+    ).url;
+}
 
 const status = computed(() => taskStatus(props.task.status));
 const running = computed(() => props.task.status === 'running');
@@ -282,8 +298,19 @@ function act(agent: AgentDetail, what: 'merge' | 'deploy' | 'preview'): void {
         if (!window.confirm(question + closing)) return;
     }
     acting.value = what;
+    const route = {
+        merge: agentsRoutes.runs.merge,
+        deploy: agentsRoutes.runs.deploy,
+        preview: agentsRoutes.runs.preview,
+    }[what];
     router.post(
-        `/agents/${props.task.id}/runs/${agent.run}/${what}`,
+        onWorkspace(
+            route({
+                workspace: props.workspace.slug,
+                task: props.task.id,
+                run: agent.run,
+            }),
+        ).url,
         {},
         {
             preserveScroll: true,
@@ -316,23 +343,36 @@ function sendReply(): void {
     )
         return;
     reply.after = agent.run;
-    reply.post(`/agents/${props.task.id}/runs`, {
-        preserveScroll: true,
-        onSuccess: () => {
-            reply.reset();
-            selectedRun.value = null;
-            void nextTick(grow);
+    reply.post(
+        onWorkspace(
+            agentsRoutes.runs.store({
+                workspace: props.workspace.slug,
+                task: props.task.id,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                reply.reset();
+                selectedRun.value = null;
+                void nextTick(grow);
+            },
+            onError: (errors) =>
+                toast.error(
+                    Object.values(errors)[0] ?? trans('Couldn’t start it.'),
+                ),
         },
-        onError: (errors) =>
-            toast.error(
-                Object.values(errors)[0] ?? trans('Couldn’t start it.'),
-            ),
-    });
+    );
 }
 
 function anotherAgent(): void {
     router.post(
-        `/agents/${props.task.id}/runs`,
+        onWorkspace(
+            agentsRoutes.runs.store({
+                workspace: props.workspace.slug,
+                task: props.task.id,
+            }),
+        ).url,
         { agents: 1 },
         {
             preserveScroll: true,
@@ -346,17 +386,34 @@ function anotherAgent(): void {
 }
 
 function stop(): void {
-    router.post(`/agents/${props.task.id}/stop`, {}, { preserveScroll: true });
+    router.post(
+        onWorkspace(
+            agentsRoutes.stop({
+                workspace: props.workspace.slug,
+                task: props.task.id,
+            }),
+        ).url,
+        {},
+        { preserveScroll: true },
+    );
 }
 
 function destroy(): void {
     if (!window.confirm(trans('Delete this task and its history?'))) return;
-    router.delete(`/agents/${props.task.id}`, {
-        onError: (errors) =>
-            toast.error(
-                Object.values(errors)[0] ?? trans('Couldn’t delete it.'),
-            ),
-    });
+    router.delete(
+        onWorkspace(
+            agentsRoutes.destroy({
+                workspace: props.workspace.slug,
+                task: props.task.id,
+            }),
+        ).url,
+        {
+            onError: (errors) =>
+                toast.error(
+                    Object.values(errors)[0] ?? trans('Couldn’t delete it.'),
+                ),
+        },
+    );
 }
 
 function host(url: string): string {
@@ -385,7 +442,7 @@ const iconButton =
             class="flex h-12 shrink-0 items-center gap-2 border-b border-(--ds-divider) px-3 sm:px-4"
         >
             <Link
-                href="/agents"
+                :href="agentsHref"
                 :class="iconButton"
                 class="lg:hidden"
                 :aria-label="$t('Agents')"
@@ -495,7 +552,7 @@ const iconButton =
                         align="end"
                     >
                         <DropdownMenuItem as-child>
-                            <Link :href="`/machines/${task.machine.id}`">{{
+                            <Link :href="machineHref(task.machine.id)">{{
                                 $t('Open :machine', {
                                     machine: task.machine.name,
                                 })
@@ -828,7 +885,12 @@ const iconButton =
                                             </button>
                                             <Link
                                                 v-else-if="agent.deploy"
-                                                :href="`/machines/${agent.deploy.machine.id}?job=${agent.deploy.id}`"
+                                                :href="
+                                                    machineHref(
+                                                        agent.deploy.machine.id,
+                                                        agent.deploy.id,
+                                                    )
+                                                "
                                                 :class="
                                                     appButtonClasses(
                                                         'quiet',

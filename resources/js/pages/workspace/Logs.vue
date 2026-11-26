@@ -39,6 +39,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { Workspace } from '@/types';
 import { describe, errorMessage } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
+import logsRoutes from '@/routes/workspace/logs';
 
 type Level = 'error' | 'warn' | 'info' | 'debug';
 
@@ -90,6 +93,17 @@ const props = defineProps<{
         error: string | null;
     };
 }>();
+
+const fixWithAgentHref = computed(
+    () =>
+        onWorkspace(
+            agentsRoutes.index(props.workspace.slug, {
+                query: {
+                    from: `logs:${props.filters.machine}${props.filters.service ? ':' + props.filters.service : ''}`,
+                },
+            }),
+        ).url,
+);
 
 const quotaParams = computed(() => {
     const time = (iso: string) =>
@@ -212,7 +226,7 @@ function apply(changes: Partial<Filters>): void {
     }
 
     context.value = null;
-    router.get('/logs', query, {
+    router.get(onWorkspace(logsRoutes.index(props.workspace.slug)).url, query, {
         preserveState: true,
         preserveScroll: true,
         replace: true,
@@ -274,7 +288,7 @@ function feedQuery(extra: Record<string, number>): string {
         if (value !== null && value !== '') params.set(key, String(value));
     }
 
-    return `/logs/feed?${params}`;
+    return `${onWorkspace(logsRoutes.feed(props.workspace.slug)).url}?${params}`;
 }
 
 async function getJson<T>(url: string): Promise<T | null> {
@@ -348,7 +362,11 @@ const context = ref<{ anchor: LogLine; lines: LogLine[] } | null>(null);
 
 async function showContext(line: LogLine): Promise<void> {
     const result = await getJson<{ lines: LogLine[] }>(
-        `/logs/feed?around=${line.id}`,
+        onWorkspace(
+            logsRoutes.feed(props.workspace.slug, {
+                query: { around: line.id },
+            }),
+        ).url,
     );
     if (!result) return;
 
@@ -574,7 +592,9 @@ async function askToDelete(mode: 'matching' | 'picked'): Promise<void> {
         count: number;
         upTo: number;
         since: number | null;
-    }>(`/logs/deletion?${deleteParams(ids)}`);
+    }>(
+        `${onWorkspace(logsRoutes.deletion(props.workspace.slug)).url}?${deleteParams(ids)}`,
+    );
     if (!result) {
         deleteNote.value = trans('Couldn’t count the lines. Try again.');
         return;
@@ -600,16 +620,19 @@ async function confirmDelete(): Promise<void> {
     }
 
     try {
-        const response = await fetch('/logs', {
-            method: 'DELETE',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
+        const response = await fetch(
+            onWorkspace(logsRoutes.destroy(props.workspace.slug)).url,
+            {
+                method: 'DELETE',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+                body: JSON.stringify(body),
             },
-            body: JSON.stringify(body),
-        });
+        );
         const data = (await response.json().catch(() => null)) as {
             deleted?: number;
             queued?: boolean;
@@ -724,7 +747,7 @@ watch(live, (on) => {
         <template v-if="machines.length > 0" #actions>
             <a
                 v-if="agentsPreview && filters.machine !== null"
-                :href="`/agents?from=logs:${filters.machine}${filters.service ? ':' + filters.service : ''}`"
+                :href="fixWithAgentHref"
                 class="ds-raised-button cursor-pointer text-[13px]!"
             >
                 {{ $t('Fix with an agent') }}

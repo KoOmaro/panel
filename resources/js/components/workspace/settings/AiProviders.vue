@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { router, useForm } from '@inertiajs/vue3';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import { ArrowUpRight } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { useSelfHosted } from '@/composables/useSelfHosted';
@@ -14,6 +14,8 @@ import {
 import { appButtonClasses } from '@/lib/appButton';
 import type { AiBrand } from '@/lib/aiBrands';
 import { SolarPlug as Plug, SolarSparkles as Sparkles } from '@/lib/solarIcons';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import aiRoutes from '@/routes/workspace/settings/ai';
 
 export type AiProvider = {
     provider: 'anthropic' | 'openai' | 'custom';
@@ -32,6 +34,8 @@ const props = defineProps<{
     agentUses: string;
     canManage: boolean;
 }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
 
 const brands: Partial<Record<AiProvider['provider'], AiBrand>> = {
     anthropic: 'claude',
@@ -107,10 +111,18 @@ function save(): void {
     if (!p) return;
     form.transform((data) =>
         p.provider === 'custom' ? data : { key: data.key, model: data.model },
-    ).put(`/settings/ai/${p.provider}`, {
-        preserveScroll: true,
-        onSuccess: () => (openFor.value = null),
-    });
+    ).put(
+        onWorkspace(
+            aiRoutes.update({
+                workspace: page.props.workspace.slug,
+                provider: p.provider,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (openFor.value = null),
+        },
+    );
 }
 
 function removeKey(): void {
@@ -121,10 +133,18 @@ function removeKey(): void {
 
         return;
     }
-    router.delete(`/settings/ai/${p.provider}`, {
-        preserveScroll: true,
-        onSuccess: () => (openFor.value = null),
-    });
+    router.delete(
+        onWorkspace(
+            aiRoutes.destroy({
+                workspace: page.props.workspace.slug,
+                provider: p.provider,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (openFor.value = null),
+        },
+    );
 }
 
 function added(p: AiProvider): string {

@@ -1173,7 +1173,7 @@ const label = 'text-[12px]/5 font-[550] text-(--wf-muted)';
             class="text-[12px]/4 text-(--wf-faint)"
         >
             {{ ' ' + $t('If it fails, the run goes down') }}
-            <span class="font-semibold text-(--ds-red)">{{ $t('FAILED') }}</span
+            <span class="font-medium text-fg-secondary">{{ $t('failed') }}</span
             >{{ $t('; with nothing there, the run stops as failed.') + ' ' }}
         </p>
     </div>

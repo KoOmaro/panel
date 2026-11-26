@@ -42,6 +42,7 @@ import DangerButton from '@/components/workspace/DangerButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import { edit as securityEdit } from '@/routes/security';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 export type FilePlace = { label: string; path: string };
 
@@ -120,7 +121,7 @@ async function job(
     path: string,
     content?: string,
 ): Promise<Record<string, unknown>> {
-    const base = `/machines/${props.machineId}/files`;
+    const base = workspacePath(`/machines/${props.machineId}/files`);
     const sent = await call('POST', base, { op, path, content });
 
     if (!sent.ok) {
@@ -258,7 +259,7 @@ async function unlock(): Promise<void> {
     unlockError.value = null;
 
     try {
-        const response = await call('POST', '/console/unlock', {
+        const response = await call('POST', workspacePath('/console/unlock'), {
             code: unlockCode.value,
         });
         if (!response.ok) {
@@ -283,7 +284,7 @@ async function unlock(): Promise<void> {
 }
 
 async function lockNow(): Promise<void> {
-    await call('POST', '/console/lock');
+    await call('POST', workspacePath('/console/lock'));
     router.reload({ only: ['consoleLock'] });
 }
 

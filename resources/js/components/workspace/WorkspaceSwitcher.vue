@@ -17,6 +17,7 @@ import {
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue';
 import { usePinnedWorkspaces } from '@/composables/usePinnedWorkspaces';
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch';
+import { workspaceAddress } from '@/lib/workspaceRoute';
 import { planSummary } from '@/lib/workspacePlan';
 import { workspaceInitial, workspaceTileColor } from '@/lib/workspaceTile';
 import { index as workspacesIndex } from '@/routes/workspaces';
@@ -36,9 +37,7 @@ const workspaces = computed(() => page.props.workspaces);
 
 const summary = computed(() => planSummary(current.value.billing));
 
-const domain = computed(() =>
-    current.value.host.slice(current.value.slug.length + 1),
-);
+const domain = computed(() => new URL(page.props.dashboardUrl).host);
 
 const allWorkspacesUrl = computed(
     () => new URL(workspacesIndex.url(), page.props.appUrl).href,
@@ -192,7 +191,7 @@ function onSelect(workspace: WorkspaceSummary): void {
                                 <span
                                     class="truncate text-xs text-(--ds-text-muted)"
                                 >
-                                    {{ workspace.host }}
+                                    {{ workspaceAddress(workspace.url) }}
                                 </span>
                             </span>
                         </a>

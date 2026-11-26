@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Link, router } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import { ChevronRight, LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -7,6 +7,8 @@ import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
 import { toast } from '@/lib/toast';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 export type TrafficSettingsProps = {
     enabled: boolean;
@@ -43,6 +45,7 @@ const props = defineProps<{
     traffic: TrafficSettingsProps;
     canManage: boolean;
 }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const on = ref(props.traffic.enabled);
 const busy = ref(false);
@@ -65,7 +68,12 @@ async function loadSites(): Promise<void> {
     controller = new AbortController();
     try {
         const response = await fetch(
-            `/machines/${props.machineId}/traffic/sites`,
+            onWorkspace(
+                machinesRoutes.traffic.sites({
+                    workspace: page.props.workspace.slug,
+                    machine: props.machineId,
+                }),
+            ).url,
             {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
@@ -152,16 +160,24 @@ async function change(next: boolean): Promise<void> {
     on.value = next;
 
     try {
-        const response = await fetch(`/machines/${props.machineId}/traffic`, {
-            method: 'PUT',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
+        const response = await fetch(
+            onWorkspace(
+                machinesRoutes.traffic.update({
+                    workspace: page.props.workspace.slug,
+                    machine: props.machineId,
+                }),
+            ).url,
+            {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+                body: JSON.stringify({ enabled: next }),
             },
-            body: JSON.stringify({ enabled: next }),
-        });
+        );
         const body = await response.json().catch(() => ({}));
         if (response.status !== 202) {
             throw new Error(describe(response.status, body));
@@ -183,7 +199,13 @@ function follow(jobId: string, next: boolean): Promise<void> {
         const check = async () => {
             try {
                 const response = await fetch(
-                    `/machines/${props.machineId}/traffic/${jobId}`,
+                    onWorkspace(
+                        machinesRoutes.traffic.show({
+                            workspace: page.props.workspace.slug,
+                            machine: props.machineId,
+                            job: jobId,
+                        }),
+                    ).url,
                     {
                         credentials: 'same-origin',
                         headers: { Accept: 'application/json' },
@@ -379,7 +401,9 @@ onMounted(() => {
                         <td class="min-w-0 py-2 pr-3 pl-5">
                             <component
                                 :is="row.url ? Link : 'span'"
-                                :href="row.url ?? undefined"
+                                :href="
+                                    row.url ? workspacePath(row.url) : undefined
+                                "
                                 class="block truncate font-medium text-(--ds-text)"
                                 :title="row.names.join(', ') || row.name"
                                 >{{ row.name }}</component
@@ -444,7 +468,7 @@ onMounted(() => {
                         <td class="pr-4 text-right">
                             <Link
                                 v-if="row.url"
-                                :href="row.url"
+                                :href="workspacePath(row.url)"
                                 class="inline-flex size-6 items-center justify-center rounded-md text-(--ds-text-faint) hover:bg-(--ds-hover) hover:text-(--ds-text)"
                                 :aria-label="
                                     $t('Traffic for :name', { name: row.name })

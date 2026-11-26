@@ -2,6 +2,7 @@ import { trans } from 'laravel-vue-i18n';
 import { router, usePage } from '@inertiajs/vue3';
 import { onBeforeUnmount, onMounted } from 'vue';
 import { toast } from '@/lib/toast';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const EVERY = 60_000;
 
@@ -13,7 +14,7 @@ export function usePanelUpdates(): void {
     async function check(): Promise<void> {
         if (offered || document.hidden || !page.version) return;
         try {
-            const response = await fetch('/panel-version', {
+            const response = await fetch(workspacePath('/panel-version'), {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },
                 cache: 'no-store',

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import { Link, router, usePage } from '@inertiajs/vue3';
-import { ArrowUpRight, Check } from '@lucide/vue';
+import { ArrowUpRight, Check, Search } from '@lucide/vue';
 import {
+    SolarAskAi as AskAi,
     SolarBookOpen as BookOpen,
     SolarCircleHelp as CircleHelp,
     SolarLanguages as Languages,
@@ -28,6 +29,10 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import DashAvatar from '@/components/dash/DashAvatar.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import { useAssistant } from '@/composables/useAssistant';
+import { useCommandPalette } from '@/composables/useCommandPalette';
 import { useWhatsNew } from '@/composables/useWhatsNew';
 import { useAppearance } from '@/composables/useAppearance';
 import type { Appearance } from '@/composables/useAppearance';
@@ -41,7 +46,7 @@ import { profile as workspaceProfile } from '@/routes/workspace/settings';
 import { onWorkspace } from '@/lib/workspaceRoute';
 
 type Props = {
-    display?: 'full' | 'avatar';
+    display?: 'full' | 'avatar' | 'sidebar';
     side?: 'top' | 'right' | 'bottom';
     align?: 'start' | 'end';
 };
@@ -104,15 +109,63 @@ const themes = [
     { value: 'system', label: trans('System'), icon: Monitor },
 ] as const satisfies { value: Appearance; label: string; icon: unknown }[];
 
+const palette = useCommandPalette();
+const assistant = useAssistant();
+
 const row =
     'flex h-8 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 text-[13.5px]/5 text-(--ds-text-secondary) data-highlighted:text-(--ds-text)';
+const shortcut =
+    'ml-auto font-ui text-[11px]/3.5 text-(--ds-text-faint) pointer-coarse:hidden';
 const icon = 'size-4 shrink-0 text-(--ds-text-muted)';
 const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
 </script>
 
 <template>
     <DropdownMenu>
-        <DropdownMenuTrigger as-child>
+        <DropdownMenuTrigger v-if="display === 'sidebar'" as-child>
+            <button
+                type="button"
+                class="group flex w-full min-w-0 cursor-pointer items-center gap-2 px-3.5 py-3 text-left font-ui transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring) data-[state=open]:bg-surface-hover"
+                :aria-label="
+                    $t('Account menu for :name', {
+                        name: String(user.name),
+                    })
+                "
+                data-test="workspace-user-menu"
+            >
+                <span class="relative shrink-0">
+                    <DashAvatar
+                        :src="user.avatar"
+                        :name="user.name"
+                        :size="28"
+                    />
+                    <span
+                        v-if="whatsNew.unread.value"
+                        class="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-(--ds-blue) ring-2 ring-surface-sidebar"
+                    >
+                        <span class="sr-only">{{
+                            $t('Something new in What’s new')
+                        }}</span>
+                    </span>
+                </span>
+                <span
+                    class="flex min-w-0 flex-1 flex-col text-[13px]/4 font-medium"
+                >
+                    <span class="truncate tracking-[-0.01em] text-fg-primary">{{
+                        user.name
+                    }}</span>
+                    <span
+                        class="truncate text-[12px]/4 tracking-[-0.005em] text-fg-muted"
+                        >{{ user.email }}</span
+                    >
+                </span>
+                <FilledIcon
+                    name="chevron-right"
+                    class="text-fg-muted transition-colors group-hover:text-fg-tertiary"
+                />
+            </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuTrigger v-else as-child>
             <button
                 type="button"
                 class="flex cursor-pointer items-center gap-2 rounded-[10px] text-left hover:bg-(--ds-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring) data-[state=open]:bg-(--ds-hover)"
@@ -170,6 +223,7 @@ const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
             class="ds-modal min-w-56 rounded-[12px] p-1.5 font-ui"
             :class="{
                 'w-(--reka-dropdown-menu-trigger-width)': display === 'full',
+                'w-60': display === 'sidebar',
             }"
             :side="side"
             :align="align"
@@ -185,6 +239,19 @@ const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
                 >
             </DropdownMenuLabel>
             <DropdownMenuSeparator class="-mx-1.5 my-1.5" />
+            <template v-if="page.props.workspace">
+                <DropdownMenuItem :class="row" @select="palette.show()">
+                    <Search :class="icon" :stroke-width="1.6" />
+                    {{ $t('Search') }}
+                    <kbd :class="shortcut">⌘K</kbd>
+                </DropdownMenuItem>
+                <DropdownMenuItem :class="row" @select="assistant.toggle()">
+                    <AskAi :class="icon" :stroke-width="1.6" />
+                    {{ $t('Ask AI') }}
+                    <kbd :class="shortcut">⌘J</kbd>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator class="-mx-1.5 my-1.5" />
+            </template>
             <DropdownMenuItem as-child>
                 <a
                     v-if="accountSettings.external"

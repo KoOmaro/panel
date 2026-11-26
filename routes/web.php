@@ -22,6 +22,7 @@ use App\Http\Controllers\FixController;
 use App\Http\Controllers\GitHubAppSetupController;
 use App\Http\Controllers\GitHubConnectionController;
 use App\Http\Controllers\GitHubRepositoryController;
+use App\Http\Controllers\HelpController;
 use App\Http\Controllers\ImpersonationController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LocaleController;
@@ -53,6 +54,7 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\ServiceDetectController;
 use App\Http\Controllers\ServiceGroupController;
+use App\Http\Controllers\SetupGuideController;
 use App\Http\Controllers\StartWithAgentsController;
 use App\Http\Controllers\StatusIncidentController;
 use App\Http\Controllers\StatusSubscriptionController;
@@ -63,6 +65,7 @@ use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\WorkspaceAiController;
 use App\Http\Controllers\WorkspaceApiController;
 use App\Http\Controllers\WorkspaceAvailabilityController;
+use App\Http\Controllers\WorkspaceCodeController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Controllers\WorkspaceCustomRoleController;
 use App\Http\Controllers\WorkspaceDomainController;
@@ -95,6 +98,8 @@ use App\Models\Workspace;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
 use App\Support\Licensing\CommunityLicense;
+use App\Support\Workspaces\Dashboard;
+use App\Support\WorkspaceSlugs;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
 
@@ -120,7 +125,85 @@ app(Extensions::class)->loadRoutes(Extensions::SUBDOMAINS);
 
 Route::get('_domain/handoff/{token}', [WorkspaceDomainController::class, 'handoff'])->where('token', '[A-Za-z0-9]{48}')->middleware('throttle:30,1')->name('domains.handoff');
 
-Route::domain('{workspace:slug}.'.config('app.domain'))
+Route::get('/', fn (Request $request) => Edition::home($request))->name('home');
+
+Route::get('install.sh', DaemonInstallScriptController::class)->middleware('throttle:60,1')->name('daemon.install-script');
+
+Route::get('robots.txt', RobotsTxtController::class)->middleware('throttle:60,1')->name('robots');
+
+Route::post('locale', [LocaleController::class, 'update'])->middleware('throttle:30,1')->name('locale.update');
+
+Route::middleware('throttle:120,1')->group(function () {
+    Route::get('status/{slug}', [PublicStatusController::class, 'show'])->name('status.show');
+    Route::get('status/{slug}/badge.svg', [PublicStatusController::class, 'badge'])->name('status.badge');
+    Route::get('status/{slug}/embed', [PublicStatusController::class, 'embed'])->name('status.embed');
+    Route::get('status/{slug}/og.png', [PublicStatusController::class, 'og'])->name('status.og');
+    Route::get('status/{slug}/status.json', [PublicStatusController::class, 'json'])->name('status.json');
+    Route::get('status/{slug}/feed.atom', [StatusSubscriptionController::class, 'feed'])->name('status.feed');
+    Route::post('status/{slug}/subscribe', [StatusSubscriptionController::class, 'store'])->middleware('throttle:5,1')->name('status.subscribe');
+    Route::get('status/{slug}/subscribe/{token}', [StatusSubscriptionController::class, 'confirm'])->name('status.subscribe.confirm');
+    Route::get('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribeShow'])->name('status.unsubscribe');
+    // One-click unsubscribe POSTs without a CSRF token; the link's token stands in for it.
+    Route::post('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribe'])
+        ->withoutMiddleware(PreventRequestForgery::class)
+        ->name('status.unsubscribe.store');
+});
+
+// One-click unsubscribe POSTs without a CSRF token; the signature stands in for it.
+Route::middleware(['signed', 'throttle:30,1'])->group(function () {
+    Route::get('unsubscribe', [UnsubscribeController::class, 'show'])->name('unsubscribe');
+    Route::post('unsubscribe', [UnsubscribeController::class, 'store'])
+        ->withoutMiddleware(PreventRequestForgery::class)
+        ->name('unsubscribe.store');
+});
+
+Route::middleware(['auth', 'verified', StaffTwoFactor::class, 'can:viewAdmin'])->prefix('admin')->name('admin.')->group(function () {
+    app(Extensions::class)->loadRoutes(Extensions::ADMIN);
+});
+
+Route::middleware(['auth', 'verified'])->get('github/setup', [GitHubConnectionController::class, 'setup'])->middleware('throttle:20,1')->name('github.setup');
+Route::middleware(['auth', 'verified'])->get('github/app/created', [GitHubAppSetupController::class, 'created'])->middleware('throttle:10,1')->name('github.app.created');
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('oauth/authorize', [OAuthAuthorizeController::class, 'show'])->name('mcp.oauth.authorize');
+    Route::post('oauth/authorize', [OAuthAuthorizeController::class, 'store'])->middleware('throttle:30,1')->name('mcp.oauth.approve');
+});
+
+Route::get('start/agents', StartWithAgentsController::class)->name('start.agents');
+
+Route::get('workspaces/availability', WorkspaceAvailabilityController::class)
+    ->middleware('throttle:60,1')
+    ->name('workspaces.availability');
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('dashboard', DashboardRedirectController::class)->name('dashboard');
+    Route::get('workspaces', WorkspaceIndexController::class)->name('workspaces.index');
+    Route::post('workspaces', [WorkspaceController::class, 'store'])->middleware('throttle:10,60')->name('workspaces.store');
+    Route::get('workspaces/movable-machines', [WorkspaceController::class, 'movable'])->name('workspaces.movable-machines');
+    Route::get('join-requests', [WorkspaceJoinRequestController::class, 'show'])->name('join-requests.show');
+});
+
+Route::post('admin/return', ImpersonationController::class)->middleware('auth')->name('impersonation.stop');
+
+Route::get('themes/{token}', [ThemeShareController::class, 'show'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:120,1')->name('themes.show');
+Route::middleware('auth')->group(function () {
+    Route::get('themes/{token}/add', [ThemeShareController::class, 'add'])->where('token', '[a-z0-9]{8,32}')->name('themes.add');
+    Route::post('themes/{token}/import', [ThemeShareController::class, 'import'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:20,1')->name('themes.import');
+});
+
+Route::middleware('auth')->group(function () {
+    Route::get('invitations/{token}', [InvitationController::class, 'show'])->name('invitations.show');
+    Route::post('invitations/{token}/accept', [InvitationController::class, 'accept'])->name('invitations.accept');
+});
+
+require __DIR__.'/settings.php';
+
+app(Extensions::class)->loadRoutes(Extensions::WEB);
+
+// Keep the workspace group last, so every fixed path wins over {workspace}.
+Route::domain(Dashboard::host())
+    ->prefix('{workspace:slug}')
+    ->where(['workspace' => WorkspaceSlugs::routePattern()])
     ->middleware(['auth', 'verified', 'can:view,workspace', RequireWorkspaceGoogleSignIn::class, ...app(Extensions::class)->middleware(Extensions::WORKSPACE_SIGN_IN), RequireWorkspaceTwoFactor::class, ...app(Extensions::class)->middleware(Extensions::WORKSPACE), RecordWorkspaceVisit::class, SendToCustomDomain::class])
     ->group(function () {
         Route::get('/', WorkspaceHomeController::class)->name('workspace.home');
@@ -137,6 +220,11 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('welcome/finish', [WorkspaceWelcomeController::class, 'finish'])->name('workspace.welcome.finish');
         Route::post('pins/{pinned:slug}', [WorkspacePinController::class, 'store'])->withoutScopedBindings()->name('workspace.pins.store');
         Route::delete('pins/{pinned:slug}', [WorkspacePinController::class, 'destroy'])->withoutScopedBindings()->name('workspace.pins.destroy');
+        Route::get('setup', SetupGuideController::class)->name('workspace.setup');
+        Route::get('code', [WorkspaceCodeController::class, 'index'])->name('workspace.code.index');
+        Route::get('code/setup', [WorkspaceCodeController::class, 'setup'])->name('workspace.code.setup');
+        Route::get('code/changes', [WorkspaceCodeController::class, 'changes'])->name('workspace.code.changes');
+        Route::get('help', HelpController::class)->name('workspace.help');
         Route::get('machines', [MachineController::class, 'index'])->name('workspace.machines.index');
         Route::post('machine-groups', [MachineGroupController::class, 'store'])->name('workspace.machine-groups.store');
         Route::put('machine-groups/{group}', [MachineGroupController::class, 'update'])->withoutScopedBindings()->name('workspace.machine-groups.update');
@@ -147,7 +235,7 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('machines/{machine}/service-groups/{group}/icon', [ServiceGroupController::class, 'updateIcon'])->withoutScopedBindings()->middleware('throttle:20,1')->name('workspace.service-groups.icon.update');
         Route::delete('machines/{machine}/service-groups/{group}/icon', [ServiceGroupController::class, 'destroyIcon'])->withoutScopedBindings()->name('workspace.service-groups.icon.destroy');
         Route::get('machines/{machine}', [MachineController::class, 'show'])->name('workspace.machines.show');
-        Route::get('machines/{machine}/{tab}', [MachineController::class, 'show'])->whereIn('tab', ['services', 'scheduled', 'usage', 'ports', 'files', 'specs', 'deployments']);
+        Route::get('machines/{machine}/{tab}', [MachineController::class, 'show'])->whereIn('tab', ['services', 'system-updates', 'backups', 'firewall', 'terminal', 'scheduled', 'usage', 'ports', 'files', 'specs', 'deployments']);
         Route::delete('machines/{machine}', [MachineController::class, 'destroy'])->name('workspace.machines.destroy');
         Route::get('machines/{machine}/settings', [MachineSettingsController::class, 'show'])->name('workspace.machines.settings');
         Route::get('machines/{machine}/settings/{tab}', [MachineSettingsController::class, 'show'])->whereIn('tab', ['general', 'status']);
@@ -444,80 +532,3 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
             Route::get('settings/license', CommunityLicenseController::class)->name('workspace.settings.license');
         }
     });
-
-if (app(Extensions::class)->marketingSite() === null) {
-    Route::get('/', fn (Request $request) => Edition::home($request))->name('home');
-}
-
-Route::get('install.sh', DaemonInstallScriptController::class)->middleware('throttle:60,1')->name('daemon.install-script');
-
-Route::get('robots.txt', RobotsTxtController::class)->middleware('throttle:60,1')->name('robots');
-
-Route::post('locale', [LocaleController::class, 'update'])->middleware('throttle:30,1')->name('locale.update');
-
-Route::middleware('throttle:120,1')->group(function () {
-    Route::get('status/{slug}', [PublicStatusController::class, 'show'])->name('status.show');
-    Route::get('status/{slug}/badge.svg', [PublicStatusController::class, 'badge'])->name('status.badge');
-    Route::get('status/{slug}/embed', [PublicStatusController::class, 'embed'])->name('status.embed');
-    Route::get('status/{slug}/og.png', [PublicStatusController::class, 'og'])->name('status.og');
-    Route::get('status/{slug}/status.json', [PublicStatusController::class, 'json'])->name('status.json');
-    Route::get('status/{slug}/feed.atom', [StatusSubscriptionController::class, 'feed'])->name('status.feed');
-    Route::post('status/{slug}/subscribe', [StatusSubscriptionController::class, 'store'])->middleware('throttle:5,1')->name('status.subscribe');
-    Route::get('status/{slug}/subscribe/{token}', [StatusSubscriptionController::class, 'confirm'])->name('status.subscribe.confirm');
-    Route::get('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribeShow'])->name('status.unsubscribe');
-    // One-click unsubscribe POSTs without a CSRF token; the link's token stands in for it.
-    Route::post('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribe'])
-        ->withoutMiddleware(PreventRequestForgery::class)
-        ->name('status.unsubscribe.store');
-});
-
-// One-click unsubscribe POSTs without a CSRF token; the signature stands in for it.
-Route::middleware(['signed', 'throttle:30,1'])->group(function () {
-    Route::get('unsubscribe', [UnsubscribeController::class, 'show'])->name('unsubscribe');
-    Route::post('unsubscribe', [UnsubscribeController::class, 'store'])
-        ->withoutMiddleware(PreventRequestForgery::class)
-        ->name('unsubscribe.store');
-});
-
-Route::middleware(['auth', 'verified', StaffTwoFactor::class, 'can:viewAdmin'])->prefix('admin')->name('admin.')->group(function () {
-    app(Extensions::class)->loadRoutes(Extensions::ADMIN);
-});
-
-Route::middleware(['auth', 'verified'])->get('github/setup', [GitHubConnectionController::class, 'setup'])->middleware('throttle:20,1')->name('github.setup');
-Route::middleware(['auth', 'verified'])->get('github/app/created', [GitHubAppSetupController::class, 'created'])->middleware('throttle:10,1')->name('github.app.created');
-
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('oauth/authorize', [OAuthAuthorizeController::class, 'show'])->name('mcp.oauth.authorize');
-    Route::post('oauth/authorize', [OAuthAuthorizeController::class, 'store'])->middleware('throttle:30,1')->name('mcp.oauth.approve');
-});
-
-Route::get('start/agents', StartWithAgentsController::class)->name('start.agents');
-
-Route::get('workspaces/availability', WorkspaceAvailabilityController::class)
-    ->middleware('throttle:60,1')
-    ->name('workspaces.availability');
-
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', DashboardRedirectController::class)->name('dashboard');
-    Route::get('workspaces', WorkspaceIndexController::class)->name('workspaces.index');
-    Route::post('workspaces', [WorkspaceController::class, 'store'])->middleware('throttle:10,60')->name('workspaces.store');
-    Route::get('workspaces/movable-machines', [WorkspaceController::class, 'movable'])->name('workspaces.movable-machines');
-    Route::get('join-requests', [WorkspaceJoinRequestController::class, 'show'])->name('join-requests.show');
-});
-
-Route::post('admin/return', ImpersonationController::class)->middleware('auth')->name('impersonation.stop');
-
-Route::get('themes/{token}', [ThemeShareController::class, 'show'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:120,1')->name('themes.show');
-Route::middleware('auth')->group(function () {
-    Route::get('themes/{token}/add', [ThemeShareController::class, 'add'])->where('token', '[a-z0-9]{8,32}')->name('themes.add');
-    Route::post('themes/{token}/import', [ThemeShareController::class, 'import'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:20,1')->name('themes.import');
-});
-
-Route::middleware('auth')->group(function () {
-    Route::get('invitations/{token}', [InvitationController::class, 'show'])->name('invitations.show');
-    Route::post('invitations/{token}/accept', [InvitationController::class, 'accept'])->name('invitations.accept');
-});
-
-require __DIR__.'/settings.php';
-
-app(Extensions::class)->loadRoutes(Extensions::WEB);

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { STEP_GROUPS, STEPS, stepTheme } from './kinds';
 import type { Options, StepKind } from './kinds';
+import { workspacePath } from '@/lib/workspaceRoute';
 import StepSettings from './StepSettings.vue';
 import { useWorkflowEditor } from './useWorkflowEditor';
 import type { InspectorTab } from './useWorkflowEditor';
@@ -45,7 +46,9 @@ function rollBack(): void {
     if (!run || !node.value) return;
     rollingBack.value = true;
     router.post(
-        `/workflows/${page.props.workflow.id}/runs/${run.id}/rollback/${node.value.id}`,
+        workspacePath(
+            `/workflows/${page.props.workflow.id}/runs/${run.id}/rollback/${node.value.id}`,
+        ),
         {},
         { onFinish: () => (rollingBack.value = false) },
     );
@@ -133,7 +136,7 @@ const dot: Record<string, string> = {
         v-if="editor.inspector.value && node && step"
         :aria-label="`${step.label} settings`"
         data-canvas-overlay
-        class="wf-panel wf-inspector absolute top-4 right-4 z-30 flex max-h-[calc(100%-32px)] min-h-[260px] w-[min(440px,calc(100%-32px))] flex-col overflow-clip rounded-[16px]"
+        class="wf-inspector absolute top-5 right-5 z-30 flex max-h-[calc(100%-110px)] min-h-[260px] w-[min(440px,calc(100%-40px))] flex-col overflow-clip rounded-[14px] border-[0.5px] border-edge-field bg-[#fafafa] text-fg-primary shadow-[0_10px_24px_-6px_rgb(0_0_0/0.45),0_1px_2px_rgb(0_0_0/0.5)] dark:bg-[#171717]"
         :style="stepTheme(node.kind)"
         @pointerdown.stop
     >
@@ -418,7 +421,7 @@ const dot: Record<string, string> = {
                 <button
                     v-if="node.kind !== 'trigger'"
                     type="button"
-                    class="wf-button h-9! shrink-0"
+                    class="dash-button dash-button--secondary dash-button--icon shrink-0"
                     :aria-label="$t('Delete step')"
                     :title="$t('Delete step')"
                     @click="editor.removeNode(node.id)"
@@ -428,14 +431,17 @@ const dot: Record<string, string> = {
                 <button
                     v-if="next"
                     type="button"
-                    class="wf-accent-button grow"
+                    class="dash-button dash-button--secondary grow"
                     @click="goNext"
                 >
                     <ArrowDown class="size-4" /> {{ $t('Next step') + ' ' }}
                 </button>
                 <DropdownMenu v-else>
                     <DropdownMenuTrigger as-child>
-                        <button type="button" class="wf-accent-button grow">
+                        <button
+                            type="button"
+                            class="dash-button dash-button--secondary grow"
+                        >
                             <Plus class="size-4" />
                             {{ $t('Add next step') + ' ' }}
                         </button>

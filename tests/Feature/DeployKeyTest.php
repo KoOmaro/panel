@@ -22,7 +22,7 @@ function keyMachine(string $daemon = '0.1.1-pre.45'): array
     $machine = Machine::factory()->for($workspace)->create(['name' => 'web-1', 'ip_address' => '203.0.113.7']);
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), 'daemon_version' => $daemon, 'facts' => ['docker_version' => '27.0.1']])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/deploy'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/deploy'];
 }
 
 /** @return list<array<string, mixed>> */

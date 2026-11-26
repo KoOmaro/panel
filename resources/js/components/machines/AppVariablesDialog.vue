@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { Link2, Plus, Undo2, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
@@ -12,6 +13,8 @@ import { Input } from '@/components/ui/input';
 import { appButtonClasses } from '@/lib/appButton';
 import { toast } from '@/lib/toast';
 import { describe, networkMessage, responseError } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import appsRoutes from '@/routes/workspace/apps';
 
 type Variables = {
     names: { name: string; from: string | null; build: boolean }[];
@@ -24,10 +27,17 @@ const props = defineProps<{
 }>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ saved: [jobId: string | null] }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const url = computed(
     () =>
-        `/machines/${props.machineId}/apps/${encodeURIComponent(props.app)}/variables`,
+        onWorkspace(
+            appsRoutes.variables({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+                service: encodeURIComponent(props.app),
+            }),
+        ).url,
 );
 const variables = ref<Variables | null>(null);
 const failedToLoad = ref<string | null>(null);

@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Http\Resources\MachineResource;
 use App\Models\Activity;
+use App\Models\Backup;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\MachineGroup;
+use App\Models\MachinePackageUpdate;
 use App\Models\MachinePolicy;
 use App\Models\MachineSample;
 use App\Models\MaintenanceWindow;
+use App\Models\ProjectNode;
 use App\Models\ServiceGroup;
 use App\Models\Workspace;
 use App\Support\Audit\Audited;
@@ -76,6 +79,14 @@ class MachineController extends Controller
                     ->all(),
             ],
             'recent' => fn () => MachineSample::history($machine, 3600),
+            'day' => fn () => MachineSample::history($machine, self::RANGES['24h']),
+            'live' => fn () => [
+                'cpu' => $machine->cpu_percent,
+                'memoryMb' => $machine->memory_used_mb,
+                'at' => now()->toIso8601String(),
+            ],
+            'overview' => fn () => $this->overview($machine),
+            'preview' => fn () => $this->preview($machine),
             'range' => $range,
             'history' => Inertia::optional(fn () => MachineSample::history($machine, self::RANGES[$range])),
             'scheduled' => fn () => ScheduledTasks::for($machine),
@@ -127,6 +138,61 @@ class MachineController extends Controller
                 'minutes' => ConsoleLock::MINUTES,
             ],
         ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function overview(Machine $machine): array
+    {
+        $backups = Backup::query()
+            ->where('machine_id', $machine->id)
+            ->with(['machine', 'destination'])
+            ->latest('id')
+            ->limit(20)
+            ->get();
+
+        return [
+            'projects' => ProjectNode::query()->where('machine_id', $machine->id)->distinct()->count('project_id'),
+            'updates' => [
+                'count' => $machine->updates_count,
+                'security' => $machine->security_updates_count,
+                'checkedAt' => $machine->updates_checked_at?->toIso8601String(),
+                'rebootRequired' => $machine->reboot_required,
+                'packages' => MachinePackageUpdate::query()
+                    ->where('machine_id', $machine->id)
+                    ->orderByDesc('security')
+                    ->orderBy('name')
+                    ->limit(200)
+                    ->get()
+                    ->map(fn (MachinePackageUpdate $update) => [
+                        'name' => $update->name,
+                        'from' => $update->installed,
+                        'to' => $update->candidate,
+                        'security' => $update->security,
+                    ])
+                    ->all(),
+            ],
+            'backup' => [
+                'schedule' => $machine->backup_schedule,
+                'destination' => $machine->backupDestination?->name,
+            ],
+            'backups' => $backups->map(fn (Backup $backup) => $backup->toPageProps())->all(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function preview(Machine $machine): array
+    {
+        $seed = crc32((string) $machine->id);
+        $pick = fn (int $shift, int $min, int $max) => $min + (($seed >> $shift) % ($max - $min + 1));
+
+        return [
+            'networkIn' => $pick(0, 20, 180) / 10,
+            'networkOut' => $pick(3, 8, 60) / 10,
+            'load' => $pick(6, 10, 160) / 100,
+            'processes' => $pick(9, 120, 320),
+            'uptimeDays' => $pick(12, 3, 90),
+            'traffic' => ['used' => $pick(15, 2, 40) * 50 * 1024 ** 3, 'limit' => 20 * 1024 ** 4],
+        ];
     }
 
     #[Audited]

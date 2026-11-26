@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import { LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -10,6 +10,9 @@ import { appButtonClasses } from '@/lib/appButton';
 import { errorMessage, describe } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
 import { themeColour } from '@/lib/themeColour';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import appsRoutes from '@/routes/workspace/apps';
+import machinesRoutes from '@/routes/workspace/machines';
 
 /** A site the machine's own web servers serve (or a log file set by hand). */
 export type ExistingSite = {
@@ -85,6 +88,7 @@ const props = defineProps<{
     canManage: boolean;
 }>();
 const emit = defineEmits<{ changed: [] }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const existing = computed(() => props.state.existing ?? null);
 // Sites of the machine's own web server only have times when their log
@@ -114,10 +118,21 @@ const where = computed(() => {
           })
         : site.server;
 });
-const url = computed(() =>
-    existing.value
-        ? `/machines/${props.machineId}/sites/${encodeURIComponent(props.state.site)}/traffic`
-        : `/machines/${props.machineId}/apps/${encodeURIComponent(props.app)}/traffic`,
+const url = computed(
+    () =>
+        onWorkspace(
+            existing.value
+                ? machinesRoutes.sites.traffic({
+                      workspace: page.props.workspace.slug,
+                      machine: props.machineId,
+                      site: encodeURIComponent(props.state.site),
+                  })
+                : appsRoutes.traffic({
+                      workspace: page.props.workspace.slug,
+                      machine: props.machineId,
+                      service: encodeURIComponent(props.app),
+                  }),
+        ).url,
 );
 
 const ranges: { value: Range; label: string }[] = [
@@ -365,7 +380,15 @@ const tables = computed(() => [
     },
 ]);
 
-const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
+const settingsUrl = computed(
+    () =>
+        onWorkspace(
+            machinesRoutes.settings({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+            }),
+        ).url,
+);
 const output = (log: string) => log === '/dev/stdout' || log === '/dev/stderr';
 const files = computed(() => existing.value?.logs.join(', ') ?? '');
 const fromOutput = computed(

@@ -3,17 +3,33 @@ import { Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import AgentsIcon from '@/components/icons/AgentsIcon.vue';
 import ServersIcon from '@/components/icons/ServersIcon.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import { home } from '@/routes/workspace';
+import agentsRoutes from '@/routes/workspace/agents';
 
 // ServerOS has two sides that work like two products: managing servers,
 // and agents. Both sidebars carry this switch in the same place, so going
 // between them feels like turning a page, not leaving.
-const page = usePage<{ agentsPreview?: boolean }>();
+const page = usePage<{
+    agentsPreview?: boolean;
+    workspace: { slug: string };
+}>();
 
 const inAgents = computed(() => page.component.startsWith('workspace/Agent'));
 
 const sides = computed(() => [
-    { key: 'servers', label: 'Servers', href: '/', on: !inAgents.value },
-    { key: 'agents', label: 'Agents', href: '/agents', on: inAgents.value },
+    {
+        key: 'servers',
+        label: 'Servers',
+        href: onWorkspace(home(page.props.workspace.slug)).url,
+        on: !inAgents.value,
+    },
+    {
+        key: 'agents',
+        label: 'Agents',
+        href: onWorkspace(agentsRoutes.index(page.props.workspace.slug)).url,
+        on: inAgents.value,
+    },
 ]);
 </script>
 

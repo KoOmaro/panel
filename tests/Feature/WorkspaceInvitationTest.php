@@ -11,7 +11,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function inviteUrl(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host().'/settings/invitations';
+    return $workspace->url().'/settings/invitations';
 }
 
 test('admins can invite people by email with a role', function () {

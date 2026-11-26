@@ -22,7 +22,7 @@ function deployedApp(): array
     $workspace = Workspace::factory()->create();
     $machine = Machine::factory()->for($workspace)->create();
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now()])->save();
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $url = $workspace->url().'/machines/'.$machine->id;
 
     $last = DaemonJob::query()->create([
         'id' => (string) Str::uuid(), 'machine_id' => $machine->id, 'kind' => 'deploy', 'service' => 'tallyplate',

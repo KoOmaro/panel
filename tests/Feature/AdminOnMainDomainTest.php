@@ -4,7 +4,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Support\Facades\Route;
 
-test('admin on a workspace subdomain goes to the main domain, path and query kept', function () {
+test('admin on the dashboard host goes to the main domain, path and query kept', function () {
     Route::middleware(['web', 'auth', 'verified', 'can:viewAdmin'])->get('admin/test-page', fn () => 'Admin');
     $admin = User::factory()->admin()->create();
     $workspace = Workspace::factory()->create();
@@ -21,7 +21,7 @@ test('leaving View as works from the workspace being viewed', function () {
     $sam = $workspace->owner;
 
     $this->actingAs($admin)->post(viewAsUrl($sam), ['reason' => 'Checking']);
-    $this->post('https://'.$workspace->host().'/admin/return')
+    $this->withHeader('Referer', $workspace->url('/machines'))->post('https://'.$workspace->host().'/admin/return')
         ->assertRedirect(rtrim(config('app.url'), '/')."/admin/users/{$sam->id}");
     $this->assertAuthenticatedAs($admin);
 });

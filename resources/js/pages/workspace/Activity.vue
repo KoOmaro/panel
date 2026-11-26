@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { trans } from 'laravel-vue-i18n';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Check, ChevronDown } from '@lucide/vue';
-import {
-    SolarDownload as Download,
-    SolarHistory as History,
-} from '@/lib/solarIcons';
-import { computed, ref, watch } from 'vue';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Check, Ellipsis } from '@lucide/vue';
+import { trans } from 'laravel-vue-i18n';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import serverosMark from '@/components/dash/assets/serveros-mark.svg?raw';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashAvatar from '@/components/dash/DashAvatar.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTable from '@/components/dash/DashTable.vue';
+import DashTd from '@/components/dash/DashTd.vue';
+import DashTh from '@/components/dash/DashTh.vue';
+import DashTr from '@/components/dash/DashTr.vue';
+import SearchWell from '@/components/dash/SearchWell.vue';
+import ToolbarButton from '@/components/dash/ToolbarButton.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -16,15 +23,16 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
-import { getInitials } from '@/composables/useInitials';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import activityRoutes from '@/routes/workspace/activity';
+import machinesRoutes from '@/routes/workspace/machines';
 import type { Workspace } from '@/types';
 
 type Entry = {
     id: number;
     at: string;
     user: { name: string; avatar: string | null; support: boolean } | null;
-    machine: { id: number; name: string } | null;
+    machine: { id: number; name: string; provider: string | null } | null;
     action: string;
     verb: string;
     subject: string | null;
@@ -33,6 +41,11 @@ type Entry = {
     mono: boolean;
     tone: 'neutral' | 'good' | 'warn' | 'bad';
     leads: boolean;
+    via: {
+        source: string | null;
+        client: string | null;
+        workflow: string | null;
+    };
     origin: {
         source: string | null;
         client: string | null;
@@ -60,11 +73,12 @@ type Filters = {
     when: When | null;
     from: string | null;
     to: string | null;
+    q: string | null;
 };
 
 const props = defineProps<{
     workspace: Workspace;
-    machines: { id: number; name: string }[];
+    machines: { id: number; name: string; provider: string | null }[];
     people: Person[];
     groups: { value: string; label: string }[];
     filters: Filters;
@@ -77,6 +91,12 @@ const props = defineProps<{
 const entries = ref<Entry[]>([...props.entries]);
 const more = ref(props.hasMore);
 const loading = ref(false);
+const search = ref(props.filters.q ?? '');
+const custom = ref(props.filters.from !== null || props.filters.to !== null);
+
+const activityUrl = computed(
+    () => onWorkspace(activityRoutes.index(props.workspace.slug)).url,
+);
 
 watch(
     () => props.entries,
@@ -97,7 +117,9 @@ function query(
     const next = { ...props.filters, ...changes };
     const out: Record<string, string | number> = {};
     for (const [key, value] of Object.entries(next)) {
-        if (value !== null && value !== undefined) out[key] = value;
+        if (value !== null && value !== undefined && value !== '') {
+            out[key] = value;
+        }
     }
     if (next.when || next.from || next.to) {
         out.tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -114,12 +136,23 @@ const exportHref = computed(() => {
     const params = new URLSearchParams(
         Object.entries(query({})).map(([k, v]) => [k, String(v)]),
     ).toString();
+    const base = onWorkspace(activityRoutes.export(props.workspace.slug)).url;
 
-    return params ? `/activity/export?${params}` : '/activity/export';
+    return params ? `${base}?${params}` : base;
 });
+
+function apply(changes: Partial<Filters>): void {
+    router.get(activityUrl.value, query(changes), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+        only: ['entries', 'hasMore', 'filters'],
+    });
+}
 
 function clearFilters(): void {
     custom.value = false;
+    search.value = '';
     apply({
         who: null,
         person: null,
@@ -128,23 +161,25 @@ function clearFilters(): void {
         when: null,
         from: null,
         to: null,
+        q: null,
     });
 }
 
-function apply(changes: Partial<Filters>): void {
-    router.get('/activity', query(changes), {
-        preserveState: true,
-        preserveScroll: true,
-        replace: true,
-        only: ['entries', 'hasMore', 'filters'],
-    });
-}
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(search, (value) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        const q = value.trim() || null;
+        if (q !== props.filters.q) apply({ q });
+    }, 300);
+});
+onBeforeUnmount(() => clearTimeout(searchTimer));
 
 function loadMore(): void {
     const last = entries.value.at(-1);
     if (!last || loading.value) return;
     loading.value = true;
-    router.get('/activity', query({ before: last.id }), {
+    router.get(activityUrl.value, query({ before: last.id }), {
         preserveUrl: true,
         preserveState: true,
         preserveScroll: true,
@@ -170,10 +205,6 @@ const whoLabel = computed(() => {
             : trans('Everyone');
 });
 
-function chooseWho(who: Filters['who'], person: string | null = null): void {
-    apply({ who, person });
-}
-
 const groupLabel = computed(
     () =>
         props.groups.find((g) => g.value === props.filters.group)?.label ??
@@ -190,13 +221,17 @@ const whenOptions = computed(
         ] as const,
 );
 
-const custom = ref(props.filters.from !== null || props.filters.to !== null);
-
 const whenLabel = computed(() =>
     custom.value
         ? trans('Custom range')
         : (whenOptions.value.find((o) => o.value === props.filters.when)
               ?.label ?? trans('Any time')),
+);
+
+const machineLabel = computed(
+    () =>
+        props.machines.find((m) => m.id === props.filters.machine)?.name ??
+        trans('All machines'),
 );
 
 function chooseWhen(when: When | null): void {
@@ -209,51 +244,13 @@ function chooseCustom(): void {
     if (props.filters.when) apply({ when: null });
 }
 
-const opened = ref<number | null>(null);
-
-function originLine(origin: NonNullable<Entry['origin']>): string {
-    const source =
-        origin.source === 'mcp'
-            ? origin.client
-                ? trans('MCP (:client)', { client: origin.client })
-                : 'MCP'
-            : origin.source === 'api'
-              ? origin.client
-                  ? trans('API (:client)', { client: origin.client })
-                  : 'API'
-              : origin.source === 'web'
-                ? trans('Web')
-                : origin.source === 'workflow'
-                  ? trans('Workflow')
-                  : origin.source === 'machine'
-                    ? trans('Machine')
-                    : origin.source === 'system'
-                      ? trans('Automatic')
-                      : null;
-
-    return [
-        origin.device ?? origin.userAgent,
-        origin.ip,
-        source,
-        origin.requestId
-            ? trans('Ref :id', { id: origin.requestId.slice(0, 8) })
-            : null,
-    ]
-        .filter(Boolean)
-        .join(' · ');
-}
-const machineLabel = computed(
-    () =>
-        props.machines.find((m) => m.id === props.filters.machine)?.name ??
-        trans('All'),
-);
-
 const rows = computed(() => {
     const out: (
-        | { type: 'day'; key: string; label: string }
+        | { type: 'day'; key: string; label: string; count: number }
         | { type: 'entry'; key: number; entry: Entry }
     )[] = [];
     let previous = '';
+    let day: { count: number } | null = null;
     const today = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86_400_000).toDateString();
     const thisYear = new Date().getFullYear();
@@ -262,9 +259,10 @@ const rows = computed(() => {
         const date = new Date(entry.at);
         const key = date.toDateString();
         if (key !== previous) {
-            out.push({
-                type: 'day',
+            const row = {
+                type: 'day' as const,
                 key: `day-${entry.id}`,
+                count: 0,
                 label:
                     key === today
                         ? trans('Today')
@@ -279,9 +277,12 @@ const rows = computed(() => {
                                         ? undefined
                                         : 'numeric',
                             }),
-            });
+            };
+            out.push(row);
+            day = row;
             previous = key;
         }
+        if (day) day.count++;
         out.push({ type: 'entry', key: entry.id, entry });
     }
 
@@ -291,6 +292,7 @@ const rows = computed(() => {
 const timeFormat = new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
 });
 const fullFormat = new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
@@ -301,49 +303,138 @@ const fullFormat = new Intl.DateTimeFormat(undefined, {
     second: 'numeric',
 });
 
-function time(iso: string): string {
-    return timeFormat.format(new Date(iso));
-}
-
-function fullTime(iso: string): string {
-    return fullFormat.format(new Date(iso));
-}
-
 const toneDot: Record<Entry['tone'], string> = {
-    neutral: 'bg-(--ds-text-faint)',
-    good: 'bg-(--ds-green)',
-    warn: 'bg-(--ds-amber)',
-    bad: 'bg-(--ds-red)',
+    neutral: '',
+    good: 'bg-status-live',
+    warn: 'bg-status-pending',
+    bad: 'bg-status-down',
 };
 
-const focusRing =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)';
+function capital(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+type Who =
+    | { kind: 'person'; name: string; avatar: string | null }
+    | { kind: 'mark'; name: string }
+    | { kind: 'workflow'; name: string };
+
+function who(entry: Entry): Who {
+    if (entry.user?.support) return { kind: 'mark', name: entry.user.name };
+    if (entry.user) {
+        return {
+            kind: 'person',
+            name: entry.user.name,
+            avatar: entry.user.avatar,
+        };
+    }
+    if (entry.via.workflow) {
+        return { kind: 'workflow', name: entry.via.workflow };
+    }
+
+    return { kind: 'mark', name: trans('Automatic') };
+}
+
+type From = {
+    icon: FilledIconName | null;
+    logo: string | null;
+    label: string;
+    extra: string | null;
+};
+
+function from(entry: Entry): From {
+    const { source, client } = entry.via;
+    const origin = entry.origin;
+    const base = { icon: null, logo: null, extra: null };
+
+    switch (source) {
+        case 'support':
+            return {
+                ...base,
+                icon: 'globe-fill',
+                label: trans('Support access'),
+            };
+        case 'mcp':
+            return {
+                ...base,
+                icon: client?.toLowerCase().includes('claude')
+                    ? null
+                    : 'sparkle-fill',
+                logo: client?.toLowerCase().includes('claude')
+                    ? 'claude'
+                    : null,
+                label: client
+                    ? trans('MCP (:client)', { client })
+                    : trans('MCP'),
+            };
+        case 'api':
+            return {
+                ...base,
+                icon: 'terminal-fill',
+                label: client
+                    ? trans('API (:client)', { client })
+                    : trans('API'),
+            };
+        case 'workflow':
+            return { ...base, icon: 'branch-fill', label: trans('Workflow') };
+        case 'machine':
+            return { ...base, icon: 'machines-fill', label: trans('Machine') };
+        case 'web':
+            return {
+                ...base,
+                icon: 'globe-fill',
+                label: origin?.device ?? trans('Web'),
+                extra: origin?.ip ?? null,
+            };
+    }
+    if (entry.action.startsWith('monitor.')) {
+        return { ...base, icon: 'monitors-fill', label: trans('Monitor') };
+    }
+    if (entry.action.startsWith('backup')) {
+        return {
+            ...base,
+            icon: 'activity-fill',
+            label: trans('Backup schedule'),
+        };
+    }
+    if (/^(service|machine)\./.test(entry.action)) {
+        return {
+            ...base,
+            icon: 'activity-fill',
+            label: trans('Health checks'),
+        };
+    }
+
+    return { ...base, icon: 'activity-fill', label: trans('Automatic') };
+}
+
+function machineHref(id: number): string {
+    return onWorkspace(
+        machinesRoutes.show({ workspace: props.workspace.slug, machine: id }),
+    ).url;
+}
+
+async function copy(text: string): Promise<void> {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        return;
+    }
+}
 
 const dateField =
-    'ds-raised-button h-8 cursor-text bg-transparent px-2 text-[13px]/4 text-(--ds-text) outline-none';
+    'h-8 cursor-text rounded-[8px] border-[0.5px] border-edge-control bg-surface-control px-2 font-ui text-[13px]/5 text-fg-secondary outline-none focus-visible:outline-2 focus-visible:outline-(--ds-ring) [color-scheme:dark]';
 </script>
 
 <template>
     <Head :title="$t('Activity')" />
 
-    <WorkspacePage :title="$t('Activity')">
-        <template #description>
-            {{
-                ' ' +
-                $t(
-                    'Who did what, and what happened on its own, over the last :keepDays days. The first place to look when something changed and nobody knows why.',
-                    { keepDays: String(keepDays ?? '') },
-                ) +
-                ' '
-            }}
-        </template>
-
+    <DashHeader :crumbs="[{ label: $t('Activity') }]">
         <template #actions>
             <button
                 v-if="filtered"
                 type="button"
-                class="cursor-pointer text-[13px]/5 font-medium text-(--ds-text-secondary) hover:text-(--ds-text)"
-                :class="focusRing"
+                class="h-8 cursor-pointer rounded-[8px] px-2.5 text-[13px]/5 font-medium text-fg-tertiary hover:text-fg-primary focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
                 @click="clearFilters"
             >
                 {{ $t('Clear filters') }}
@@ -351,42 +442,49 @@ const dateField =
             <a
                 v-if="canExport"
                 :href="exportHref"
-                class="ds-raised-button cursor-pointer"
+                class="dash-button dash-button--secondary"
                 :title="$t('Download what’s shown as a CSV')"
                 download
             >
-                <Download class="size-3.5 opacity-60" :stroke-width="1.75" />
-                {{ $t('Export') + ' ' }}
+                <FilledIcon name="download" />
+                {{ $t('Export CSV') }}
             </a>
+        </template>
+    </DashHeader>
+
+    <div class="flex min-h-full flex-col">
+        <div class="flex min-h-14 flex-wrap items-center gap-2 px-5 py-3">
+            <SearchWell
+                v-model="search"
+                :placeholder="$t('Search activity, like “restarted” or “db-1”')"
+                :width="340"
+                class="max-sm:w-full!"
+            />
+
             <DropdownMenu>
                 <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer text-[13px]!"
-                        :class="focusRing"
-                    >
-                        <span class="text-(--ds-text-muted)">{{
-                            $t('Who')
-                        }}</span>
-                        <span class="font-medium">{{ whoLabel }}</span>
-                        <ChevronDown
-                            class="size-2.5 text-(--ds-text-muted)"
-                            :stroke-width="2"
-                        />
-                    </button>
+                    <ToolbarButton
+                        icon="user-fill"
+                        :label="whoLabel"
+                        menu
+                        :active="
+                            filters.who !== null || filters.person !== null
+                        "
+                    />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    class="ds-modal max-h-96 min-w-52 overflow-y-auto font-ui"
-                    align="end"
+                    class="max-h-96 min-w-52 overflow-y-auto font-ui"
+                    align="start"
                 >
                     <DropdownMenuItem
                         v-for="option in [
                             { value: null, label: $t('Everyone') },
+                            { value: 'people', label: $t('People') },
                             { value: 'system', label: $t('Automatic') },
                             { value: 'support', label: $t('ServerOS Support') },
                         ] as const"
                         :key="option.label"
-                        @select="chooseWho(option.value)"
+                        @select="apply({ who: option.value, person: null })"
                     >
                         {{ option.label }}
                         <Check
@@ -400,26 +498,18 @@ const dateField =
                     <template v-if="members.length">
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel
-                            class="text-xs font-medium text-(--ds-text-muted)"
+                            class="text-xs font-medium text-fg-muted"
                             >{{ $t('Members') }}</DropdownMenuLabel
                         >
                         <DropdownMenuItem
                             v-for="person in members"
                             :key="person.value"
-                            @select="chooseWho(null, person.value)"
+                            @select="apply({ who: null, person: person.value })"
                         >
-                            <Avatar class="size-5 shrink-0 rounded-full">
-                                <AvatarImage
-                                    v-if="person.avatar"
-                                    :src="person.avatar"
-                                    :alt="person.name"
-                                />
-                                <AvatarFallback
-                                    class="rounded-full bg-(--ds-hover) text-[9px] text-(--ds-text-secondary)"
-                                >
-                                    {{ getInitials(person.name) }}
-                                </AvatarFallback>
-                            </Avatar>
+                            <DashAvatar
+                                :src="person.avatar"
+                                :name="person.name"
+                            />
                             <span class="truncate">{{ person.name }}</span>
                             <Check
                                 v-if="filters.person === person.value"
@@ -430,26 +520,18 @@ const dateField =
                     <template v-if="former.length">
                         <DropdownMenuSeparator />
                         <DropdownMenuLabel
-                            class="text-xs font-medium text-(--ds-text-muted)"
+                            class="text-xs font-medium text-fg-muted"
                             >{{ $t('Former members') }}</DropdownMenuLabel
                         >
                         <DropdownMenuItem
                             v-for="person in former"
                             :key="person.value"
-                            @select="chooseWho(null, person.value)"
+                            @select="apply({ who: null, person: person.value })"
                         >
-                            <Avatar class="size-5 shrink-0 rounded-full">
-                                <AvatarImage
-                                    v-if="person.avatar"
-                                    :src="person.avatar"
-                                    :alt="person.name"
-                                />
-                                <AvatarFallback
-                                    class="rounded-full bg-(--ds-hover) text-[9px] text-(--ds-text-secondary)"
-                                >
-                                    {{ getInitials(person.name) }}
-                                </AvatarFallback>
-                            </Avatar>
+                            <DashAvatar
+                                :src="person.avatar"
+                                :name="person.name"
+                            />
                             <span class="truncate">{{
                                 $t(':name (left)', { name: person.name })
                             }}</span>
@@ -464,29 +546,16 @@ const dateField =
 
             <DropdownMenu>
                 <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer text-[13px]!"
-                        :class="focusRing"
-                    >
-                        <span class="text-(--ds-text-muted)">{{
-                            $t('What')
-                        }}</span>
-                        <span class="max-w-40 truncate font-medium">{{
-                            groupLabel
-                        }}</span>
-                        <ChevronDown
-                            class="size-2.5 text-(--ds-text-muted)"
-                            :stroke-width="2"
-                        />
-                    </button>
+                    <ToolbarButton
+                        icon="layers-fill"
+                        :label="groupLabel"
+                        menu
+                        :active="filters.group !== null"
+                    />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                    class="ds-modal min-w-52 font-ui"
-                    align="end"
-                >
+                <DropdownMenuContent class="min-w-52 font-ui" align="start">
                     <DropdownMenuItem @select="apply({ group: null })">
-                        {{ ' ' + $t('Everything') }}
+                        {{ $t('Everything') }}
                         <Check
                             v-if="filters.group === null"
                             class="ml-auto size-3.5"
@@ -506,27 +575,52 @@ const dateField =
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu v-if="machines.length > 1">
                 <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer text-[13px]!"
-                        :class="focusRing"
-                    >
-                        <span class="text-(--ds-text-muted)">{{
-                            $t('When')
-                        }}</span>
-                        <span class="font-medium">{{ whenLabel }}</span>
-                        <ChevronDown
-                            class="size-2.5 text-(--ds-text-muted)"
-                            :stroke-width="2"
-                        />
-                    </button>
+                    <ToolbarButton
+                        icon="machines-fill"
+                        :label="machineLabel"
+                        menu
+                        :active="filters.machine !== null"
+                    />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    class="ds-modal min-w-44 font-ui"
-                    align="end"
+                    class="max-h-80 min-w-44 overflow-y-auto font-ui"
+                    align="start"
                 >
+                    <DropdownMenuItem @select="apply({ machine: null })">
+                        {{ $t('All machines') }}
+                        <Check
+                            v-if="filters.machine === null"
+                            class="ml-auto size-3.5"
+                        />
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        v-for="machine in machines"
+                        :key="machine.id"
+                        @select="apply({ machine: machine.id })"
+                    >
+                        <BrandLogo :name="machine.provider" />
+                        {{ machine.name }}
+                        <Check
+                            v-if="filters.machine === machine.id"
+                            class="ml-auto size-3.5"
+                        />
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                    <ToolbarButton
+                        icon="activity-fill"
+                        :label="whenLabel"
+                        menu
+                        :active="custom || filters.when !== null"
+                    />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent class="min-w-44 font-ui" align="start">
                     <DropdownMenuItem
                         v-for="option in whenOptions"
                         :key="option.label"
@@ -540,7 +634,7 @@ const dateField =
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem @select="chooseCustom">
-                        {{ ' ' + $t('Custom range…') }}
+                        {{ $t('Custom range…') }}
                         <Check v-if="custom" class="ml-auto size-3.5" />
                     </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -553,7 +647,7 @@ const dateField =
                 <input
                     id="activity-from"
                     type="date"
-                    :class="[dateField, focusRing]"
+                    :class="dateField"
                     :title="$t('From')"
                     :value="filters.from ?? ''"
                     :max="filters.to ?? undefined"
@@ -569,7 +663,7 @@ const dateField =
                 <input
                     id="activity-to"
                     type="date"
-                    :class="[dateField, focusRing]"
+                    :class="dateField"
                     :title="$t('To')"
                     :value="filters.to ?? ''"
                     :min="filters.from ?? undefined"
@@ -583,240 +677,327 @@ const dateField =
                 />
             </template>
 
-            <DropdownMenu v-if="machines.length > 1">
-                <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer text-[13px]!"
-                        :class="focusRing"
-                    >
-                        <span class="text-(--ds-text-muted)">{{
-                            $t('Machine')
-                        }}</span>
-                        <span class="max-w-32 truncate font-medium">
-                            {{ machineLabel }}
-                        </span>
-                        <ChevronDown
-                            class="size-2.5 text-(--ds-text-muted)"
-                            :stroke-width="2"
-                        />
-                    </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                    class="ds-modal max-h-80 min-w-40 overflow-y-auto font-ui"
-                    align="end"
-                >
-                    <DropdownMenuItem @select="apply({ machine: null })">
-                        {{ ' ' + $t('All') }}
-                        <Check
-                            v-if="filters.machine === null"
-                            class="ml-auto size-3.5"
-                        />
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                        v-for="machine in machines"
-                        :key="machine.id"
-                        @select="apply({ machine: machine.id })"
-                    >
-                        {{ machine.name }}
-                        <Check
-                            v-if="filters.machine === machine.id"
-                            class="ml-auto size-3.5"
-                        />
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </template>
+            <span class="min-w-0 flex-1" />
+            <span class="text-[12px]/4 text-fg-muted">{{
+                $t('Kept for :days days', { days: String(keepDays) })
+            }}</span>
+        </div>
 
         <div
             v-if="entries.length === 0"
-            class="ds-tile flex flex-col items-center px-6 py-20 text-center"
+            class="flex flex-1 flex-col items-center justify-center border-t-[0.5px] border-edge-tabs px-6 py-20 text-center"
         >
-            <div class="ds-icon-chip" aria-hidden="true">
-                <History class="size-4.5" :stroke-width="2" />
-            </div>
-            <h2 class="mt-5 text-base/6 font-semibold">
+            <span
+                class="flex size-10 items-center justify-center rounded-[10px] border-[0.5px] border-edge-control bg-surface-raised text-fg-tertiary shadow-tile"
+                aria-hidden="true"
+            >
+                <FilledIcon name="activity-fill" :size="20" />
+            </span>
+            <h2
+                class="mt-4 text-[15px]/6 font-medium tracking-[-0.01em] text-fg-primary"
+            >
                 {{ filtered ? $t('Nothing matches') : $t('Nothing yet') }}
             </h2>
-            <p
-                class="mt-1.5 max-w-sm text-[13px]/5 text-pretty text-(--ds-text-muted)"
-            >
+            <p class="mt-1 max-w-sm text-[13px]/5 text-fg-tertiary">
                 {{
-                    ' ' +
                     $t(
                         'Deploys, restarts, console commands, settings changes, machines going quiet and monitors going down all show up here.',
-                    ) +
-                    ' '
+                    )
                 }}
             </p>
         </div>
 
-        <div v-else class="ds-tile overflow-hidden">
-            <ol>
-                <template v-for="row in rows" :key="row.key">
-                    <li
-                        v-if="row.type === 'day'"
-                        class="sticky top-0 z-10 border-b border-(--ds-divider) bg-(--ds-card) px-5 py-2 text-xs/4 font-medium text-(--ds-text-muted)"
-                    >
-                        {{ row.label }}
-                    </li>
-                    <li
-                        v-else
-                        class="ds-tile-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 px-5 py-3 text-[13px]/5"
-                    >
-                        <span
-                            v-if="row.entry.user?.support"
-                            class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-(--ds-hover)"
-                            :title="
-                                $t(
-                                    'Done by ServerOS Support for your workspace',
-                                )
-                            "
-                        >
-                            <img
-                                src="/images/landing/serveros-logo.svg"
-                                alt=""
-                                class="size-3 object-contain invert dark:invert-0"
-                            />
-                        </span>
-                        <Avatar
-                            v-else-if="row.entry.user"
-                            class="mt-px size-5 shrink-0 rounded-full"
-                        >
-                            <AvatarImage
-                                v-if="row.entry.user.avatar"
-                                :src="row.entry.user.avatar"
-                                :alt="row.entry.user.name"
-                            />
-                            <AvatarFallback
-                                class="rounded-full bg-(--ds-hover) text-[9px] text-(--ds-text-secondary)"
-                            >
-                                {{ getInitials(row.entry.user.name) }}
-                            </AvatarFallback>
-                        </Avatar>
-                        <span
-                            v-else
-                            class="mt-px flex size-5 items-center justify-center"
-                            :title="$t('Happened on its own')"
-                        >
-                            <span
-                                class="size-2 rounded-full"
-                                :class="toneDot[row.entry.tone]"
-                            />
-                        </span>
-
-                        <span class="flex min-w-0 flex-col gap-0.5">
-                            <span class="text-pretty">
-                                <template v-if="row.entry.leads">
-                                    <span class="font-medium">{{
-                                        row.entry.subject
-                                    }}</span>
-                                    {{ row.entry.verb }}
-                                </template>
-                                <template v-else>
-                                    <span class="font-medium">{{
-                                        row.entry.user?.name ?? 'ServerOS'
-                                    }}</span>
-                                    {{ row.entry.verb }}
-                                    <span
-                                        v-if="row.entry.subject"
-                                        class="font-medium"
-                                        >{{ row.entry.subject }}</span
-                                    >
-                                </template>
-                                <span
-                                    v-if="row.entry.after"
-                                    class="text-(--ds-text-secondary)"
-                                    >{{ ` ${row.entry.after}` }}</span
-                                >
-                                <template
-                                    v-if="
-                                        row.entry.machine &&
-                                        row.entry.subject !==
-                                            row.entry.machine.name
-                                    "
-                                >
-                                    <span class="text-(--ds-text-muted)">
-                                        {{ ' ' + $t('on') + ' ' }}
-                                    </span>
-                                    <Link
-                                        :href="`/machines/${row.entry.machine.id}`"
-                                        class="text-(--ds-text-secondary) hover:text-(--ds-text) hover:underline hover:underline-offset-4"
-                                        >{{ row.entry.machine.name }}</Link
-                                    >
-                                </template>
-                            </span>
-                            <span
-                                v-if="row.entry.detail"
-                                class="text-(--ds-text-secondary)"
-                                :class="
-                                    row.entry.mono
-                                        ? 'w-fit max-w-full truncate rounded-[5px] bg-(--ds-code) px-1.5 py-0.5 font-ui-mono text-xs'
-                                        : 'line-clamp-2'
-                                "
-                                :title="row.entry.detail"
-                            >
-                                {{ row.entry.detail }}
-                            </span>
-                            <span
-                                v-if="
-                                    opened === row.entry.id && row.entry.origin
-                                "
-                                :id="`origin-${row.entry.id}`"
-                                class="text-xs/4.5 text-(--ds-text-muted)"
-                                :title="row.entry.origin.userAgent ?? undefined"
-                            >
-                                {{
-                                    originLine(row.entry.origin) ||
-                                    $t(
-                                        'Nothing recorded about where this came from.',
-                                    )
-                                }}
-                            </span>
-                        </span>
-
-                        <button
-                            v-if="row.entry.origin"
-                            type="button"
-                            class="cursor-pointer rounded text-xs/5 text-(--ds-text-muted) tabular-nums hover:text-(--ds-text) hover:underline hover:decoration-dotted hover:underline-offset-4"
-                            :class="focusRing"
-                            :aria-expanded="opened === row.entry.id"
-                            :aria-controls="`origin-${row.entry.id}`"
-                            :title="$t('Where this came from')"
-                            @click="
-                                opened =
-                                    opened === row.entry.id
-                                        ? null
-                                        : row.entry.id
-                            "
-                        >
-                            <time
-                                :datetime="row.entry.at"
-                                :title="fullTime(row.entry.at)"
-                                >{{ time(row.entry.at) }}</time
-                            >
-                        </button>
-                        <time
-                            v-else
-                            class="text-xs/5 text-(--ds-text-muted) tabular-nums"
-                            :datetime="row.entry.at"
-                            :title="fullTime(row.entry.at)"
-                        >
-                            {{ time(row.entry.at) }}
-                        </time>
-                    </li>
+        <template v-else>
+            <DashTable class="border-t-[0.5px] border-edge-tabs">
+                <template #head>
+                    <DashTh icon="activity-fill" :width="84" first>{{
+                        $t('When')
+                    }}</DashTh>
+                    <DashTh icon="user-fill" :width="200">{{
+                        $t('Who')
+                    }}</DashTh>
+                    <DashTh icon="activity-fill" :width="398">{{
+                        $t('What')
+                    }}</DashTh>
+                    <DashTh icon="machines-fill" :width="136">{{
+                        $t('Machine')
+                    }}</DashTh>
+                    <DashTh icon="globe-fill" fill>{{ $t('From') }}</DashTh>
                 </template>
-            </ol>
-            <button
-                v-if="more"
-                type="button"
-                class="w-full cursor-pointer border-t border-(--ds-divider) px-5 py-2.5 text-[13px]/5 font-medium text-(--ds-text-secondary) hover:bg-(--ds-row-hover) hover:text-(--ds-text) disabled:opacity-60"
-                :class="focusRing"
-                :disabled="loading"
-                @click="loadMore"
-            >
-                {{ loading ? $t('Loading…') : $t('Show older') }}
-            </button>
-        </div>
-    </WorkspacePage>
+
+                <template v-for="row in rows" :key="row.key">
+                    <tr v-if="row.type === 'day'">
+                        <td
+                            colspan="5"
+                            class="h-8 border-b-[0.5px] border-edge bg-surface-card-footer p-0 pl-5"
+                        >
+                            <span
+                                class="flex items-center gap-2 text-[12.5px]/4"
+                            >
+                                <span
+                                    class="font-medium tracking-[-0.005em] text-fg-primary"
+                                    >{{ row.label }}</span
+                                >
+                                <span class="text-[12px] text-fg-faint">{{
+                                    row.count === 1
+                                        ? $t('1 event')
+                                        : $t(':count events', {
+                                              count: String(row.count),
+                                          })
+                                }}</span>
+                            </span>
+                        </td>
+                    </tr>
+                    <DashTr v-else>
+                        <DashTd first>
+                            <time
+                                class="font-ui-mono text-[12px]/4 text-fg-tertiary"
+                                :datetime="row.entry.at"
+                                :title="
+                                    fullFormat.format(new Date(row.entry.at))
+                                "
+                                >{{
+                                    timeFormat.format(new Date(row.entry.at))
+                                }}</time
+                            >
+                        </DashTd>
+                        <DashTd>
+                            <template
+                                v-for="actor in [who(row.entry)]"
+                                :key="actor.kind"
+                            >
+                                <DashAvatar
+                                    v-if="actor.kind === 'person'"
+                                    :src="actor.avatar"
+                                    :name="actor.name"
+                                />
+                                <span
+                                    v-else
+                                    class="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-[#e9e9e9] text-fg-primary shadow-[0_1px_1.5px_rgb(0_0_0/0.45),inset_0_1px_0_rgb(255_255_255/0.05)] dark:bg-[#262626]"
+                                    aria-hidden="true"
+                                >
+                                    <FilledIcon
+                                        v-if="actor.kind === 'workflow'"
+                                        name="branch-fill"
+                                        :size="12"
+                                        class="text-fg-tertiary"
+                                    />
+                                    <span
+                                        v-else
+                                        class="flex h-[13.5px] w-3 [&>svg]:size-full"
+                                        v-html="serverosMark"
+                                    />
+                                </span>
+                                <span
+                                    class="max-w-[150px] truncate font-medium tracking-[-0.01em] text-fg-primary"
+                                    :title="actor.name"
+                                    >{{ actor.name }}</span
+                                >
+                            </template>
+                        </DashTd>
+                        <DashTd>
+                            <span
+                                class="flex max-w-[370px] min-w-0 items-center"
+                                :title="row.entry.detail ?? undefined"
+                            >
+                                <span
+                                    v-if="toneDot[row.entry.tone]"
+                                    class="mr-2 size-1.5 shrink-0 rounded-full"
+                                    :class="toneDot[row.entry.tone]"
+                                    aria-hidden="true"
+                                />
+                                <span
+                                    class="min-w-0 truncate tracking-[-0.005em] text-fg-tertiary"
+                                >
+                                    <template v-if="row.entry.leads">
+                                        <span
+                                            class="font-medium text-fg-primary"
+                                            >{{ row.entry.subject }}</span
+                                        >
+                                        {{ ' ' + row.entry.verb }}
+                                    </template>
+                                    <template v-else>
+                                        {{ capital(row.entry.verb) }}
+                                        <span
+                                            v-if="row.entry.subject"
+                                            class="font-medium text-fg-primary"
+                                            >{{ row.entry.subject }}</span
+                                        >
+                                    </template>
+                                    <template v-if="row.entry.after">{{
+                                        ` ${row.entry.after}`
+                                    }}</template>
+                                </span>
+                                <span
+                                    v-if="row.entry.detail"
+                                    class="ml-2 flex h-[18px] max-w-[140px] min-w-0 shrink-0 items-center rounded-[4px] border-[0.5px] border-edge-control bg-surface-raised px-[5px] font-ui-mono text-[11px]/3.5 text-fg-tertiary"
+                                >
+                                    <span class="truncate">{{
+                                        row.entry.detail
+                                    }}</span>
+                                </span>
+                            </span>
+                        </DashTd>
+                        <DashTd>
+                            <Link
+                                v-if="row.entry.machine"
+                                :href="machineHref(row.entry.machine.id)"
+                                class="flex min-w-0 items-center gap-2 font-medium tracking-[-0.01em] hover:text-fg-primary"
+                            >
+                                <BrandLogo :name="row.entry.machine.provider" />
+                                <span class="max-w-[90px] truncate">{{
+                                    row.entry.machine.name
+                                }}</span>
+                            </Link>
+                            <span v-else class="font-medium text-fg-faint"
+                                >–</span
+                            >
+                        </DashTd>
+                        <DashTd>
+                            <template
+                                v-for="source in [from(row.entry)]"
+                                :key="source.label"
+                            >
+                                <span
+                                    class="flex min-w-0 items-center gap-[7px]"
+                                >
+                                    <BrandLogo
+                                        v-if="source.logo"
+                                        :name="source.logo"
+                                        :size="14"
+                                    />
+                                    <FilledIcon
+                                        v-else-if="source.icon"
+                                        :name="source.icon"
+                                        :size="14"
+                                        class="text-fg-muted"
+                                    />
+                                    <span
+                                        class="truncate text-[12.5px]/4 font-medium tracking-[-0.005em]"
+                                        :title="
+                                            row.entry.origin?.userAgent ??
+                                            undefined
+                                        "
+                                        >{{ source.label }}</span
+                                    >
+                                    <span
+                                        v-if="source.extra"
+                                        class="font-ui-mono text-[11.5px]/4 text-fg-faint"
+                                        >{{ source.extra }}</span
+                                    >
+                                </span>
+                            </template>
+                            <span class="min-w-0 flex-1" />
+                            <DropdownMenu v-if="row.entry.origin">
+                                <DropdownMenuTrigger as-child>
+                                    <button
+                                        type="button"
+                                        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-fg-muted hover:bg-surface-raised hover:text-fg-primary focus-visible:outline-2 focus-visible:outline-(--ds-ring) data-[state=open]:bg-surface-raised"
+                                        :aria-label="$t('Where this came from')"
+                                    >
+                                        <Ellipsis class="size-4" />
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                    class="max-w-80 min-w-56 font-ui"
+                                    align="end"
+                                >
+                                    <DropdownMenuLabel
+                                        class="flex flex-col gap-0.5 text-[12px]/4 font-normal text-fg-tertiary"
+                                    >
+                                        <span
+                                            class="font-medium text-fg-secondary"
+                                            >{{
+                                                fullFormat.format(
+                                                    new Date(row.entry.at),
+                                                )
+                                            }}</span
+                                        >
+                                        <span
+                                            v-if="row.entry.origin.userAgent"
+                                            class="break-words"
+                                            >{{
+                                                row.entry.origin.userAgent
+                                            }}</span
+                                        >
+                                        <span
+                                            v-if="
+                                                !row.entry.origin.userAgent &&
+                                                !row.entry.origin.ip &&
+                                                !row.entry.origin.requestId
+                                            "
+                                            >{{
+                                                $t(
+                                                    'Nothing recorded about where this came from.',
+                                                )
+                                            }}</span
+                                        >
+                                    </DropdownMenuLabel>
+                                    <DropdownMenuSeparator
+                                        v-if="
+                                            row.entry.origin.ip ||
+                                            row.entry.origin.requestId ||
+                                            row.entry.machine
+                                        "
+                                    />
+                                    <DropdownMenuItem
+                                        v-if="row.entry.origin.ip"
+                                        @select="copy(row.entry.origin.ip)"
+                                    >
+                                        {{
+                                            $t('Copy IP address :ip', {
+                                                ip: row.entry.origin.ip,
+                                            })
+                                        }}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        v-if="row.entry.origin.requestId"
+                                        @select="
+                                            copy(row.entry.origin.requestId)
+                                        "
+                                    >
+                                        {{
+                                            $t('Copy reference :id', {
+                                                id: row.entry.origin.requestId.slice(
+                                                    0,
+                                                    8,
+                                                ),
+                                            })
+                                        }}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        v-if="row.entry.machine"
+                                        @select="
+                                            router.visit(
+                                                machineHref(
+                                                    row.entry.machine.id,
+                                                ),
+                                            )
+                                        "
+                                    >
+                                        {{
+                                            $t('Open :name', {
+                                                name: row.entry.machine.name,
+                                            })
+                                        }}
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </DashTd>
+                    </DashTr>
+                </template>
+            </DashTable>
+
+            <div v-if="more" class="flex justify-center py-3.5">
+                <button
+                    type="button"
+                    class="dash-button dash-button--secondary"
+                    :disabled="loading"
+                    @click="loadMore"
+                >
+                    {{ loading ? $t('Loading…') : $t('Show older') }}
+                </button>
+            </div>
+        </template>
+    </div>
 </template>

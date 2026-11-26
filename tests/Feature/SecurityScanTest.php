@@ -81,7 +81,7 @@ test('starting a scan queues an updates check, and polling reports it', function
     $workspace = Workspace::factory()->create();
     $machine = scannedMachine([]);
     $machine->forceFill(['workspace_id' => $workspace->id])->save();
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id.'/scan';
+    $url = $workspace->url().'/machines/'.$machine->id.'/scan';
 
     $jobId = $this->actingAs($workspace->owner)->postJson($url)->assertAccepted()->json('jobId');
     expect(DaemonJob::query()->find($jobId)->kind)->toBe('package_updates');

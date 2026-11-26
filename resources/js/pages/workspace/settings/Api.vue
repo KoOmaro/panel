@@ -28,6 +28,8 @@ import DangerButton from '@/components/workspace/DangerButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import Tile from '@/components/workspace/Tile.vue';
 import { timeAgo } from '@/lib/timeAgo';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 import { describe, errorMessage } from '@/lib/errors';
 
@@ -115,7 +117,10 @@ async function createKey(): Promise<void> {
     creating.value = true;
     keyErrors.value = {};
     try {
-        const response = await fetch('/settings/api/keys', {
+        const url = onWorkspace(
+            settingsRoutes.api.keys.store(props.workspace.slug),
+        ).url;
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
@@ -192,7 +197,11 @@ const revokeBusy = ref(false);
 
 function revoke(): void {
     if (!revoking.value) return;
-    router.delete(`/settings/api/keys/${revoking.value.id}`, {
+    const route = settingsRoutes.api.keys.destroy({
+        workspace: props.workspace.slug,
+        key: revoking.value.id,
+    });
+    router.delete(onWorkspace(route).url, {
         preserveScroll: true,
         onStart: () => (revokeBusy.value = true),
         onFinish: () => {
@@ -224,7 +233,7 @@ const th = 'px-3 py-2.5 text-left text-[12px]/4 font-medium';
 <template>
     <Head :title="$t('API')" />
 
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col">
         <Tile
             :title="$t('REST API')"
             :description="

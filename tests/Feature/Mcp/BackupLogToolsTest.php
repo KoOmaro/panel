@@ -360,7 +360,7 @@ test('list_backups shows the history newest first with filters and a cursor', fu
     $all = mcpCall($workspace, $key, 'list_backups');
     expect($all['error'])->toBeFalse()
         ->and(collect($all['data']['backups'])->pluck('id')->all())->toBe([$dbBackup->id, $failed->id, $old->id])
-        ->and($all['data'])->toMatchArray(['count' => 3, 'hasMore' => false, 'nextCursor' => null, 'url' => 'https://'.$workspace->host().'/backups'])
+        ->and($all['data'])->toMatchArray(['count' => 3, 'hasMore' => false, 'nextCursor' => null, 'url' => $workspace->url().'/backups'])
         ->and($all['text'])->not->toContain('not-mine');
     expect($all['data']['backups'][2])->toMatchArray([
         'machine' => ['id' => $machine->id, 'name' => 'game-box'], 'service' => 'docker:mc', 'state' => 'succeeded', 'status' => 'Done',
@@ -423,7 +423,7 @@ test('search_logs returns the newest lines that match, in order, like the Logs p
     $all = mcpCall($workspace, $key, 'search_logs');
     expect($all['error'])->toBeFalse()
         ->and(collect($all['data']['entries'])->pluck('message')->all())->toBe(['GET /health 200', 'ERROR payment failed for order 42', 'WARN retrying payment', 'payment upstream down', 'debug noise'])
-        ->and($all['data'])->toMatchArray(['count' => 5, 'more' => false, 'retentionDays' => 14, 'note' => null, 'url' => 'https://'.$workspace->host().'/logs'])
+        ->and($all['data'])->toMatchArray(['count' => 5, 'more' => false, 'retentionDays' => 14, 'note' => null, 'url' => $workspace->url().'/logs'])
         ->and($all['text'])->not->toContain('not yours');
     expect($all['data']['entries'][1])->toMatchArray([
         'machine' => ['id' => $web->id, 'name' => 'web-1'], 'service' => 'umami-umami-1', 'serviceLabel' => 'Umami', 'serviceKey' => 'docker:aaa',
@@ -447,7 +447,7 @@ test('search_logs returns the newest lines that match, in order, like the Logs p
     expect($filtered['data']['filters'])->toMatchArray([
         'machine' => ['id' => $web->id, 'name' => 'web-1'], 'service' => ['asked' => 'umami', 'matches' => ['umami', 'umami-umami-1']], 'level' => 'error', 'q' => 'payment',
     ])
-        ->and($filtered['data']['url'])->toBe('https://'.$workspace->host().'/logs?machine='.$web->id.'&level=error&q=payment');
+        ->and($filtered['data']['url'])->toBe($workspace->url().'/logs?machine='.$web->id.'&level=error&q=payment');
 
     $unknown = mcpCall($workspace, $key, 'search_logs', ['service' => 'postgres']);
     expect($unknown['error'])->toBeTrue()

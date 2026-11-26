@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { router, useForm } from '@inertiajs/vue3';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import { computed, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 import {
@@ -14,6 +14,8 @@ import { SelectMenu } from '@/components/ui/select';
 import type { SelectMenuOption } from '@/components/ui/select';
 import AppButton from '@/components/workspace/AppButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import statusIncidentsRoutes from '@/routes/workspace/status-incidents';
 
 export type Incident = {
     id: number;
@@ -33,6 +35,8 @@ const props = defineProps<{
     machines: { id: number; name: string }[];
     canManage: boolean;
 }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
 
 const labelClass = 'text-[13px]/5 font-medium text-(--ds-text-muted)';
 const focusRing =
@@ -107,9 +111,21 @@ function submit(): void {
             state: data.state,
             message: data.message,
             impact: data.impact,
-        })).post(`/status-incidents/${props.incident.id}/updates`, done);
+        })).post(
+            onWorkspace(
+                statusIncidentsRoutes.update({
+                    workspace: page.props.workspace.slug,
+                    incident: props.incident.id,
+                }),
+            ).url,
+            done,
+        );
     } else {
-        form.transform((data) => data).post('/status-incidents', done);
+        form.transform((data) => data).post(
+            onWorkspace(statusIncidentsRoutes.store(page.props.workspace.slug))
+                .url,
+            done,
+        );
     }
 }
 
@@ -123,10 +139,18 @@ function remove(): void {
         )
     )
         return;
-    router.delete(`/status-incidents/${props.incident.id}`, {
-        preserveScroll: true,
-        onSuccess: () => (open.value = false),
-    });
+    router.delete(
+        onWorkspace(
+            statusIncidentsRoutes.destroy({
+                workspace: page.props.workspace.slug,
+                incident: props.incident.id,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (open.value = false),
+        },
+    );
 }
 </script>
 

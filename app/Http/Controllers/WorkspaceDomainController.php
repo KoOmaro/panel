@@ -14,6 +14,7 @@ use App\Support\Domains\Cloudflare;
 use App\Support\Domains\CustomDomains;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
+use App\Support\Workspaces\Dashboard;
 use App\Support\WorkspaceSlugs;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -48,7 +49,7 @@ class WorkspaceDomainController extends Controller
             'ready' => Cloudflare::enabled() || CustomDomains::direct(),
             'canChange' => $workspace->allows($request->user(), WorkspacePermission::ManageSettings),
             'cnameTarget' => CustomDomains::target(),
-            'subdomain' => $workspace->subdomain(),
+            'subdomain' => Dashboard::host().'/'.$workspace->slug,
             'dashboard' => self::present($rows->get(WorkspaceDomain::DASHBOARD)),
             'status' => self::present($rows->get(WorkspaceDomain::STATUS)),
             'statusPages' => collect([$fleet ? [
@@ -141,7 +142,7 @@ class WorkspaceDomainController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Disconnected '.($domain->hostname ?? "/{$domain->path}").'.']);
 
         return $leaving
-            ? Inertia::location('https://'.$workspace->subdomain().'/settings/domains')
+            ? Inertia::location(Dashboard::url($workspace->slug, '/settings/domains'))
             : back();
     }
 
@@ -150,7 +151,7 @@ class WorkspaceDomainController extends Controller
         $host = CustomDomains::dashboardHostFor($workspace->slug);
         $to = self::localPath($request->query('to'));
         if ($host === null) {
-            return redirect($to);
+            return redirect($workspace->url($to));
         }
 
         $token = Str::random(48);
@@ -200,7 +201,8 @@ class WorkspaceDomainController extends Controller
         abort_unless(in_array($request->server->get('REMOTE_ADDR'), ['127.0.0.1', '::1'], true), 404);
         $domain = strtolower((string) $request->query('domain'));
         $ours = (string) config('app.domain');
-        $allowed = (Edition::selfHosted() ? self::selfHostedServes($domain, $ours) : ($domain === $ours || str_ends_with($domain, ".{$ours}")))
+        $allowed = $domain === Dashboard::host()
+            || (Edition::selfHosted() ? self::selfHostedServes($domain, $ours) : ($domain === $ours || str_ends_with($domain, ".{$ours}")))
             || WorkspaceDomain::query()->where('hostname', $domain)->whereIn('state', ['pending', 'active'])->exists();
 
         return response($allowed ? 'ok' : 'denied', $allowed ? 200 : 404);

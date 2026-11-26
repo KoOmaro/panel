@@ -22,6 +22,7 @@ final readonly class SettingsItem
         public string $keywords = '',
         public array $sections = [],
         public ?Closure $visible = null,
+        public string $description = '',
     ) {}
 
     public function visibleTo(Workspace $workspace, ?User $user): bool
@@ -30,13 +31,14 @@ final readonly class SettingsItem
     }
 
     /**
-     * @return array{key: string, label: string, icon: string, path: string, group: string, component: string, keywords: string, sections: list<array{label: string, anchor: string, keywords: string}>}
+     * @return array{key: string, label: string, description: string, icon: string, path: string, group: string, component: string, keywords: string, sections: list<array{label: string, anchor: string, keywords: string}>}
      */
     public function toArray(): array
     {
         return [
             'key' => $this->key,
             'label' => __($this->label),
+            'description' => $this->description === '' ? '' : __($this->description),
             'icon' => $this->icon,
             'path' => $this->path,
             'group' => $this->group,

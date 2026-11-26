@@ -39,8 +39,8 @@ setup() {
         cp "$root/.env.example" "$root/.env"
         echo "Created .env from .env.example"
     fi
-    # Browsers send *.localhost to 127.0.0.1 by themselves, so workspace
-    # subdomains work without touching /etc/hosts.
+    # Browsers send *.localhost to 127.0.0.1 by themselves, so the cloud.
+    # dashboard host works without touching /etc/hosts.
     env_set APP_URL http://serveros.localhost:8000
     env_set APP_DOMAIN serveros.localhost
     env_set SESSION_DOMAIN .serveros.localhost

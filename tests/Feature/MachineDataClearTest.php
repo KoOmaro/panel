@@ -24,7 +24,7 @@ use Illuminate\Support\Str;
 
 function clearDataUrl(Workspace $workspace, ?Machine $machine = null): string
 {
-    return 'https://'.$workspace->host().'/machines/'.($machine === null ? '' : $machine->id.'/').'collected-data';
+    return $workspace->url().'/machines/'.($machine === null ? '' : $machine->id.'/').'collected-data';
 }
 
 function clearDataMachine(Workspace $workspace, string $name = 'web-1', int $lines = 5): Machine
@@ -321,7 +321,7 @@ test('the settings page counts what the machine has sent once asked', function (
     $workspace = Workspace::factory()->create();
     $machine = clearDataMachine($workspace);
 
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id.'/settings';
+    $url = $workspace->url().'/machines/'.$machine->id.'/settings';
     $page = $this->actingAs($workspace->owner)->get($url)->viewData('page');
     expect($page['props'])->not->toHaveKey('collectedData');
 

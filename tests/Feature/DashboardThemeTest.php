@@ -15,7 +15,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function themeUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/settings/theme'.$path;
+    return $workspace->url().'/settings/theme'.$path;
 }
 
 function themeMember(Workspace $workspace, string $role): User
@@ -34,11 +34,11 @@ test('a draft shows only to the person editing it, and publishing shows it to ev
 
     $this->actingAs($owner)->put(themeUrl($workspace, '/draft'), ['css' => $css])->assertSessionHasNoErrors();
 
-    $this->actingAs($owner)->get('https://'.$workspace->host().'/machines')
+    $this->actingAs($owner)->get($workspace->url().'/machines')
         ->assertSee('<style id="workspace-theme">', false)
         ->assertSee('--ds-accent: #1621d1', false)
         ->assertInertia(fn (Assert $page) => $page->where('workspaceTheme.draft', true)->where('workspaceTheme.published', false));
-    $this->actingAs($member)->get('https://'.$workspace->host().'/machines')
+    $this->actingAs($member)->get($workspace->url().'/machines')
         ->assertDontSee('workspace-theme', false)
         ->assertInertia(fn (Assert $page) => $page->where('workspaceTheme.css', null)->where('workspaceTheme.draft', false));
 
@@ -47,15 +47,15 @@ test('a draft shows only to the person editing it, and publishing shows it to ev
         ->and($workspace->fresh()->theme_draft_css)->toBeNull()
         ->and(Activity::query()->where('action', 'workspace.theme_publish')->exists())->toBeTrue();
 
-    $this->actingAs($member)->get('https://'.$workspace->host().'/machines')
+    $this->actingAs($member)->get($workspace->url().'/machines')
         ->assertSee('--ds-accent: #1621d1', false)
         ->assertInertia(fn (Assert $page) => $page->where('workspaceTheme.css', $css)->where('workspaceTheme.published', true));
 
-    $this->actingAs($member)->get('https://'.$workspace->host().'/machines?theme=off')
+    $this->actingAs($member)->get($workspace->url().'/machines?theme=off')
         ->assertDontSee('workspace-theme', false)
         ->assertInertia(fn (Assert $page) => $page->where('workspaceTheme.off', true));
-    $this->actingAs($member)->get('https://'.$workspace->host().'/machines')->assertDontSee('workspace-theme', false);
-    $this->actingAs($member)->get('https://'.$workspace->host().'/machines?theme=on')->assertSee('workspace-theme', false);
+    $this->actingAs($member)->get($workspace->url().'/machines')->assertDontSee('workspace-theme', false);
+    $this->actingAs($member)->get($workspace->url().'/machines?theme=on')->assertSee('workspace-theme', false);
 
     $this->actingAs($owner)->delete(themeUrl($workspace))->assertSessionHasNoErrors();
     expect($workspace->fresh()->theme_css)->toBeNull()
@@ -212,7 +212,7 @@ test('a palette of a few colours becomes a whole theme, and a dark-only palette 
         ->and(substr_count($css, '--ds-'))->toBeGreaterThan(70)
         ->and(ThemeCss::problem($css))->toBeNull();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/machines')
         ->assertSee('data-theme-appearance="dark"', false);
 
     $bad = mcpCall($workspace, mcpKey($workspace), 'update_dashboard_theme', ['palette' => ['light' => ['background' => 'red', 'text' => '#000', 'accent' => '#00f']]]);

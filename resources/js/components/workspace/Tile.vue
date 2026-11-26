@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { Component } from 'vue';
-import { useId } from 'vue';
+import { inject, useId } from 'vue';
+import SettingsSection from '@/components/workspace/settings/SettingsSection.vue';
+import { SETTINGS_SECTIONS } from '@/components/workspace/settings/sections';
 
 type Props = {
     title?: string;
@@ -8,18 +10,41 @@ type Props = {
     icon?: Component;
     danger?: boolean;
     padded?: boolean;
+    wide?: boolean;
 };
 
 const props = withDefaults(defineProps<Props>(), {
     danger: false,
     padded: true,
+    wide: false,
 });
 
 const headingId = useId();
+const sectioned = inject(SETTINGS_SECTIONS, false);
 </script>
 
 <template>
+    <SettingsSection
+        v-if="sectioned"
+        :title="title"
+        :description="description"
+        :danger="danger"
+        :padded="padded"
+        :wide="wide"
+    >
+        <template v-if="$slots.head" #head>
+            <slot name="head" />
+        </template>
+        <template v-if="$slots.actions" #actions>
+            <slot name="actions" />
+        </template>
+        <slot />
+        <template v-if="$slots.footer" #footer>
+            <slot name="footer" />
+        </template>
+    </SettingsSection>
     <section
+        v-else
         class="ds-tile flex min-w-0 flex-col"
         :class="{ 'ds-tile-danger': danger }"
         :aria-labelledby="props.title ? headingId : undefined"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { router, useForm } from '@inertiajs/vue3';
+import Tile from '@/components/workspace/Tile.vue';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { Check } from '@lucide/vue';
 import { SolarCopy as Copy, SolarRotateCw as RotateCw } from '@/lib/solarIcons';
@@ -8,6 +9,8 @@ import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import AppButton from '@/components/workspace/AppButton.vue';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import emailDomainsRoutes from '@/routes/workspace/settings/email-domains';
 
 export type EmailDomain = {
     id: number;
@@ -25,19 +28,29 @@ export type EmailDomains = {
 
 const props = defineProps<{ emailDomains: EmailDomains }>();
 
+const page = usePage<{ workspace: { slug: string } }>();
+
 const domainForm = useForm({ domain: '' });
 function addDomain(): void {
-    domainForm.post('/settings/email-domains', {
-        preserveScroll: true,
-        onSuccess: () => domainForm.reset(),
-    });
+    domainForm.post(
+        onWorkspace(emailDomainsRoutes.store(page.props.workspace.slug)).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => domainForm.reset(),
+        },
+    );
 }
 
 const checking = ref<number | null>(null);
 function checkDomain(domain: EmailDomain): void {
     checking.value = domain.id;
     router.post(
-        `/settings/email-domains/${domain.id}/check`,
+        onWorkspace(
+            emailDomainsRoutes.check({
+                workspace: page.props.workspace.slug,
+                emailDomain: domain.id,
+            }),
+        ).url,
         {},
         {
             preserveScroll: true,
@@ -56,12 +69,20 @@ function removeDomain(domain: EmailDomain): void {
         )
     )
         return;
-    router.delete(`/settings/email-domains/${domain.id}`, {
-        preserveScroll: true,
-        onError: (errors) => {
-            if (errors.domain) toast.error(errors.domain);
+    router.delete(
+        onWorkspace(
+            emailDomainsRoutes.destroy({
+                workspace: page.props.workspace.slug,
+                emailDomain: domain.id,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onError: (errors) => {
+                if (errors.domain) toast.error(errors.domain);
+            },
         },
-    });
+    );
 }
 
 const copied = ref<string | null>(null);
@@ -84,28 +105,18 @@ const focusRing =
 </script>
 
 <template>
-    <section
+    <Tile
         id="verified-domains"
-        class="flex scroll-mt-6 flex-col gap-3"
-        aria-labelledby="verified-domains-heading"
+        class="scroll-mt-6"
+        :title="$t('Verified domains')"
+        :description="
+            $t(
+                'Prove your company’s email domain is yours. Google sign-in, single sign-on and SCIM only work for emails on a verified domain.',
+            )
+        "
+        :padded="false"
     >
-        <div class="flex flex-col gap-0.5">
-            <h2
-                id="verified-domains-heading"
-                class="text-[15px]/6 font-semibold tracking-[-0.01em]"
-            >
-                {{ $t('Verified domains') }}
-            </h2>
-            <p class="text-[13px]/5 text-(--ds-text-muted)">
-                {{
-                    $t(
-                        'Prove your company’s email domain is yours. Google sign-in, single sign-on and SCIM only work for emails on a verified domain.',
-                    )
-                }}
-            </p>
-        </div>
-
-        <div class="ds-tile flex flex-col">
+        <div class="flex flex-col">
             <ul
                 v-if="props.emailDomains.domains.length"
                 class="ds-tile-rows flex flex-col"
@@ -243,5 +254,5 @@ const focusRing =
                 <InputError :message="domainForm.errors.domain" />
             </form>
         </div>
-    </section>
+    </Tile>
 </template>
