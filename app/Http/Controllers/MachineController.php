@@ -15,6 +15,7 @@ use App\Models\MaintenanceWindow;
 use App\Models\ProjectNode;
 use App\Models\ServiceGroup;
 use App\Models\Workspace;
+use App\Support\Admin\Impersonation;
 use App\Support\Audit\Audited;
 use App\Support\ConsoleLock;
 use App\Support\Deploys\DeployFailure;
@@ -22,6 +23,7 @@ use App\Support\Files\FileJobs;
 use App\Support\Firewall;
 use App\Support\Health\WorkspaceHealth;
 use App\Support\Machines\MachinePolicies;
+use App\Support\Machines\Readme\MachineReadmes;
 use App\Support\Machines\SshAccess;
 use App\Support\ScheduledTasks;
 use App\Support\ServiceTemplates\ServiceTemplateCatalog;
@@ -55,9 +57,18 @@ class MachineController extends Controller
         ]);
     }
 
-    public function show(Request $request, Workspace $workspace, Machine $machine, ServiceTemplateCatalog $templates, ConsoleLock $console): Response
+    public function show(Request $request, Workspace $workspace, Machine $machine, ServiceTemplateCatalog $templates, ConsoleLock $console, MachineReadmes $readmes): Response
     {
         abort_unless($machine->workspace_id === $workspace->id, 404);
+
+        $tab = $request->route('tab');
+        $user = $request->user();
+        $defaultTab = $tab === null && MachineReadmes::opensFirst($machine, $user) ? 'readme' : 'overview';
+        $onReadme = $tab === 'readme' || $defaultTab === 'readme';
+        if ($onReadme && ! Impersonation::active($request)) {
+            MachineReadmes::seen($machine, $user);
+        }
+        $readme = fn () => $readmes->page($machine, $user);
 
         $range = array_key_exists((string) $request->query('range'), self::RANGES)
             ? (string) $request->query('range')
@@ -89,6 +100,8 @@ class MachineController extends Controller
             'history' => Inertia::optional(fn () => MachineSample::history($machine, self::RANGES[$range])),
             'scheduled' => fn () => ScheduledTasks::for($machine),
             'issues' => fn () => app(WorkspaceHealth::class)->forMachine($machine),
+            'defaultTab' => $defaultTab,
+            'readme' => $onReadme ? $readme : Inertia::optional($readme),
             'access' => fn () => SshAccess::view($workspace, $machine, $request->user()),
             'serviceGroups' => fn () => $machine->serviceGroups()->orderBy('name')->get()
                 ->map(fn (ServiceGroup $group) => $group->toPageProps())

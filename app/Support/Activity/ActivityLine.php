@@ -95,6 +95,7 @@ final class ActivityLine
             'machine.ssh_access.failed' => $set('didn’t get SSH access', null, 'bad'),
             'machine.ssh_access.end' => $set('lost SSH access'),
             'machine.remove' => $set('removed the machine', null, 'bad'),
+            'machine.readme_write' => $set('asked ServerOS to write the readme again for'),
             'machine.data_clear' => $set(match (array_keys(array_intersect_key($meta, array_flip(['logs', 'metrics', 'services'])))) {
                 ['logs'] => isset($meta['skipped_services'])
                     ? $t((int) $meta['skipped_services'] === 1 ? 'deleted logs from 1 skipped service on' : 'deleted logs from :count skipped services on', ['count' => (string) $meta['skipped_services']])
@@ -245,6 +246,7 @@ final class ActivityLine
             'project.preview_closed' => $set('removed the preview for pull request', null, 'warn'),
             'project.preview_skipped' => $set('skipped a preview for pull request', $meta['reason'] ?? null, 'warn'),
             'github.code_repository' => $set('chose where the workspace’s code goes:', isset($meta['branch']) ? $t('on :branch', ['branch' => (string) $meta['branch']]) : null),
+            'github.machine_readme' => $set('added a machine’s readme to', isset($meta['number']) ? $t('as pull request #:number', ['number' => (string) $meta['number']]) : null),
             'github.code_pull_request' => $set(($meta['updated'] ?? false) ? 'updated the workspace’s code in' : 'sent the workspace’s code to', isset($meta['number']) ? $t('as pull request #:number', ['number' => (string) $meta['number']]) : null),
             'member.join' => ($meta['via'] ?? null) === 'scim'
                 ? $set('added', isset($meta['role']) ? $t('to the workspace as :role', ['role' => $t($meta['role'])]) : 'to the workspace', 'good')

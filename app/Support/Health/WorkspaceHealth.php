@@ -112,6 +112,25 @@ class WorkspaceHealth
         ));
     }
 
+    /** @return list<Issue> */
+    public function aboutMachine(Machine $machine): array
+    {
+        $issues = [...$this->machineIssues($machine), ...$this->backupIssues(new Collection([$machine]))];
+        foreach ($machine->workspace->monitors()->where('machine_id', $machine->id)->where('paused', false)->get() as $monitor) {
+            $found = $this->monitorIssues($monitor);
+            array_push($issues, ...($monitor->muted() ? array_map(fn (array $issue) => [...$issue, 'severity' => self::NOTICE], $found) : $found));
+        }
+        if ($machine->inMaintenance()) {
+            $issues = array_map(fn (array $issue) => [...$issue, 'severity' => self::NOTICE], $issues);
+        }
+        $dismissed = $machine->workspace->dismissed_issues ?? [];
+
+        return array_values(array_filter(
+            $issues,
+            fn (array $issue) => ! array_key_exists($issue['id'], $dismissed) || $dismissed[$issue['id']] !== $issue['since'],
+        ));
+    }
+
     /**
      * @return list<Issue>
      */

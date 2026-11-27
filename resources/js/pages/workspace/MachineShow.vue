@@ -39,6 +39,8 @@ import type {
 import MachineServicesTab from '@/components/machines/MachineServicesTab.vue';
 import type { ScheduledTask } from '@/components/machines/MachineServicesTab.vue';
 import MachineUpdatesTab from '@/components/machines/MachineUpdatesTab.vue';
+import MachineReadme from '@/components/machines/readme/MachineReadme.vue';
+import type { MachineReadmeData } from '@/components/machines/readme/readme';
 import SecurityScan from '@/components/machines/SecurityScan.vue';
 import type {
     ServiceGroup,
@@ -112,6 +114,8 @@ const props = defineProps<{
     };
     issues?: HealthIssue[];
     access?: MachineAccess;
+    defaultTab?: 'overview' | 'readme';
+    readme?: MachineReadmeData;
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -153,6 +157,7 @@ const settingsUrl = computed(
 
 type TabKey =
     | 'overview'
+    | 'readme'
     | 'services'
     | 'system-updates'
     | 'backups'
@@ -169,21 +174,26 @@ const ALIASES: Record<string, TabKey> = {
     files: 'terminal',
 };
 
-const tab = usePathTab(machineBase.value, [
-    'overview',
-    'services',
-    'system-updates',
-    'backups',
-    'firewall',
-    'access',
-    'terminal',
-    'scheduled',
-    'deployments',
-    'usage',
-    'specs',
-    'ports',
-    'files',
-] as const);
+const tab = usePathTab(
+    machineBase.value,
+    [
+        'overview',
+        'readme',
+        'services',
+        'system-updates',
+        'backups',
+        'firewall',
+        'access',
+        'terminal',
+        'scheduled',
+        'deployments',
+        'usage',
+        'specs',
+        'ports',
+        'files',
+    ] as const,
+    props.defaultTab ?? 'overview',
+);
 
 const current = computed<TabKey>(
     () => ALIASES[tab.value] ?? (tab.value as TabKey),
@@ -192,6 +202,7 @@ const current = computed<TabKey>(
 const tabs = computed<{ key: TabKey; label: string; icon: FilledIconName }[]>(
     () => [
         { key: 'overview', label: trans('Overview'), icon: 'monitors-fill' },
+        { key: 'readme', label: trans('Readme'), icon: 'docs-fill' },
         { key: 'services', label: trans('Services'), icon: 'layers-fill' },
         {
             key: 'system-updates',
@@ -580,9 +591,13 @@ onBeforeUnmount(() => {
                 label: machine.name,
                 logo: machine.iconUrl ? undefined : machine.provider,
                 image: machine.iconUrl,
-                href: current === 'access' ? machineBase : undefined,
+                href:
+                    current === 'access' || current === 'readme'
+                        ? machineBase
+                        : undefined,
             },
             ...(current === 'access' ? [{ label: $t('Access') }] : []),
+            ...(current === 'readme' ? [{ label: $t('Readme') }] : []),
         ]"
     >
         <template #actions>
@@ -783,6 +798,17 @@ onBeforeUnmount(() => {
                 </p>
             </template>
         </MachineOverview>
+
+        <MachineReadme
+            v-else-if="current === 'readme' && machine.id"
+            class="grow"
+            :readme="readme"
+            :machine-id="machine.id"
+            :machine-name="machine.name"
+            :workspace-slug="workspace.slug"
+            :can-manage="canManage"
+            @updates="updatesOpen = true"
+        />
 
         <MachineServicesTab
             v-else-if="current === 'services'"

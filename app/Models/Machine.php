@@ -217,6 +217,12 @@ class Machine extends Model
         return $this->hasOne(StatusPage::class);
     }
 
+    /** @return HasOne<MachineReadme, $this> */
+    public function readme(): HasOne
+    {
+        return $this->hasOne(MachineReadme::class);
+    }
+
     public function inMaintenance(): bool
     {
         return $this->maintenance_until !== null && $this->maintenance_until->isFuture();

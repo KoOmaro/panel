@@ -188,6 +188,7 @@ test('with no known vulnerabilities the security card follows the update waiting
 });
 
 test('the backups card counts what is covered, puts failures first and names where backups go', function () {
+    $this->freezeTime();
     $workspace = Workspace::factory()->create();
     $r2 = homeDestination($workspace, 'R2', 'https://acc123.r2.cloudflarestorage.com');
     $b2 = homeDestination($workspace, 'B2', 's3.eu-central-003.backblazeb2.com');

@@ -37,7 +37,13 @@ const tabs = computed<
         key: 'overview',
         label: trans('Overview'),
         icon: 'monitors-fill',
-        href: machineBase.value,
+        href: `${machineBase.value}/overview`,
+    },
+    {
+        key: 'readme',
+        label: trans('Readme'),
+        icon: 'docs-fill',
+        href: `${machineBase.value}/readme`,
     },
     {
         key: 'services',

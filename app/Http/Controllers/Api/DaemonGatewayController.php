@@ -28,6 +28,7 @@ use App\Support\Machines\MachineDisks;
 use App\Support\Machines\MachineMetadata;
 use App\Support\Machines\MachineVitals;
 use App\Support\Machines\PackageUpdates;
+use App\Support\Machines\Readme\MachineReadmes;
 use App\Support\Machines\SshAccess;
 use App\Support\Projects\ProjectData;
 use App\Support\Projects\ProjectLinks;
@@ -361,6 +362,9 @@ class DaemonGatewayController extends Controller
 
         if ($firstInventory && $machine->inventory !== null) {
             $this->startSetupScan($machine);
+            MachineReadmes::queue($machine);
+        } elseif (isset($changes['inventory']) || isset($changes['facts'])) {
+            MachineReadmes::changed($machine);
         }
 
         return response()->json(['ok' => true]);

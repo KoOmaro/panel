@@ -715,6 +715,11 @@ class AssistantAgent
             $links = $project->links->map(fn (ProjectLink $l) => "{$l->app->name} → {$l->resource->name} ({$l->state})")->implode('; ') ?: 'none';
             $page = "\n- That's the project {$project->name} (id {$project->uid}). Its parts: {$parts}. Connections: {$links}.";
         }
+        if ($page === '' && preg_match('#/machines/(\d+)(?:/|$)#', (string) $path, $m) === 1
+            && ($machine = $workspace->machines()->with('readme')->find((int) $m[1])) !== null) {
+            $intro = $machine->readme?->sections['intro'] ?? null;
+            $page = "\n- That's the machine {$machine->name} (#{$machine->id}).".(is_string($intro) ? ' Its readme says: '.str_replace(['**', '!!'], '', $intro) : '');
+        }
         $role = $this->context->can(WorkspacePermission::ManageMachines) ? 'They can make changes.' : 'Their role can only look, not change things: say so if they ask for a change.';
 
         $groups = [];
