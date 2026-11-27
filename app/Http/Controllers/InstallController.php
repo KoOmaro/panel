@@ -7,6 +7,7 @@ use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Http\Middleware\EnsureInstalling;
 use App\Models\User;
+use App\Support\Docs\DocsUrl;
 use App\Support\Install\AddressCheck;
 use App\Support\Install\DatabaseSetup;
 use App\Support\Install\EnvFile;
@@ -71,6 +72,7 @@ class InstallController extends Controller
             'progress' => $progress,
             'docker' => Installer::docker(),
             'codeCommand' => Installer::docker() ? 'serveros-panel setup-code' : 'php artisan install:code',
+            'guideUrl' => DocsUrl::page('guides', 'self-hosting'),
             ...match ($step) {
                 'check' => ['checks' => $checks->run()],
                 'database' => ['database' => $this->databaseProps()],
@@ -576,6 +578,7 @@ class InstallController extends Controller
             'url' => $url,
             'suggested' => in_array($url, ['', 'http://localhost', 'http://localhost:8000'], true) ? $visiting : $url,
             'editable' => $this->addressEditable(),
+            'tunnel' => config('serveros.tunnel') === 'cloudflare',
         ];
     }
 

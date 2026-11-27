@@ -3,13 +3,13 @@ defineProps<{ title: string; description?: string }>();
 </script>
 
 <template>
-    <div class="mb-6 flex flex-col gap-1.5">
-        <h1 class="text-[18px]/6 font-semibold tracking-[-0.01em]">
+    <div class="flex flex-col gap-1.5">
+        <h1 class="text-[18px]/6 font-medium text-fg-primary">
             {{ title }}
         </h1>
         <p
             v-if="description"
-            class="text-[13.5px]/5 text-pretty text-(--ds-text-muted)"
+            class="text-[13px]/5 text-pretty text-fg-secondary"
         >
             {{ description }}
         </p>

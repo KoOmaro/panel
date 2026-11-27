@@ -46,6 +46,7 @@ export type AddressProps = {
     url: string;
     suggested: string;
     editable: boolean;
+    tunnel: boolean;
 };
 
 export type MailProps = {

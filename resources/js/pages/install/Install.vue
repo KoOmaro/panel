@@ -2,6 +2,10 @@
 import { Head } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed } from 'vue';
+import serverosMark from '@/components/dash/assets/serveros-mark.svg?raw';
+import DashTray from '@/components/dash/DashTray.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import AddressStep from '@/components/install/AddressStep.vue';
 import CheckStep from '@/components/install/CheckStep.vue';
 import CodeStep from '@/components/install/CodeStep.vue';
@@ -25,6 +29,7 @@ const props = defineProps<{
     progress: Record<InstallStep, boolean>;
     docker: boolean;
     codeCommand: string;
+    guideUrl: string;
     checks?: CheckItem[];
     database?: DatabaseProps;
     address?: AddressProps;
@@ -33,102 +38,127 @@ const props = defineProps<{
     summary?: Summary;
 }>();
 
-const steps = computed<{ key: InstallStep; label: string }[]>(() => [
-    { key: 'check', label: trans('Server') },
-    { key: 'database', label: trans('Database') },
-    { key: 'address', label: trans('Address') },
-    { key: 'mail', label: trans('Email') },
-    { key: 'owner', label: trans('Account') },
-    { key: 'done', label: trans('Finish') },
+const steps = computed<
+    { key: InstallStep; label: string; icon: FilledIconName }[]
+>(() => [
+    { key: 'check', label: trans('Server'), icon: 'machines-fill' },
+    { key: 'database', label: trans('Database'), icon: 'database-fill' },
+    { key: 'address', label: trans('Address'), icon: 'globe-fill' },
+    { key: 'mail', label: trans('Email'), icon: 'mail-fill' },
+    { key: 'owner', label: trans('Account'), icon: 'user-fill' },
+    { key: 'done', label: trans('Finish'), icon: 'list-checks' },
 ]);
 
 const index = computed(() =>
     steps.value.findIndex((step) => step.key === props.step),
+);
+const header = computed(() =>
+    props.step === 'code'
+        ? { label: trans('Setup code'), icon: 'key-fill' as const }
+        : steps.value[index.value],
 );
 </script>
 
 <template>
     <Head :title="$t('Set up ServerOS')" />
     <div
-        class="ds-root flex min-h-svh flex-col bg-(--ds-frame) font-ui text-(--ds-text) antialiased"
+        class="ds-root flex min-h-svh flex-col bg-surface-main font-ui text-fg-primary antialiased"
     >
-        <main class="flex grow justify-center px-4 py-12 sm:items-center">
-            <div class="w-full max-w-[480px]">
+        <main
+            class="flex grow flex-col items-center justify-center gap-[22px] px-4 py-12"
+        >
+            <span class="flex items-center gap-2.5 text-fg-primary">
                 <span
-                    class="mx-auto mb-6 flex w-fit items-center gap-2.5 text-(--ds-text-strong)"
+                    class="flex h-5 w-[17.7px] shrink-0 [&>svg]:size-full"
+                    aria-hidden="true"
+                    v-html="serverosMark"
+                />
+                <span class="text-[17px]/5 font-semibold tracking-[-0.02em]"
+                    >ServerOS</span
                 >
-                    <span
-                        aria-hidden="true"
-                        class="size-[20px] bg-current [mask:url(/images/landing/serveros-logo.svg)_center/contain_no-repeat]"
-                    />
-                    <span class="text-[17px]/6 font-semibold tracking-[-0.02em]"
-                        >ServerOS</span
-                    >
-                </span>
+            </span>
 
-                <div
-                    class="ds-modal workspace-panel overflow-hidden rounded-[12px]! px-6 pt-6 pb-6 sm:px-8 sm:pt-7"
-                >
-                    <div
-                        v-if="step !== 'code'"
-                        class="mb-6 flex items-center gap-1.5"
+            <DashTray
+                :icon="header.icon"
+                :title="header.label"
+                class="w-full max-w-[500px]"
+                panel-class="gap-[22px] px-5 pt-[22px] pb-6 sm:px-7 sm:pt-[26px] sm:pb-7"
+            >
+                <template #actions>
+                    <span
+                        v-if="step === 'code'"
+                        class="text-[12px]/4 text-fg-muted"
+                        >{{ $t('Self-hosted') }}</span
                     >
+                    <template v-else>
+                        <span class="flex gap-[3px]" aria-hidden="true">
+                            <span
+                                v-for="(item, position) in steps"
+                                :key="item.key"
+                                class="h-[3px] w-3.5 rounded-[1.5px] transition-colors duration-300"
+                                :class="
+                                    position <= index
+                                        ? 'bg-dash-blue'
+                                        : 'bg-edge-tile'
+                                "
+                            />
+                        </span>
                         <span
-                            v-for="(item, position) in steps"
-                            :key="item.key"
-                            class="h-[3px] flex-1 rounded-full transition-colors duration-300"
-                            :class="
-                                position <= index
-                                    ? 'bg-(--ds-blue)'
-                                    : 'bg-(--ds-border-strong)'
-                            "
-                        />
-                        <span
-                            class="pl-1.5 text-[12.5px]/4 whitespace-nowrap text-(--ds-text-muted)"
+                            class="text-[12px]/4 whitespace-nowrap text-fg-muted"
                         >
                             {{
-                                $t('Step :step of :total', {
+                                $t(':step of :total', {
                                     step: String(index + 1),
                                     total: String(steps.length),
                                 })
                             }}
                         </span>
-                    </div>
+                    </template>
+                </template>
 
-                    <CodeStep
-                        v-if="step === 'code'"
-                        :command="codeCommand"
-                        :docker="docker"
-                    />
-                    <CheckStep
-                        v-else-if="step === 'check'"
-                        :checks="checks ?? []"
-                    />
-                    <DatabaseStep
-                        v-else-if="step === 'database' && database"
-                        :database="database"
-                        :docker="docker"
-                    />
-                    <AddressStep
-                        v-else-if="step === 'address' && address"
-                        :address="address"
-                        :docker="docker"
-                    />
-                    <MailStep
-                        v-else-if="step === 'mail' && mail"
-                        :mail="mail"
-                        :docker="docker"
-                    />
-                    <OwnerStep
-                        v-else-if="step === 'owner' && owner"
-                        :owner="owner"
-                    />
-                    <DoneStep
-                        v-else-if="step === 'done' && summary"
-                        :summary="summary"
-                    />
-                </div>
-            </div>
+                <CodeStep
+                    v-if="step === 'code'"
+                    :command="codeCommand"
+                    :docker="docker"
+                />
+                <CheckStep
+                    v-else-if="step === 'check'"
+                    :checks="checks ?? []"
+                />
+                <DatabaseStep
+                    v-else-if="step === 'database' && database"
+                    :database="database"
+                    :docker="docker"
+                />
+                <AddressStep
+                    v-else-if="step === 'address' && address"
+                    :address="address"
+                    :docker="docker"
+                />
+                <MailStep
+                    v-else-if="step === 'mail' && mail"
+                    :mail="mail"
+                    :docker="docker"
+                />
+                <OwnerStep
+                    v-else-if="step === 'owner' && owner"
+                    :owner="owner"
+                />
+                <DoneStep
+                    v-else-if="step === 'done' && summary"
+                    :summary="summary"
+                />
+            </DashTray>
+
+            <a
+                :href="guideUrl"
+                target="_blank"
+                rel="noopener"
+                class="flex items-center gap-[7px] rounded-[4px] text-[12.5px]/4 text-fg-muted transition-colors hover:text-fg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
+            >
+                <FilledIcon name="docs-fill" :size="13" />
+                {{ $t('Self-hosting guide') }}
+            </a>
         </main>
     </div>
 </template>

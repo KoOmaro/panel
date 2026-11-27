@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { Form, Link, router } from '@inertiajs/vue3';
+import { Form, router } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref, watch } from 'vue';
+import DashButton from '@/components/dash/DashButton.vue';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
-import { appButtonClasses } from '@/lib/appButton';
+import { errorMessage } from '@/lib/errors';
 import { postJson, postLines } from '@/lib/install';
-import StatusIcon from './StatusIcon.vue';
+import CheckRow from './CheckRow.vue';
+import StatusLine from './StatusLine.vue';
 import StepHeading from './StepHeading.vue';
+import * as ui from './styles';
 import { stepUrl } from './types';
 import type { DatabaseDriver, DatabaseProps, Status } from './types';
-import { errorMessage } from '@/lib/errors';
 
 const props = defineProps<{ database: DatabaseProps; docker: boolean }>();
 
@@ -119,6 +120,14 @@ async function migrate(): Promise<void> {
 const percent = computed(() =>
     total.value === 0 ? 0 : Math.round((done.value / total.value) * 100),
 );
+
+const reloading = ref(false);
+function checkAgain(): void {
+    router.reload({
+        onStart: () => (reloading.value = true),
+        onFinish: () => (reloading.value = false),
+    });
+}
 </script>
 
 <template>
@@ -131,14 +140,13 @@ const percent = computed(() =>
         "
     />
 
-    <div v-if="status.ready && !choosing" class="flex flex-col gap-6">
-        <div
-            class="flex gap-3 rounded-[10px] border border-(--ds-border) px-3.5 py-3 text-[13.5px]/5"
-        >
-            <StatusIcon status="ok" class="mt-0.5" />
-            <p>
-                <span class="font-medium">{{ $t('Already set up.') }}</span>
-                <span class="text-(--ds-text-muted)">
+    <template v-if="status.ready && !choosing">
+        <ul :class="ui.rows">
+            <CheckRow status="ok">
+                <p class="text-fg-muted">
+                    <span class="font-medium text-fg-primary">{{
+                        $t('Already set up.')
+                    }}</span>
                     {{
                         ' ' +
                         (database.settings.driver === 'sqlite'
@@ -156,113 +164,106 @@ const percent = computed(() =>
                                   host: String(database.settings.host ?? ''),
                               }))
                     }}
-                </span>
-            </p>
-        </div>
+                </p>
+            </CheckRow>
+        </ul>
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('check')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
+                :class="ui.button"
+                :label="$t('Back')"
+            />
             <button
                 v-if="database.editable"
                 type="button"
-                :class="appButtonClasses('quiet', 'md')"
+                :class="ui.ghostButton"
                 @click="choosing = true"
             >
                 {{ $t('Use another database') }}
             </button>
-            <Link
+            <DashButton
+                variant="primary"
                 :href="stepUrl('address')"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                >{{ $t('Continue') }}</Link
-            >
+                :class="[ui.button, 'grow']"
+                :label="$t('Continue')"
+            />
         </div>
-    </div>
+    </template>
 
-    <div v-else-if="status.connected && !choosing" class="flex flex-col gap-6">
-        <div
-            class="flex flex-col gap-3 rounded-[10px] border border-(--ds-border) px-3.5 py-3 text-[13.5px]/5"
-        >
-            <p class="flex gap-3">
-                <StatusIcon status="ok" class="mt-0.5" />
-                <span>
-                    <span class="font-medium">{{
+    <template v-else-if="status.connected && !choosing">
+        <ul :class="ui.rows">
+            <CheckRow status="ok">
+                <p class="text-fg-muted">
+                    <span class="font-medium text-fg-primary">{{
                         $t('Connected to :driver.', {
                             driver: database.settings.label,
                         })
                     }}</span>
-                    <span class="text-(--ds-text-muted)">
-                        {{
-                            ' ' +
-                            $t(
-                                'Next, ServerOS sets up its tables (:count steps). It takes a minute or so.',
-                                { count: String(status.pending) },
-                            )
-                        }}
-                    </span>
-                </span>
-            </p>
-            <div v-if="migrating || done > 0" class="flex flex-col gap-1.5">
-                <div
-                    class="h-1.5 overflow-hidden rounded-full bg-(--ds-border-strong)"
-                    role="progressbar"
-                    :aria-valuenow="percent"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                >
-                    <div
-                        class="h-full rounded-full bg-(--ds-blue) transition-[width] duration-200"
-                        :style="{ width: `${percent}%` }"
-                    />
-                </div>
-                <p class="text-[12.5px]/4 text-(--ds-text-muted)">
                     {{
-                        $t(':done of :total done', {
-                            done: String(done),
-                            total: String(total),
-                        })
+                        ' ' +
+                        $t(
+                            'Next, ServerOS sets up its tables (:count steps). It takes a minute or so.',
+                            { count: String(status.pending) },
+                        )
                     }}
                 </p>
-            </div>
-            <InputError :message="migrateError ?? undefined" />
-        </div>
+                <div v-if="migrating || done > 0" class="flex flex-col gap-1.5">
+                    <div
+                        class="h-1.5 overflow-hidden rounded-full bg-edge-tile"
+                        role="progressbar"
+                        :aria-valuenow="percent"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                    >
+                        <div
+                            class="h-full rounded-full bg-dash-blue transition-[width] duration-200"
+                            :style="{ width: `${percent}%` }"
+                        />
+                    </div>
+                    <p :class="ui.hint">
+                        {{
+                            $t(':done of :total done', {
+                                done: String(done),
+                                total: String(total),
+                            })
+                        }}
+                    </p>
+                </div>
+                <InputError :message="migrateError ?? undefined" />
+            </CheckRow>
+        </ul>
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('check')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
+                :class="ui.button"
+                :label="$t('Back')"
+            />
             <button
                 v-if="database.editable"
                 type="button"
-                :class="appButtonClasses('quiet', 'md')"
+                :class="ui.ghostButton"
                 :disabled="migrating"
                 @click="choosing = true"
             >
                 {{ $t('Use another database') }}
             </button>
-            <button
-                type="button"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                :disabled="migrating"
+            <DashButton
+                variant="primary"
+                :class="[ui.button, 'grow']"
+                :label="
+                    migrateError ? $t('Try again') : $t('Set up the tables')
+                "
+                :loading="migrating"
                 @click="migrate"
-            >
-                <Spinner v-if="migrating" />
-                {{ migrateError ? $t('Try again') : $t('Set up the tables') }}
-            </button>
+            />
         </div>
-    </div>
+    </template>
 
-    <div v-else-if="!database.editable" class="flex flex-col gap-6">
-        <div
-            class="flex gap-3 rounded-[10px] border border-(--ds-border) px-3.5 py-3 text-[13.5px]/5"
-        >
-            <StatusIcon status="fail" class="mt-0.5" />
-            <div class="flex flex-col gap-1.5">
-                <p>{{ status.error }}</p>
-                <p class="text-(--ds-text-muted)">
+    <template v-else-if="!database.editable">
+        <ul :class="ui.rows">
+            <CheckRow status="fail">
+                <p class="text-fg-primary">{{ status.error }}</p>
+                <p class="text-fg-secondary">
                     {{
                         docker
                             ? $t(
@@ -273,30 +274,30 @@ const percent = computed(() =>
                               )
                     }}
                 </p>
-            </div>
-        </div>
+            </CheckRow>
+        </ul>
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('check')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
-            <button
-                type="button"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                @click="router.reload()"
-            >
-                {{ $t('Check again') }}
-            </button>
+                :class="ui.button"
+                :label="$t('Back')"
+            />
+            <DashButton
+                variant="primary"
+                :class="[ui.button, 'grow']"
+                :label="$t('Check again')"
+                :loading="reloading"
+                @click="checkAgain"
+            />
         </div>
-    </div>
+    </template>
 
     <Form
         v-else
         action="/install/database"
         method="post"
         v-slot="{ errors, processing }"
-        class="flex flex-col gap-5"
+        class="flex flex-col gap-4"
         @before="clearTested"
     >
         <div ref="inner" class="contents">
@@ -327,17 +328,19 @@ const percent = computed(() =>
             <input type="hidden" name="driver" :value="driver" />
 
             <template v-if="driver === 'sqlite'">
-                <div class="grid gap-2">
-                    <Label for="database">{{ $t('Database file') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="database" :class="ui.label">{{
+                        $t('Database file')
+                    }}</Label>
                     <Input
                         id="database"
                         :key="`database-${driver}`"
                         name="database"
                         required
                         :default-value="defaults.database"
-                        class="font-ui-mono text-[12.5px]"
+                        :class="[ui.field, 'font-ui-mono text-[12.5px]']"
                     />
-                    <p class="text-[12.5px]/4 text-(--ds-text-muted)">
+                    <p :class="ui.hint">
                         {{
                             $t(
                                 'A file on this server, made if it isn’t there. Fine for trying it out; use PostgreSQL for a team.',
@@ -349,56 +352,71 @@ const percent = computed(() =>
             </template>
             <template v-else>
                 <div class="grid grid-cols-[1fr_6rem] gap-3">
-                    <div class="grid gap-2">
-                        <Label for="host">{{ $t('Host') }}</Label>
+                    <div class="flex flex-col gap-2">
+                        <Label for="host" :class="ui.label">{{
+                            $t('Host')
+                        }}</Label>
                         <Input
                             id="host"
                             :key="`host-${driver}`"
                             name="host"
                             required
+                            :class="ui.field"
                             :default-value="defaults.host"
                         />
                     </div>
-                    <div class="grid gap-2">
-                        <Label for="port">{{ $t('Port') }}</Label>
+                    <div class="flex flex-col gap-2">
+                        <Label for="port" :class="ui.label">{{
+                            $t('Port')
+                        }}</Label>
                         <Input
                             id="port"
                             :key="`port-${driver}`"
                             name="port"
                             inputmode="numeric"
+                            :class="ui.field"
                             :default-value="String(defaults.port)"
                         />
                     </div>
                 </div>
                 <InputError :message="errors.host ?? errors.port" />
-                <div class="grid gap-2">
-                    <Label for="database">{{ $t('Database name') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="database" :class="ui.label">{{
+                        $t('Database name')
+                    }}</Label>
                     <Input
                         id="database"
                         :key="`database-${driver}`"
                         name="database"
                         required
+                        :class="ui.field"
                         :default-value="defaults.database"
                     />
                     <InputError :message="errors.database" />
                 </div>
-                <div class="grid gap-2">
-                    <Label for="username">{{ $t('Username') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="username" :class="ui.label">{{
+                        $t('Username')
+                    }}</Label>
                     <Input
                         id="username"
                         :key="`username-${driver}`"
                         name="username"
                         autocomplete="off"
+                        :class="ui.field"
                         :default-value="defaults.username"
                     />
                     <InputError :message="errors.username" />
                 </div>
-                <div class="grid gap-2">
-                    <Label for="db_password">{{ $t('Password') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="db_password" :class="ui.label">{{
+                        $t('Password')
+                    }}</Label>
                     <PasswordInput
                         id="db_password"
                         name="db_password"
                         autocomplete="new-password"
+                        :class="[ui.field, 'pr-10']"
                         :placeholder="
                             database.hasPassword
                                 ? $t('Leave empty to keep the saved one')
@@ -410,42 +428,36 @@ const percent = computed(() =>
             </template>
         </div>
 
-        <div
+        <StatusLine
             v-if="tested || errors.connection"
-            class="flex gap-3 rounded-[10px] border border-(--ds-border) px-3.5 py-3 text-[13.5px]/5"
+            :status="errors.connection ? 'fail' : (tested?.status ?? 'fail')"
         >
-            <StatusIcon
-                :status="
-                    errors.connection ? 'fail' : (tested?.status ?? 'fail')
-                "
-                class="mt-0.5"
-            />
-            <p>{{ errors.connection ?? tested?.text }}</p>
-        </div>
+            <p class="text-fg-secondary">
+                {{ errors.connection ?? tested?.text }}
+            </p>
+        </StatusLine>
 
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('check')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
-            <button
-                type="button"
-                :class="appButtonClasses('secondary', 'md')"
-                :disabled="testing || processing"
+                :class="ui.button"
+                :label="$t('Back')"
+            />
+            <DashButton
+                :class="ui.button"
+                :label="$t('Test connection')"
+                :loading="testing"
+                :disabled="processing"
                 @click="test"
-            >
-                <Spinner v-if="testing" />
-                {{ $t('Test connection') }}
-            </button>
-            <button
+            />
+            <DashButton
+                variant="primary"
                 type="submit"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                :disabled="processing || testing"
-            >
-                <Spinner v-if="processing" />
-                {{ $t('Save') }}
-            </button>
+                :class="[ui.button, 'grow']"
+                :label="$t('Save')"
+                :loading="processing"
+                :disabled="testing"
+            />
         </div>
     </Form>
 </template>

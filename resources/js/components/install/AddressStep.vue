@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { Form, Link } from '@inertiajs/vue3';
+import { Form } from '@inertiajs/vue3';
 import { onMounted, ref } from 'vue';
+import DashButton from '@/components/dash/DashButton.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
-import { appButtonClasses } from '@/lib/appButton';
+import { errorMessage } from '@/lib/errors';
 import { postJson } from '@/lib/install';
 import type { Check } from '@/lib/install';
 import CheckLines from './CheckLines.vue';
 import StepHeading from './StepHeading.vue';
+import * as ui from './styles';
 import { stepUrl } from './types';
 import type { AddressProps } from './types';
-import { errorMessage } from '@/lib/errors';
 
 const props = defineProps<{ address: AddressProps; docker: boolean }>();
 
@@ -56,10 +56,10 @@ onMounted(() => {
         action="/install/address"
         method="post"
         v-slot="{ errors, processing }"
-        class="flex flex-col gap-5"
+        class="flex flex-col gap-4"
     >
-        <div class="grid gap-2">
-            <Label for="url">{{ $t('Address') }}</Label>
+        <div class="flex flex-col gap-2">
+            <Label for="url" :class="ui.label">{{ $t('Address') }}</Label>
             <Input
                 id="url"
                 v-model="url"
@@ -70,12 +70,10 @@ onMounted(() => {
                 spellcheck="false"
                 placeholder="https://panel.example.com"
                 :readonly="!address.editable"
+                :class="[ui.field, !address.editable ? ui.readonlyField : '']"
                 @input="lines = null"
             />
-            <p
-                v-if="!address.editable"
-                class="text-[12.5px]/4 text-(--ds-text-muted)"
-            >
+            <p v-if="!address.editable" :class="ui.hint">
                 {{
                     docker
                         ? $t(
@@ -86,34 +84,34 @@ onMounted(() => {
                           )
                 }}
             </p>
+            <p v-if="address.tunnel" :class="ui.hint">
+                {{ $t('Through a Cloudflare Tunnel') }}
+            </p>
             <InputError :message="errors.url" />
         </div>
 
         <CheckLines v-if="lines" :lines="lines" />
 
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('database')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
-            <button
-                type="button"
-                :class="appButtonClasses('secondary', 'md')"
-                :disabled="checking || !url"
+                :class="ui.button"
+                :label="$t('Back')"
+            />
+            <DashButton
+                :class="ui.button"
+                :label="$t('Check DNS')"
+                :loading="checking"
+                :disabled="!url"
                 @click="check"
-            >
-                <Spinner v-if="checking" />
-                {{ $t('Check DNS') }}
-            </button>
-            <button
+            />
+            <DashButton
+                variant="primary"
                 type="submit"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                :disabled="processing"
-            >
-                <Spinner v-if="processing" />
-                {{ address.editable ? $t('Save') : $t('Continue') }}
-            </button>
+                :class="[ui.button, 'grow']"
+                :label="address.editable ? $t('Save') : $t('Continue')"
+                :loading="processing"
+            />
         </div>
     </Form>
 </template>

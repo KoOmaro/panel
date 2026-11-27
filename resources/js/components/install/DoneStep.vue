@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Form, Link } from '@inertiajs/vue3';
+import { Form } from '@inertiajs/vue3';
+import DashButton from '@/components/dash/DashButton.vue';
 import InputError from '@/components/InputError.vue';
-import { Spinner } from '@/components/ui/spinner';
-import { appButtonClasses } from '@/lib/appButton';
 import StepHeading from './StepHeading.vue';
+import * as ui from './styles';
 import { stepUrl } from './types';
 import type { Summary } from './types';
 
@@ -20,47 +20,49 @@ defineProps<{ summary: Summary }>();
         "
     />
 
-    <dl
-        class="flex flex-col divide-y divide-(--ds-divider) rounded-[10px] border border-(--ds-border) text-[13.5px]/5"
-    >
-        <div class="flex gap-4 px-3.5 py-2.5">
-            <dt class="w-24 shrink-0 text-(--ds-text-muted)">
-                {{ $t('Address') }}
-            </dt>
-            <dd class="min-w-0 break-words">{{ summary.address }}</dd>
+    <dl :class="[ui.rows, 'text-[13px]/5']">
+        <div
+            class="flex gap-4 border-t-[0.5px] border-edge-tray-panel py-[11px]"
+        >
+            <dt class="w-24 shrink-0 text-fg-muted">{{ $t('Address') }}</dt>
+            <dd class="min-w-0 break-words text-fg-primary">
+                {{ summary.address }}
+            </dd>
         </div>
-        <div class="flex gap-4 px-3.5 py-2.5">
-            <dt class="w-24 shrink-0 text-(--ds-text-muted)">
-                {{ $t('Database') }}
-            </dt>
-            <dd class="min-w-0 break-words">{{ summary.database }}</dd>
+        <div
+            class="flex gap-4 border-t-[0.5px] border-edge-tray-panel py-[11px]"
+        >
+            <dt class="w-24 shrink-0 text-fg-muted">{{ $t('Database') }}</dt>
+            <dd class="min-w-0 break-words text-fg-primary">
+                {{ summary.database }}
+            </dd>
         </div>
-        <div class="flex gap-4 px-3.5 py-2.5">
-            <dt class="w-24 shrink-0 text-(--ds-text-muted)">
-                {{ $t('Email') }}
-            </dt>
-            <dd class="min-w-0 break-words">
+        <div
+            class="flex gap-4 border-t-[0.5px] border-edge-tray-panel py-[11px]"
+        >
+            <dt class="w-24 shrink-0 text-fg-muted">{{ $t('Email') }}</dt>
+            <dd class="min-w-0 break-words text-fg-primary">
                 {{ summary.mail ?? $t('Not set up: emails go to the log') }}
             </dd>
         </div>
-        <div class="flex gap-4 px-3.5 py-2.5">
-            <dt class="w-24 shrink-0 text-(--ds-text-muted)">
-                {{ $t('Owner') }}
-            </dt>
-            <dd class="min-w-0 break-words">
+        <div
+            class="flex gap-4 border-t-[0.5px] border-edge-tray-panel py-[11px]"
+        >
+            <dt class="w-24 shrink-0 text-fg-muted">{{ $t('Owner') }}</dt>
+            <dd class="min-w-0 break-words text-fg-primary">
                 {{ summary.owner.name }}
-                <span class="text-(--ds-text-muted)">{{
+                <span class="text-fg-muted">{{
                     ' ' + summary.owner.email
                 }}</span>
             </dd>
         </div>
-        <div class="flex gap-4 px-3.5 py-2.5">
-            <dt class="w-24 shrink-0 text-(--ds-text-muted)">
-                {{ $t('Workspace') }}
-            </dt>
-            <dd class="min-w-0 break-words">
+        <div
+            class="flex gap-4 border-t-[0.5px] border-edge-tray-panel py-[11px]"
+        >
+            <dt class="w-24 shrink-0 text-fg-muted">{{ $t('Workspace') }}</dt>
+            <dd class="min-w-0 break-words text-fg-primary">
                 {{ summary.workspace.name }}
-                <span class="text-(--ds-text-muted)">{{
+                <span class="text-fg-muted">{{
                     ' ' + summary.workspace.address
                 }}</span>
             </dd>
@@ -71,23 +73,22 @@ defineProps<{ summary: Summary }>();
         action="/install/finish"
         method="post"
         v-slot="{ errors, processing }"
-        class="mt-6 flex flex-col gap-3"
+        class="flex flex-col gap-3"
     >
         <InputError :message="errors.email ?? errors.step" />
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('owner')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
-            <button
+                :class="ui.button"
+                :label="$t('Back')"
+            />
+            <DashButton
+                variant="primary"
                 type="submit"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                :disabled="processing"
-            >
-                <Spinner v-if="processing" />
-                {{ $t('Finish setup') }}
-            </button>
+                :class="[ui.button, 'grow']"
+                :label="$t('Finish setup')"
+                :loading="processing"
+            />
         </div>
     </Form>
 </template>

@@ -40,6 +40,7 @@ export const filledIconNames = [
     'list-checks',
     'lock-fill',
     'machines-fill',
+    'mail-fill',
     'monitors-fill',
     'open-fill',
     'package-fill',

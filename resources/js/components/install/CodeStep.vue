@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { Form } from '@inertiajs/vue3';
+import DashButton from '@/components/dash/DashButton.vue';
 import InputError from '@/components/InputError.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
-import { appButtonClasses } from '@/lib/appButton';
 import CommandLine from './CommandLine.vue';
 import StepHeading from './StepHeading.vue';
+import * as ui from './styles';
 
 defineProps<{ command: string; docker: boolean }>();
 </script>
@@ -25,10 +25,10 @@ defineProps<{ command: string; docker: boolean }>();
         action="/install/code"
         method="post"
         v-slot="{ errors, processing }"
-        class="flex flex-col gap-5"
+        class="flex flex-col gap-4"
     >
-        <div class="grid gap-2">
-            <Label for="code">{{ $t('Setup code') }}</Label>
+        <div class="flex flex-col gap-2">
+            <Label for="code" :class="ui.label">{{ $t('Setup code') }}</Label>
             <Input
                 id="code"
                 name="code"
@@ -38,37 +38,32 @@ defineProps<{ command: string; docker: boolean }>();
                 autocapitalize="characters"
                 spellcheck="false"
                 placeholder="ABCD-EFGH-JKMN"
-                class="font-ui-mono tracking-[0.06em] uppercase"
+                :class="[ui.field, 'font-ui-mono tracking-[0.06em] uppercase']"
                 :aria-invalid="!!(errors.code || errors.step)"
             />
             <InputError :message="errors.code ?? errors.step" />
         </div>
 
-        <button
+        <DashButton
+            variant="primary"
             type="submit"
-            :class="appButtonClasses('primary', 'md', 'w-full')"
-            :disabled="processing"
-        >
-            <Spinner v-if="processing" />
-            {{ $t('Continue') }}
-        </button>
+            block
+            :class="ui.button"
+            :label="$t('Continue')"
+            :loading="processing"
+        />
     </Form>
 
-    <div
-        class="mt-6 flex flex-col gap-2.5 border-t border-(--ds-divider) pt-5 text-[13px]/5 text-(--ds-text-muted)"
-    >
-        <p v-if="docker">
+    <div class="flex flex-col gap-2.5" :class="ui.divider">
+        <p class="text-[13px]/5 text-fg-muted">
             {{
-                $t(
-                    'The install script showed it when it finished, and the web container prints it as it starts. To see it again, run this on the server:',
-                )
-            }}
-        </p>
-        <p v-else>
-            {{
-                $t(
-                    'To see it, run this on the server, in the panel’s folder, as the web server’s user:',
-                )
+                docker
+                    ? $t(
+                          'The install script showed it when it finished, and the web container prints it as it starts. To see it again, run this on the server:',
+                      )
+                    : $t(
+                          'To see it, run this on the server, in the panel’s folder, as the web server’s user:',
+                      )
             }}
         </p>
         <CommandLine :command="command" />

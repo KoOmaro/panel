@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { Form, Link, router } from '@inertiajs/vue3';
+import { Form, router } from '@inertiajs/vue3';
 import { ref } from 'vue';
+import DashButton from '@/components/dash/DashButton.vue';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
-import { appButtonClasses } from '@/lib/appButton';
+import { errorMessage } from '@/lib/errors';
 import { postJson } from '@/lib/install';
 import type { Check } from '@/lib/install';
 import CheckLines from './CheckLines.vue';
 import StepHeading from './StepHeading.vue';
+import * as ui from './styles';
 import { stepUrl } from './types';
 import type { MailProps } from './types';
-import { errorMessage } from '@/lib/errors';
 
 const props = defineProps<{ mail: MailProps; docker: boolean }>();
 
@@ -69,8 +69,8 @@ const port = String(props.mail.port ?? '587');
         "
     />
 
-    <div v-if="!mail.editable" class="flex flex-col gap-6">
-        <p class="text-[13.5px]/5 text-(--ds-text-secondary)">
+    <div v-if="!mail.editable" class="flex flex-col gap-4">
+        <p class="text-[13px]/5 text-fg-secondary">
             {{
                 $t(
                     'Email is set outside the panel (the MAIL_* settings), so it’s changed there.',
@@ -78,19 +78,18 @@ const port = String(props.mail.port ?? '587');
             }}
         </p>
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('address')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
-            <button
-                type="button"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                :disabled="skipping"
+                :class="ui.button"
+                :label="$t('Back')"
+            />
+            <DashButton
+                variant="primary"
+                :class="[ui.button, 'grow']"
+                :label="$t('Continue')"
+                :loading="skipping"
                 @click="skip"
-            >
-                {{ $t('Continue') }}
-            </button>
+            />
         </div>
     </div>
 
@@ -99,12 +98,14 @@ const port = String(props.mail.port ?? '587');
         action="/install/mail"
         method="post"
         v-slot="{ errors, processing }"
-        class="flex flex-col gap-5"
+        class="flex flex-col gap-4"
     >
         <div ref="inner" class="contents">
             <div class="grid grid-cols-[1fr_6rem] gap-3">
-                <div class="grid gap-2">
-                    <Label for="host">{{ $t('SMTP server') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="host" :class="ui.label">{{
+                        $t('SMTP server')
+                    }}</Label>
                     <Input
                         id="host"
                         name="host"
@@ -112,37 +113,45 @@ const port = String(props.mail.port ?? '587');
                         autocomplete="off"
                         spellcheck="false"
                         placeholder="smtp.example.com"
+                        :class="ui.field"
                         :default-value="mail.host ?? ''"
                     />
                 </div>
-                <div class="grid gap-2">
-                    <Label for="port">{{ $t('Port') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="port" :class="ui.label">{{ $t('Port') }}</Label>
                     <Input
                         id="port"
                         name="port"
                         required
                         inputmode="numeric"
+                        :class="ui.field"
                         :default-value="port"
                     />
                 </div>
             </div>
             <InputError :message="errors.host ?? errors.port" />
-            <div class="grid gap-2">
-                <Label for="username">{{ $t('Username') }}</Label>
+            <div class="flex flex-col gap-2">
+                <Label for="username" :class="ui.label">{{
+                    $t('Username')
+                }}</Label>
                 <Input
                     id="username"
                     name="username"
                     autocomplete="off"
+                    :class="ui.field"
                     :default-value="mail.username ?? ''"
                 />
                 <InputError :message="errors.username" />
             </div>
-            <div class="grid gap-2">
-                <Label for="mail_password">{{ $t('Password') }}</Label>
+            <div class="flex flex-col gap-2">
+                <Label for="mail_password" :class="ui.label">{{
+                    $t('Password')
+                }}</Label>
                 <PasswordInput
                     id="mail_password"
                     name="mail_password"
                     autocomplete="new-password"
+                    :class="[ui.field, 'pr-10']"
                     :placeholder="
                         mail.hasPassword
                             ? $t('Leave empty to keep the saved one')
@@ -152,22 +161,28 @@ const port = String(props.mail.port ?? '587');
                 <InputError :message="errors.mail_password" />
             </div>
             <div class="grid grid-cols-2 gap-3">
-                <div class="grid gap-2">
-                    <Label for="from_address">{{ $t('From address') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="from_address" :class="ui.label">{{
+                        $t('From address')
+                    }}</Label>
                     <Input
                         id="from_address"
                         name="from_address"
                         type="email"
                         required
                         placeholder="serveros@example.com"
+                        :class="ui.field"
                         :default-value="mail.fromAddress ?? ''"
                     />
                 </div>
-                <div class="grid gap-2">
-                    <Label for="from_name">{{ $t('From name') }}</Label>
+                <div class="flex flex-col gap-2">
+                    <Label for="from_name" :class="ui.label">{{
+                        $t('From name')
+                    }}</Label>
                     <Input
                         id="from_name"
                         name="from_name"
+                        :class="ui.field"
                         :default-value="mail.fromName"
                     />
                 </div>
@@ -175,8 +190,8 @@ const port = String(props.mail.port ?? '587');
             <InputError :message="errors.from_address ?? errors.from_name" />
         </div>
 
-        <div class="flex flex-col gap-2 border-t border-(--ds-divider) pt-5">
-            <Label for="to">{{ $t('Send a test to') }}</Label>
+        <div class="flex flex-col gap-2" :class="ui.divider">
+            <Label for="to" :class="ui.label">{{ $t('Send a test to') }}</Label>
             <div class="flex gap-2">
                 <Input
                     id="to"
@@ -184,43 +199,40 @@ const port = String(props.mail.port ?? '587');
                     type="email"
                     autocomplete="email"
                     placeholder="you@example.com"
-                    class="grow"
+                    :class="[ui.field, 'grow']"
                 />
-                <button
-                    type="button"
-                    :class="appButtonClasses('secondary', 'md', 'h-9')"
-                    :disabled="sending || !to"
+                <DashButton
+                    :class="ui.button"
+                    :label="$t('Send')"
+                    :loading="sending"
+                    :disabled="!to"
                     @click="sendTest"
-                >
-                    <Spinner v-if="sending" />
-                    {{ $t('Send') }}
-                </button>
+                />
             </div>
         </div>
         <CheckLines v-if="sent" :lines="sent" />
 
         <div class="flex gap-2">
-            <Link
+            <DashButton
                 :href="stepUrl('address')"
-                :class="appButtonClasses('secondary', 'md')"
-                >{{ $t('Back') }}</Link
-            >
+                :class="ui.button"
+                :label="$t('Back')"
+            />
             <button
                 type="button"
-                :class="appButtonClasses('quiet', 'md')"
+                :class="ui.ghostButton"
                 :disabled="skipping || processing"
                 @click="skip"
             >
                 {{ $t('Skip for now') }}
             </button>
-            <button
+            <DashButton
+                variant="primary"
                 type="submit"
-                :class="appButtonClasses('primary', 'md', 'grow')"
-                :disabled="processing"
-            >
-                <Spinner v-if="processing" />
-                {{ $t('Save') }}
-            </button>
+                :class="[ui.button, 'grow']"
+                :label="$t('Save')"
+                :loading="processing"
+            />
         </div>
     </Form>
 </template>
