@@ -13,6 +13,7 @@ import HomeIssues from '@/components/home/HomeIssues.vue';
 import HomeNotice from '@/components/home/HomeNotice.vue';
 import HomeOverview from '@/components/home/HomeOverview.vue';
 import HomeSecurity from '@/components/home/HomeSecurity.vue';
+import IntegrationsPromo from '@/components/home/IntegrationsPromo.vue';
 import type {
     HomeBackups as Backups,
     HomeBusy,
@@ -37,6 +38,7 @@ type Props = {
     backups: Backups;
     panelUpdate: { version: string; current: string } | null;
     supportAsk: { donateUrl: string; licenseUrl: string } | null;
+    integrationsPromo: boolean;
     licenseMachines?: {
         allowed: number;
         connected: number;
@@ -263,6 +265,7 @@ onBeforeUnmount(() => {
         </div>
     </div>
 
+    <IntegrationsPromo v-if="integrationsPromo" />
     <MachineConnector v-if="canManage" ref="connector" />
     <NewProjectDialog v-if="canManage" v-model:open="creating" />
 </template>

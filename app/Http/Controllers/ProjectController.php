@@ -27,6 +27,7 @@ use App\Support\Projects\ProjectData;
 use App\Support\Projects\ProjectFacts;
 use App\Support\Projects\ProjectLinks;
 use App\Support\Projects\ProjectNetwork;
+use App\Support\SavedViews\SavedViews;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -44,7 +45,7 @@ class ProjectController extends Controller
         private readonly ProjectActions $actions,
     ) {}
 
-    public function index(Workspace $workspace, ProjectFacts $facts): Response
+    public function index(Request $request, Workspace $workspace, ProjectFacts $facts): Response
     {
         $projects = $workspace->projects()
             ->with(['environments', 'nodes.machine', 'members:id,project_id,state'])
@@ -73,6 +74,7 @@ class ProjectController extends Controller
                     'environments' => $environments,
                 ];
             })->values(),
+            ...SavedViews::props($request, $workspace, 'projects'),
         ]);
     }
 

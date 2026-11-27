@@ -22,6 +22,8 @@ import ToolbarButton from '@/components/dash/ToolbarButton.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import { ago, logoName, stackLabel } from '@/components/projects/format';
 import type { DashStatus, Summary } from '@/components/projects/types';
+import SavedViewCreate from '@/components/saved-views/SavedViewCreate.vue';
+import SavedViewTab from '@/components/saved-views/SavedViewTab.vue';
 import {
     Dialog,
     DialogContent,
@@ -37,6 +39,11 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { useSavedViews } from '@/composables/useSavedViews';
+import type {
+    SavedView,
+    SavedViewSummaryRow,
+} from '@/composables/useSavedViews';
 import { toast } from '@/lib/toast';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import machineRoutes from '@/routes/workspace/machines';
@@ -57,10 +64,19 @@ type ProjectRow = {
 };
 type Row = { project: ProjectRow; env: EnvironmentRow };
 type SortKey = 'newest' | 'updated' | 'name' | 'status';
+type ProjectView = {
+    q: string | null;
+    status: string[];
+    machines: string[];
+    sort: SortKey;
+    env: string | null;
+};
 
 const props = defineProps<{
     workspace: Workspace;
     projects: ProjectRow[];
+    savedViews: SavedView<ProjectView>[];
+    activeView: number | null;
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -128,6 +144,37 @@ const statusOrder: DashStatus[] = [
     'live',
 ];
 
+const views = useSavedViews<ProjectView>({
+    page: 'projects',
+    workspace: () => props.workspace.slug,
+    views: () => props.savedViews,
+    active: () => props.activeView,
+    defaults: { q: null, status: [], machines: [], sort: 'newest', env: null },
+    current: () => ({
+        q: query.value.trim() || null,
+        status: [...statuses.value],
+        machines: [...machineFilter.value],
+        sort: sort.value,
+        env: tab.value,
+    }),
+    apply: (filters) => {
+        query.value = filters.q ?? '';
+        statuses.value = statusOptions
+            .map((option) => option.value)
+            .filter((value) => filters.status.includes(value));
+        machineFilter.value = [...filters.machines];
+        sort.value = sortOptions.some((option) => option.value === filters.sort)
+            ? filters.sort
+            : 'newest';
+        tab.value = filters.env;
+    },
+});
+
+function pickTab(env: string | null): void {
+    views.leave();
+    tab.value = env;
+}
+
 const tabRows = computed<Row[]>(() =>
     props.projects.flatMap((project) => {
         const env =
@@ -141,11 +188,12 @@ const tabRows = computed<Row[]>(() =>
 
 const machineOptions = computed(() =>
     [
-        ...new Set(
-            tabRows.value.flatMap((r) =>
+        ...new Set([
+            ...tabRows.value.flatMap((r) =>
                 r.env.machine ? [r.env.machine.name] : [],
             ),
-        ),
+            ...machineFilter.value,
+        ]),
     ].sort(),
 );
 
@@ -329,9 +377,105 @@ function projectLogo(row: Row): string {
     return logoName(env?.kind ?? null, null, env?.image ?? null);
 }
 
-function soon(): void {
-    toast.info(trans('Saved views are coming soon.'));
+function either(items: string[], many: string): string {
+    if (items.length > 2) return many;
+    if (items.length === 2) {
+        return trans(':first or :second', {
+            first: items[0],
+            second: items[1],
+        });
+    }
+
+    return items[0] ?? '';
 }
+
+const pickedStatuses = computed(() =>
+    statusOptions
+        .filter((option) => statuses.value.includes(option.value))
+        .map((option) => trans(option.label)),
+);
+const sortLabel = computed(() =>
+    trans(
+        sortOptions.find((option) => option.value === sort.value)?.label ??
+            'Newest first',
+    ),
+);
+
+const viewName = computed(() => {
+    const parts: string[] = [];
+    if (pickedStatuses.value.length) {
+        parts.push(
+            either(
+                pickedStatuses.value.map((label, i) =>
+                    i === 0 ? label : label.toLowerCase(),
+                ),
+                trans(':count statuses', {
+                    count: String(pickedStatuses.value.length),
+                }),
+            ),
+        );
+    }
+    if (machineFilter.value.length) {
+        const machines = [...machineFilter.value].sort();
+        parts.push(
+            machines.length > 2
+                ? trans('on :count machines', {
+                      count: String(machines.length),
+                  })
+                : trans('on :machine', { machine: either(machines, '') }),
+        );
+    }
+    if (tab.value) parts.push(trans('in :env', { env: tab.value }));
+    const needle = query.value.trim();
+    if (needle) {
+        parts.push(
+            trans('matching “:text”', {
+                text: needle.length > 20 ? `${needle.slice(0, 20)}…` : needle,
+            }),
+        );
+    }
+    if (!parts.length && sort.value !== 'newest') {
+        parts.push(
+            trans('Sorted by :sort', { sort: sortLabel.value.toLowerCase() }),
+        );
+    }
+    const name = parts.join(' ');
+
+    return name
+        ? (name.charAt(0).toUpperCase() + name.slice(1)).slice(0, 60)
+        : trans('New view');
+});
+
+const viewSummary = computed<SavedViewSummaryRow[]>(() => {
+    const needle = query.value.trim();
+
+    return [
+        {
+            icon: 'branch-fill',
+            label: trans('Environment'),
+            value: tab.value ?? trans('All'),
+        },
+        {
+            icon: 'search-fill',
+            label: trans('Search'),
+            value: needle ? `“${needle}”` : trans('None'),
+            empty: !needle,
+        },
+        {
+            icon: 'monitors-fill',
+            label: trans('Status'),
+            value: pickedStatuses.value.join(', ') || trans('Any'),
+            empty: !pickedStatuses.value.length,
+        },
+        {
+            icon: 'machines-fill',
+            label: trans('Machine'),
+            value: [...machineFilter.value].sort().join(', ') || trans('Any'),
+            empty: !machineFilter.value.length,
+        },
+        { icon: 'sort-fill', label: trans('Sort'), value: sortLabel.value },
+    ];
+});
 
 const countLabel = computed(() => {
     const count = rows.value.length;
@@ -366,26 +510,29 @@ const countLabel = computed(() => {
             <DashTab
                 :label="$t('All projects')"
                 icon="table-fill"
-                :active="tab === null"
-                @click="tab = null"
+                :active="!views.active && tab === null"
+                @click="pickTab(null)"
             />
             <DashTab
                 v-for="env in tabs"
                 :key="env"
                 :label="env"
                 icon="branch-fill"
-                :active="tab === env"
-                @click="tab = env"
+                :active="!views.active && tab === env"
+                @click="pickTab(env)"
+            />
+            <SavedViewTab
+                v-for="view in views.views"
+                :key="view.id"
+                :view="view"
+                :views="views"
             />
             <template #after>
-                <button
-                    type="button"
-                    class="flex size-6 cursor-pointer items-center justify-center rounded-[6px] text-fg-muted transition-colors hover:text-fg-secondary focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
-                    :aria-label="$t('Add a view')"
-                    @click="soon"
-                >
-                    <FilledIcon name="plus-fill" />
-                </button>
+                <SavedViewCreate
+                    :views="views"
+                    :name="viewName"
+                    :summary="viewSummary"
+                />
             </template>
         </DashTabs>
 

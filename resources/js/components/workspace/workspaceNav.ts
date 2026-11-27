@@ -6,7 +6,7 @@ import type { FilledIconName } from '@/components/icons/filledIcons';
 import { docsUrl } from '@/lib/docs';
 import { extensionIcon } from '@/lib/extensionIcons';
 import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
-import { help, home, setup } from '@/routes/workspace';
+import { help, home, integrations, setup } from '@/routes/workspace';
 import activity from '@/routes/workspace/activity';
 import agents from '@/routes/workspace/agents';
 import backups from '@/routes/workspace/backups';
@@ -238,6 +238,14 @@ export function useWorkspaceNav(): ComputedRef<WorkspaceNavItem[]> {
                 href: url(onWorkspace(activity.index(slug))),
                 section: 'menu',
                 current: is(component, 'workspace/Activity', 'workspace/Fixes'),
+            },
+            {
+                key: 'integrations',
+                label: trans('Integrations'),
+                icon: 'package-fill',
+                href: url(onWorkspace(integrations(slug))),
+                section: 'menu',
+                current: is(component, 'workspace/Integrations'),
             },
             {
                 key: 'setup',

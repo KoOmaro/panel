@@ -74,6 +74,7 @@ class WorkspaceHomeController extends Controller
             'backups' => fn () => $this->backups($machines),
             'panelUpdate' => Edition::installAdmin($request->user(), $workspace) ? PanelUpdates::notice() : null,
             'supportAsk' => SupportAsk::for($workspace, $request->user(), $machines->count()),
+            'integrationsPromo' => IntegrationController::showsPromo($request->user(), $workspace),
             ...app(Extensions::class)->pagePropsFor('workspace/Home', $request, $workspace),
         ]);
     }

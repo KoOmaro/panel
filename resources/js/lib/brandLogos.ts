@@ -1,4 +1,5 @@
 import {
+    siAnthropic,
     siAstro,
     siBackblaze,
     siBun,
@@ -12,8 +13,11 @@ import {
     siDocker,
     siGhost,
     siGithub,
+    siGitlab,
+    siGrafana,
     siHetzner,
     siLaravel,
+    siLinear,
     siLinux,
     siMariadb,
     siMeilisearch,
@@ -23,17 +27,25 @@ import {
     siNextdotjs,
     siNginx,
     siNodedotjs,
+    siOllama,
+    siOvh,
+    siPagerduty,
     siPlausibleanalytics,
     siPostgresql,
+    siProxmox,
     siPython,
     siRedis,
+    siSentry,
+    siTailscale,
     siTelegram,
     siUbuntu,
     siUptimekuma,
     siVultr,
 } from 'simple-icons';
 import type { SimpleIcon } from 'simple-icons';
+import awsSvg from '@/components/dash/assets/aws.svg?raw';
 import slackSvg from '@/components/dash/assets/slack.svg?raw';
+import { AI_BRANDS } from '@/lib/aiBrands';
 import { providerBrand } from '@/lib/providerBrand';
 import { serviceBrand } from '@/lib/serviceBrand';
 
@@ -92,6 +104,24 @@ export const brandLogos = {
     backblaze: mark(siBackblaze),
     telegram: mark(siTelegram),
     slack: { kind: 'svg', title: 'Slack', svg: slackSvg },
+    gitlab: mark(siGitlab),
+    sentry: mono(siSentry),
+    linear: mark(siLinear),
+    pagerduty: mark(siPagerduty),
+    aws: { kind: 'svg', title: 'AWS', svg: awsSvg },
+    ovhcloud: mono(siOvh),
+    proxmox: mark(siProxmox),
+    tailscale: mono(siTailscale),
+    anthropic: mono(siAnthropic),
+    openai: {
+        kind: 'path',
+        title: 'OpenAI',
+        path: AI_BRANDS.openai.paths[0].d,
+        dark: MONO_DARK,
+        light: MONO_LIGHT,
+    },
+    ollama: mono(siOllama),
+    grafana: mark(siGrafana),
 } satisfies Record<string, BrandMark>;
 
 export type BrandName = keyof typeof brandLogos;
