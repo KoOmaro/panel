@@ -181,6 +181,37 @@ final class DeployOnPush
     }
 
     /**
+     * Queues a deploy a push started. With only the newest push building,
+     * it waits while the app is deploying and replaces an older push
+     * waiting there. Returns why it couldn't be queued, or null.
+     *
+     * @param  array<string, mixed>  $job
+     */
+    public function queuePush(Machine $machine, string $app, User $user, array $job, ?string $branch = null, bool $onlyNewest = true): ?string
+    {
+        $commit = (string) ($job['commit'] ?? '');
+
+        try {
+            return $this->locked($machine, $app, function () use ($machine, $app, $user, $job, $commit, $branch, $onlyNewest): ?string {
+                $hold = false;
+                if ($onlyNewest) {
+                    $this->replaceWaiting($machine, $app, $commit, $branch);
+                    $hold = $this->busy($machine, $app);
+                }
+                try {
+                    $this->queue->deploy($machine, $user, $job, hold: $hold, trigger: self::TRIGGER);
+                } catch (RuntimeException $e) {
+                    return $e->getMessage();
+                }
+
+                return null;
+            });
+        } catch (LockTimeoutException) {
+            return 'another push to it was being handled at the same moment';
+        }
+    }
+
+    /**
      * Send the newest push deploy waiting for this app, once nothing else
      * is deploying it. Called when one of its deploys finishes, and every
      * minute in case that was missed.
@@ -268,7 +299,7 @@ final class DeployOnPush
 
     // GitHub sends a push again when a delivery is retried; the commit
     // queued, running or live already is never deployed twice.
-    private function alreadyDeploying(Machine $machine, string $app, string $commit, bool $again = false): bool
+    public function alreadyDeploying(Machine $machine, string $app, string $commit, bool $again = false): bool
     {
         return DaemonJob::query()
             ->where('machine_id', $machine->id)
@@ -284,9 +315,15 @@ final class DeployOnPush
     // workspace's machines; the workspace's owner otherwise.
     private function actor(Machine $machine, string $app): ?User
     {
-        $workspace = $machine->workspace;
         $id = $machine->app_settings[$app]['push_user_id'] ?? null;
-        $user = is_int($id) ? User::query()->find($id) : null;
+
+        return self::actorFor($machine, is_int($id) ? $id : null);
+    }
+
+    public static function actorFor(Machine $machine, ?int $id): ?User
+    {
+        $workspace = $machine->workspace;
+        $user = $id !== null ? User::query()->find($id) : null;
         if ($user !== null && $workspace->members()->whereKey($user->id)->exists() && $user->can('manageMachines', $workspace)) {
             return $user;
         }

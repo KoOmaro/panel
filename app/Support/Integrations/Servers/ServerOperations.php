@@ -11,18 +11,27 @@ use App\Models\IntegrationServer;
 use App\Models\Machine;
 use App\Models\User;
 use App\Support\Integrations\IntegrationFailed;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
 use RuntimeException;
 
 /**
  * Making and resizing servers: changes that take several provider calls and
  * some waiting. Each runs as an IntegrationOperation, moved on a step at a
  * time by AdvanceIntegrationOperation, so nothing blocks a page.
+ *
+ * Providers that make a server in two goes (PreparesServers) start in the
+ * "create" step; ones that can't take cloud-init (RunsCommands) get the
+ * install script run inside the server once it can, or show the person the
+ * one-line command. Both are kept encrypted in the operation's input.
  */
 final class ServerOperations
 {
     public const string CREATE = 'create';
 
     public const string RESIZE = 'resize';
+
+    public const string POWER_CYCLE = 'power_cycle';
 
     private const int WAIT = 5;
 
@@ -42,10 +51,13 @@ final class ServerOperations
 
     private const int ACTION_MINUTES = 30;
 
+    private const int AGENT_MINUTES = 10;
+
     /** @var array<string, list<array{0: string, 1: list<string>}>> */
     private const array STEPS = [
         self::CREATE => [['create', ['create']], ['boot', ['boot']], ['install', ['install']]],
         self::RESIZE => [['stop', ['stop', 'stopping']], ['change', ['change', 'changing']], ['start', ['start', 'starting']]],
+        self::POWER_CYCLE => [['stop', ['stop', 'stopping']], ['start', ['start', 'starting']]],
     ];
 
     /** A resize the provider does with the server running: one step from start to end. */
@@ -87,15 +99,23 @@ final class ServerOperations
         ]);
         $integration->forceFill(['meta' => [...($integration->meta ?? []), 'servers' => (int) ($integration->meta['servers'] ?? 0) + 1]])->save();
 
+        $input = [...['name' => $spec->name, 'location' => $spec->location, 'type' => $spec->type, 'image' => $spec->image], ...$spec->toArray()];
+        if ($spec->size !== null) {
+            $input['type_label'] = $spec->size->label();
+        }
+        if ($manager instanceof RunsCommands) {
+            $input['install'] = Crypt::encryptString(CloudInit::script($joined['command']));
+            $input['command'] = Crypt::encryptString(CloudInit::oneLine($joined['command']));
+        }
         $operation = $integration->operations()->create([
             'kind' => self::CREATE,
             'user_id' => $user->id,
             'server_id' => $started->server->id,
             'state' => 'running',
-            'step' => 'boot',
+            'step' => $manager instanceof PreparesServers ? 'create' : 'boot',
             'action_id' => $started->actionId,
             'step_started_at' => now(),
-            'input' => ['name' => $spec->name, 'location' => $spec->location, 'type' => $spec->type, 'image' => $spec->image],
+            'input' => $input,
         ]);
         AdvanceIntegrationOperation::dispatch($operation->id)->delay(now()->addSeconds(self::WAIT));
 
@@ -114,6 +134,42 @@ final class ServerOperations
             'step' => 'stop',
             'step_started_at' => now(),
             'input' => ['type' => $type->name, 'type_label' => $type->label, 'from' => $row->details['typeLabel'] ?? $row->details['type'] ?? null, 'grow_disk' => $growDisk, 'power_off' => $powerOff],
+        ]);
+        AdvanceIntegrationOperation::dispatch($operation->id);
+
+        return $operation;
+    }
+
+    /** Turns the server off and, once it's off, on again, for providers whose power cycle can't be one call (ServerRules::$powerCycleSteps). */
+    public function powerCycle(IntegrationServer $row, Machine $machine, User $user): IntegrationOperation
+    {
+        $operation = $row->integration->operations()->create([
+            'kind' => self::POWER_CYCLE,
+            'machine_id' => $machine->id,
+            'user_id' => $user->id,
+            'server_id' => $row->server_id,
+            'state' => 'queued',
+            'step' => 'stop',
+            'step_started_at' => now(),
+            'input' => ['name' => $machine->name],
+        ]);
+        AdvanceIntegrationOperation::dispatch($operation->id);
+
+        return $operation;
+    }
+
+    /** A resize to a size picked by hand (SizesFreely), done with the server running. */
+    public function resizeTo(IntegrationServer $row, Machine $machine, User $user, ServerSize $size, bool $restart): IntegrationOperation
+    {
+        $operation = $row->integration->operations()->create([
+            'kind' => self::RESIZE,
+            'machine_id' => $machine->id,
+            'user_id' => $user->id,
+            'server_id' => $row->server_id,
+            'state' => 'queued',
+            'step' => 'change',
+            'step_started_at' => now(),
+            'input' => ['size' => $size->toArray(), 'restart' => $restart, 'type_label' => $size->label(), 'from' => ServerSize::of(Server::fromArray($row->details ?? []))->label(), 'power_off' => false],
         ]);
         AdvanceIntegrationOperation::dispatch($operation->id);
 
@@ -164,7 +220,7 @@ final class ServerOperations
         }
 
         try {
-            $wait = $operation->kind === self::RESIZE
+            $wait = $operation->kind === self::RESIZE || $operation->kind === self::POWER_CYCLE
                 ? $this->advanceResize($operation, $integration, $manager)
                 : $this->advanceCreate($operation, $integration, $manager);
         } catch (IntegrationFailed $e) {
@@ -195,6 +251,25 @@ final class ServerOperations
     private function advanceCreate(IntegrationOperation $op, Integration $integration, ManagesServers $manager): ?int
     {
         $id = (string) $op->server_id;
+
+        if ($op->step === 'create') {
+            if ($op->action_id !== null) {
+                $state = $manager->action($integration, $op->action_id);
+                if ($state->state === ActionState::RUNNING) {
+                    $this->stillWithin($op, self::ACTION_MINUTES);
+
+                    return self::WAIT;
+                }
+                if ($state->state === ActionState::FAILED) {
+                    throw new IntegrationFailed(self::t('The provider couldn’t make the server: :reason', ['reason' => self::sentence((string) $state->error)]));
+                }
+            }
+            $actionId = $manager instanceof PreparesServers ? $manager->prepare($integration, $id, NewServer::fromArray($op->input ?? [])) : null;
+            $this->step($op, 'boot');
+            $op->action_id = $actionId;
+
+            return self::WAIT;
+        }
 
         if ($op->step === 'boot') {
             if ($op->action_id !== null) {
@@ -237,11 +312,54 @@ final class ServerOperations
 
             return null;
         }
+        if ($manager instanceof RunsCommands) {
+            $this->runInstall($op, $integration, $manager, $id);
+        }
         if ($op->step_started_at?->lt(now()->subMinutes(self::INSTALL_MINUTES))) {
             throw new IntegrationFailed(self::t('The server is up, but ServerOS didn’t hear from it within :minutes minutes. Open its console at the provider and look at /var/log/cloud-init-output.log.', ['minutes' => self::INSTALL_MINUTES]));
         }
 
         return self::INSTALL_WAIT;
+    }
+
+    // Runs the install inside the server once its agent answers; without one, the person is shown the command.
+    private function runInstall(IntegrationOperation $op, Integration $integration, RunsCommands $manager, string $id): void
+    {
+        $runner = $op->result['runner'] ?? null;
+        if ($runner === 'manual' || $runner === 'ran') {
+            return;
+        }
+        if ($runner === 'running') {
+            try {
+                $ran = $manager->ran($integration, $id, (string) ($op->result['handle'] ?? ''));
+            } catch (IntegrationFailed) {
+                return;
+            }
+            if ($ran === null) {
+                return;
+            }
+            if (! $ran->ok()) {
+                throw new IntegrationFailed(self::t('The install stopped with an error: :output', ['output' => self::tail($ran->output)]));
+            }
+            $op->result = [...($op->result ?? []), 'runner' => 'ran'];
+
+            return;
+        }
+
+        $state = $manager->runner($integration, $id);
+        $script = self::secret($op->input['install'] ?? null);
+        if ($state === RunsCommands::READY && $script !== null) {
+            $op->result = [...($op->result ?? []), 'runner' => 'running', 'handle' => $manager->run($integration, $id, $script)];
+
+            return;
+        }
+        if ($state !== RunsCommands::WAITING || $script === null || $op->step_started_at?->lt(now()->subMinutes(self::AGENT_MINUTES))) {
+            $op->result = [...($op->result ?? []), 'runner' => 'manual', 'why' => $state === RunsCommands::WAITING ? 'silent' : 'none'];
+            $op->step_started_at = now();
+
+            return;
+        }
+        $op->result = [...($op->result ?? []), 'runner' => 'waiting'];
     }
 
     private function advanceResize(IntegrationOperation $op, Integration $integration, ManagesServers $manager): ?int
@@ -252,26 +370,27 @@ final class ServerOperations
             switch ($op->step) {
                 case 'stop':
                     $server = $manager->server($integration, $id) ?? throw new IntegrationFailed(self::t('The server isn’t in the account any more.'), IntegrationFailed::NOT_FOUND);
+                    $cycle = $op->kind === self::POWER_CYCLE;
                     $running = $server->status !== 'off';
-                    $stop = $running && $manager->rules()->resizeNeedsPowerOff;
-                    $op->result = [...($op->result ?? []), 'was_running' => $running, 'stopped' => $stop];
+                    $stop = $running && ($cycle || $manager->rules()->resizeNeedsPowerOff);
+                    $op->result = [...($op->result ?? []), 'was_running' => $running, 'stopped' => $stop || $cycle, 'forced' => $cycle];
                     if (! $stop) {
-                        $this->step($op, 'change');
+                        $this->step($op, $cycle ? 'start' : 'change');
                         break;
                     }
-                    $manager->shutdown($integration, $id);
+                    $cycle ? $manager->powerOff($integration, $id) : $manager->shutdown($integration, $id);
                     $this->step($op, 'stopping');
 
                     return self::WAIT;
 
                 case 'stopping':
                     if ($manager->server($integration, $id)?->status === 'off') {
-                        $this->step($op, 'change');
+                        $this->step($op, $op->kind === self::POWER_CYCLE ? 'start' : 'change');
                         break;
                     }
                     $since = (int) $op->step_started_at?->diffInSeconds(now());
                     if ($since > self::SHUTDOWN_LIMIT) {
-                        throw new IntegrationFailed(self::t('It didn’t turn off, so its type wasn’t changed.'));
+                        throw new IntegrationFailed($op->kind === self::POWER_CYCLE ? self::t('It didn’t turn off. Check it in the provider’s console.') : self::t('It didn’t turn off, so its type wasn’t changed.'));
                     }
                     if ($since >= self::SHUTDOWN_GRACE && ! ($op->result['forced'] ?? false)) {
                         $manager->powerOff($integration, $id);
@@ -281,6 +400,22 @@ final class ServerOperations
                     return self::WAIT;
 
                 case 'change':
+                    if (is_array($op->input['size'] ?? null)) {
+                        if (! $manager instanceof SizesFreely) {
+                            throw new IntegrationFailed(self::t('Something went wrong on ServerOS’s side. Check the server in the provider’s console.'));
+                        }
+                        $change = $manager->resizeTo($integration, $id, ServerSize::fromArray($op->input['size']), (bool) ($op->input['restart'] ?? true));
+                        $op->result = [...($op->result ?? []), 'waits_for_restart' => ! $change->applied];
+                        if ($change->actionId === null) {
+                            $this->finishResize($op, $integration, $manager);
+
+                            return null;
+                        }
+                        $this->step($op, 'changing');
+                        $op->action_id = $change->actionId;
+
+                        return self::WAIT;
+                    }
                     $actionId = $manager->resize($integration, $id, (string) ($op->input['type'] ?? ''), (bool) ($op->input['grow_disk'] ?? false));
                     $this->step($op, 'changing');
                     $op->action_id = $actionId;
@@ -290,7 +425,7 @@ final class ServerOperations
                 case 'changing':
                     if ($op->action_id === null) {
                         $server = $manager->server($integration, $id) ?? throw new IntegrationFailed(self::t('The server isn’t in the account any more.'), IntegrationFailed::NOT_FOUND);
-                        $settled = ($op->result['was_running'] ?? false) ? ['running'] : ['running', 'off'];
+                        $settled = ($op->result['was_running'] ?? false) && ! ($op->result['stopped'] ?? false) ? ['running'] : ['running', 'off'];
                         if ($server->type !== (string) ($op->input['type'] ?? '') || ! in_array($server->status, $settled, true)) {
                             $this->stillWithin($op, self::ACTION_MINUTES);
 
@@ -306,7 +441,9 @@ final class ServerOperations
                         return self::SLOW_WAIT;
                     }
                     if ($state->state === ActionState::FAILED) {
-                        throw new IntegrationFailed(self::t('The type wasn’t changed: :reason', ['reason' => self::sentence((string) $state->error)]));
+                        throw new IntegrationFailed(is_array($op->input['size'] ?? null)
+                            ? self::t('The new size is saved, but it didn’t restart: :reason It applies the next time it restarts.', ['reason' => self::sentence((string) $state->error)])
+                            : self::t('The type wasn’t changed: :reason', ['reason' => self::sentence((string) $state->error)]));
                     }
                     $this->step($op, 'start');
                     break;
@@ -341,7 +478,9 @@ final class ServerOperations
                         return self::WAIT;
                     }
                     if ($state->state === ActionState::FAILED) {
-                        throw new IntegrationFailed(self::t('It was resized but didn’t start again: :reason Start it from the provider’s console.', ['reason' => self::sentence((string) $state->error)]));
+                        throw new IntegrationFailed($op->kind === self::POWER_CYCLE
+                            ? self::t('It turned off but didn’t start again: :reason Start it from the provider’s console.', ['reason' => self::sentence((string) $state->error)])
+                            : self::t('It was resized but didn’t start again: :reason Start it from the provider’s console.', ['reason' => self::sentence((string) $state->error)]));
                     }
                     $this->finishResize($op, $integration, $manager);
 
@@ -370,7 +509,7 @@ final class ServerOperations
     // A resize that stopped the server starts it again before giving up, so a failure never leaves it off.
     private function failWith(IntegrationOperation $op, Integration $integration, ManagesServers $manager, string $message): void
     {
-        if ($op->kind === self::RESIZE && ($op->result['stopped'] ?? false) && in_array($op->step, ['stopping', 'change', 'changing'], true)) {
+        if (in_array($op->kind, [self::RESIZE, self::POWER_CYCLE], true) && ($op->result['stopped'] ?? false) && in_array($op->step, ['stopping', 'change', 'changing'], true)) {
             try {
                 $manager->powerOn($integration, (string) $op->server_id);
                 $message .= ' '.self::t('ServerOS turned it back on.');
@@ -422,7 +561,7 @@ final class ServerOperations
             'boot' => self::t('Start it'),
             'install' => self::t('Install ServerOS and join'),
             'stop' => self::t('Shut it down'),
-            'change' => self::t('Change the type'),
+            'change' => is_array($op->input['size'] ?? null) ? self::t('Change the size') : self::t('Change the type'),
             'start' => self::t('Start it again'),
         ];
         $steps = [];
@@ -448,6 +587,8 @@ final class ServerOperations
             'machineId' => $op->machine_id,
             'machineName' => $op->machine?->name,
             'error' => $op->error,
+            'note' => self::note($op),
+            'command' => $op->kind === self::CREATE && ($op->result['runner'] ?? null) === 'manual' && $op->active() ? self::secret($op->input['command'] ?? null) : null,
             'steps' => array_map(fn (int $index, string $key) => [
                 'key' => $key,
                 'label' => $labels[$key],
@@ -461,6 +602,46 @@ final class ServerOperations
             'createdAt' => $op->created_at?->toIso8601String(),
             'finishedAt' => $op->finished_at?->toIso8601String(),
         ];
+    }
+
+    private static function note(IntegrationOperation $op): ?string
+    {
+        if ($op->kind === self::RESIZE) {
+            return $op->state === 'done' && ($op->result['waits_for_restart'] ?? false) ? self::t('Saved. The new size applies the next time it restarts.') : null;
+        }
+        if (! $op->active()) {
+            return null;
+        }
+
+        return match ($op->result['runner'] ?? null) {
+            'waiting' => self::t('Waiting for its guest agent to answer, to run the install.'),
+            'running', 'ran' => self::t('Installing ServerOS through the guest agent.'),
+            'manual' => ($op->result['why'] ?? null) === 'silent'
+                ? self::t('Its guest agent didn’t answer, so run this on it as root. It joins when it’s done.')
+                : self::t('It has no guest agent, so run this on it as root. It joins when it’s done.'),
+            default => null,
+        };
+    }
+
+    private static function secret(mixed $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+        try {
+            return Crypt::decryptString($value);
+        } catch (DecryptException) {
+            return null;
+        }
+    }
+
+    // The end of a command's output, without anything that looks like a join token.
+    private static function tail(string $output): string
+    {
+        $output = trim((string) preg_replace('/[a-f0-9]{64}/i', '…', $output));
+        $output = mb_strlen($output) > 300 ? '…'.mb_substr($output, -300) : $output;
+
+        return $output === '' ? self::t('no output') : $output;
     }
 
     private static function sentence(string $text): string

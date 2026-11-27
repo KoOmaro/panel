@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
@@ -124,6 +124,12 @@ const connectProvider = computed<ProviderInfo | null>(() =>
 );
 
 function act(integration: Integration): void {
+    if (integration.action?.connectPath) {
+        router.visit(workspacePath(integration.action.connectPath));
+
+        return;
+    }
+
     if (
         integration.action?.connect &&
         props.providers[integration.action.connect]
@@ -166,7 +172,17 @@ function onKeydown(event: KeyboardEvent): void {
     }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown));
+onMounted(() => {
+    window.addEventListener('keydown', onKeydown);
+    const url = new URL(window.location.href);
+    const asked = url.searchParams.get('connect');
+    const row = props.integrations.find((item) => item.key === asked);
+    if (row?.action?.connect) {
+        url.searchParams.delete('connect');
+        window.history.replaceState(window.history.state, '', url.toString());
+        act(row);
+    }
+});
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 </script>
 

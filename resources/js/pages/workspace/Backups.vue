@@ -56,6 +56,7 @@ import { toast } from '@/lib/toast';
 import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
 import backupsRoutes from '@/routes/workspace/backups';
 import machinesRoutes from '@/routes/workspace/machines';
+import type { StorageShortcut } from '@/components/integrations/storage';
 import type { Workspace, WorkspaceAccess } from '@/types';
 
 type Filter = 'all' | 'covered' | 'uncovered' | 'failed';
@@ -66,6 +67,7 @@ const props = defineProps<{
     destinations: Destination[];
     summary: BackupsSummary;
     history: BackupRow[];
+    storage?: StorageShortcut[];
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -480,6 +482,23 @@ function poll(): void {
 onMounted(poll);
 onBeforeUnmount(() => clearTimeout(timer));
 
+const storageStarters = computed(() =>
+    (props.storage ?? []).map((shortcut) => ({
+        key: shortcut.key,
+        logo: shortcut.logo,
+        title: trans(':provider, set up for you', { provider: shortcut.name }),
+        description: shortcut.accounts.length
+            ? trans(
+                  'ServerOS makes a private bucket and a key for it in :account',
+                  { account: shortcut.accounts[0].label },
+              )
+            : trans(
+                  'Connect an account and ServerOS makes the bucket and its key',
+              ),
+        href: shortcut.accounts[0]?.href ?? shortcut.connect,
+    })),
+);
+
 const starterKinds = computed(() => [
     {
         kind: 's3' as const,
@@ -699,6 +718,29 @@ const starterKinds = computed(() => [
                         aria-hidden="true"
                     />
                 </button>
+                <button
+                    v-for="option in storageStarters"
+                    :key="option.key"
+                    type="button"
+                    class="group flex h-14 w-full cursor-pointer items-center gap-3 border-t-[0.5px] border-edge px-5 text-left transition-colors hover:bg-surface-hover"
+                    @click="router.visit(workspacePath(option.href))"
+                >
+                    <BrandLogo :name="option.logo" :size="16" />
+                    <span class="flex min-w-0 grow flex-col">
+                        <span
+                            class="text-[13px]/5 font-medium tracking-[-0.01em] text-fg-primary"
+                            >{{ option.title }}</span
+                        >
+                        <span class="truncate text-[12px]/4 text-fg-tertiary">{{
+                            option.description
+                        }}</span>
+                    </span>
+                    <ArrowRight
+                        class="size-3.5 shrink-0 text-fg-faint transition-colors group-hover:text-fg-secondary"
+                        :stroke-width="2"
+                        aria-hidden="true"
+                    />
+                </button>
                 <p
                     v-if="!canManage"
                     class="border-t-[0.5px] border-edge px-5 py-3 text-[13px]/5 text-fg-tertiary"
@@ -797,6 +839,7 @@ const starterKinds = computed(() => [
         :machines="dialogMachines"
         :editing="editing"
         :initial-type="initialType"
+        :storage="storage ?? []"
     />
 
     <Dialog v-model:open="restoreOpen">

@@ -66,6 +66,7 @@ type Props = {
               label: string;
               username: string;
               addedAt: string | null;
+              integration?: number | null;
           }[]
         | null;
 };
@@ -633,7 +634,16 @@ const fieldLabel =
             v-for="registry in registries"
             :key="registry.id"
             :title="registry.host"
-            :description="$t('As :username', { username: registry.username })"
+            :description="
+                registry.integration
+                    ? $t(
+                          'As :username, from the Docker Hub account in Integrations',
+                          {
+                              username: registry.username,
+                          },
+                      )
+                    : $t('As :username', { username: registry.username })
+            "
         >
             <template #icon>
                 <BrandLogo :name="`${registry.label} ${registry.host}`" />

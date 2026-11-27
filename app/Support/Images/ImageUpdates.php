@@ -9,6 +9,9 @@ use App\Models\ImageVulnerability;
 use App\Models\Machine;
 use App\Models\User;
 use App\Support\DaemonJobQueue;
+use App\Support\Deploys\AppReleases;
+use App\Support\Deploys\ImageDeploy;
+use App\Support\Integrations\DockerHub\DockerHubApps;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -85,9 +88,10 @@ class ImageUpdates
 
         // Asking the registries is the slow part, so it happens before
         // anything is written: a machine removed meanwhile is skipped.
-        $found = array_map(fn (array $container) => $this->compare($container, $logins), $containers);
+        $deployed = array_map(fn (array $container) => AppReleases::retired($machine, ['name' => $container['name']]) ? null : ImageDeploy::ofContainer($machine, $container['name']), $containers);
+        $found = array_map(fn (array $container, ?array $image) => $this->compare($container, $logins, $image), $containers, $deployed);
 
-        return DB::transaction(function () use ($machine, $containers, $found) {
+        return DB::transaction(function () use ($machine, $containers, $found, $deployed) {
             if (! Machine::query()->whereKey($machine->id)->lockForUpdate()->exists()) {
                 return 0;
             }
@@ -103,7 +107,7 @@ class ImageUpdates
                 $imageChanged = $row->image_id !== $container['image_id'];
                 $row->fill([
                     'service_key' => $container['key'],
-                    'image' => mb_substr($container['image'], 0, 512),
+                    'image' => mb_substr($deployed[$i] === null ? $container['image'] : $deployed[$i]['reference']->display(), 0, 512),
                     'image_id' => $container['image_id'],
                     'state' => $state,
                     'remote_digest' => $remote ?? ($state === 'unknown' ? $row->remote_digest : null),
@@ -132,10 +136,20 @@ class ImageUpdates
     /**
      * @param  array{key: string, name: string, image: string, image_id: string, digests: list<string>}  $container
      * @param  Collection<string, ContainerRegistry>  $logins
+     * @param  array{app: string, reference: ImageReference, digest: string}|null  $deployed  the image an app deployed from one runs
      * @return array{0: string, 1: string|null, 2: string|null} state, the registry's digest, why it couldn't say
      */
-    private function compare(array $container, Collection $logins): array
+    private function compare(array $container, Collection $logins, ?array $deployed = null): array
     {
+        if ($deployed !== null) {
+            try {
+                $remote = $this->registry->digest($deployed['reference'], $logins->get($deployed['reference']->registry));
+            } catch (RuntimeException $e) {
+                return ['unknown', null, $e->getMessage()];
+            }
+
+            return [$remote === $deployed['digest'] ? 'current' : 'available', $remote, null];
+        }
         $reference = ImageReference::parse($container['image']);
         if ($reference === null) {
             return ['local', null, null];
@@ -172,6 +186,10 @@ class ImageUpdates
     public function update(ContainerImage $image, User $user): DaemonJob
     {
         $machine = $image->machine;
+        // An app deployed from an image goes onto the newer one with a deploy, as a new version.
+        if (($deployed = ImageDeploy::ofContainer($machine, $image->container)) !== null) {
+            return app(DockerHubApps::class)->update($machine, $deployed['app'], $user);
+        }
         if (($reason = self::unavailable($machine)) !== null) {
             throw new RuntimeException($reason);
         }
@@ -189,11 +207,13 @@ class ImageUpdates
     /** The update job running for a container, if there is one. */
     public static function updating(ContainerImage $image): ?DaemonJob
     {
+        $release = AppReleases::parse($image->container);
+
         return DaemonJob::query()
             ->where('machine_id', $image->machine_id)
-            ->where('kind', 'image_update')
             ->whereIn('state', ['queued', 'running'])
-            ->where('service', $image->service_key)
+            ->where(fn ($query) => $query->where(fn ($q) => $q->where('kind', 'image_update')->where('service', $image->service_key))
+                ->when($release !== null, fn ($q) => $q->orWhere(fn ($q) => $q->where('kind', 'deploy')->where('service', $release['app'] ?? ''))))
             ->latest()
             ->first();
     }
@@ -235,9 +255,9 @@ class ImageUpdates
             ->with('vulnerability:id,cve,severity,exploited')
             ->get()
             ->groupBy(fn (ImageVulnerability $v) => $v->machine_id.'|'.$v->image_id);
-        $updating = DaemonJob::query()->whereIn('machine_id', $machines->pluck('id'))->where('kind', 'image_update')
-            ->whereIn('state', ['queued', 'running'])->get(['id', 'machine_id', 'service'])
-            ->keyBy(fn (DaemonJob $job) => $job->machine_id.'|'.$job->service);
+        $updating = DaemonJob::query()->whereIn('machine_id', $machines->pluck('id'))->whereIn('kind', ['image_update', 'deploy'])
+            ->whereIn('state', ['queued', 'running'])->get(['id', 'machine_id', 'service', 'kind'])
+            ->keyBy(fn (DaemonJob $job) => $job->machine_id.'|'.($job->kind === 'deploy' ? 'app:' : '').$job->service);
         $byId = $machines->keyBy('id');
         $order = ['available' => 0, 'unknown' => 1, 'current' => 2, 'local' => 3];
 
@@ -258,7 +278,8 @@ class ImageUpdates
                     'checkedAt' => $row->checked_at?->toIso8601String(),
                     'availableSince' => $row->available_since?->toIso8601String(),
                     'scannedAt' => $row->scanned_at?->toIso8601String(),
-                    'updateJob' => $updating->get($row->machine_id.'|'.$row->service_key)?->id,
+                    'updateJob' => ($updating->get($row->machine_id.'|'.$row->service_key)
+                        ?? (($release = AppReleases::parse($row->container)) === null ? null : $updating->get($row->machine_id.'|app:'.$release['app'])))?->id,
                     'vulnerabilities' => [
                         'total' => $found->count(),
                         'critical' => $severities->filter(fn ($s) => $s === 'critical')->count(),

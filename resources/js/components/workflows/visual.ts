@@ -39,6 +39,7 @@ const KIND_ICONS: Record<WorkflowNode['kind'], FilledIconName> = {
     promote: 'update-fill',
     check_monitor: 'globe-fill',
     http: 'globe-fill',
+    n8n: 'update-fill',
     alert: 'user-fill',
     wait: 'history',
     branch: 'branch-fill',
@@ -119,6 +120,8 @@ export function nodeVisual(node: WorkflowNode, options: Options): NodeVisual {
 
             return brand ? { ...base, logo: brand[0] } : base;
         }
+        case 'n8n':
+            return { ...base, logo: 'n8n' };
     }
 
     return base;
@@ -200,6 +203,16 @@ export function nodeSubtitle(node: WorkflowNode, options: Options): string {
             const host = urlHost(r.url);
 
             return host ? `${r.method ?? 'POST'} ${host}` : fallback;
+        }
+        case 'n8n': {
+            const name = r.workflow_name ? String(r.workflow_name) : null;
+            if (!name) return fallback;
+
+            return r.wait === 'answer'
+                ? trans(':name, waits for its answer', { name })
+                : r.wait === 'callback'
+                  ? trans(':name, waits for it to call back', { name })
+                  : name;
         }
         case 'agent':
             return r.agent === 'codex'

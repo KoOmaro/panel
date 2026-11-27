@@ -20,7 +20,7 @@ class IntegrationController extends Controller
     public function index(Request $request, Workspace $workspace, WorkspaceIntegrations $integrations): Response
     {
         $user = $request->user();
-        if ($user->integrations_promo_seen_at === null && ! Impersonation::active($request)) {
+        if ($request->query('from') === 'promo' && $user->integrations_promo_seen_at === null && ! Impersonation::active($request)) {
             $user->forceFill(['integrations_promo_seen_at' => now()])->save();
         }
         $alerts = Gate::allows(WorkspaceIntegrations::MACHINES, $workspace);

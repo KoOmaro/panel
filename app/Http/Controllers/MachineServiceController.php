@@ -27,10 +27,12 @@ use App\Support\Deploys\AppVersions;
 use App\Support\Deploys\CommitMessages;
 use App\Support\Deploys\ContainerNames;
 use App\Support\Deploys\DeployOnPush;
+use App\Support\Deploys\ImageDeploy;
 use App\Support\Deploys\ServiceLabels;
 use App\Support\Deploys\SiteSwitches;
 use App\Support\Files\FileJobs;
 use App\Support\Integrations\Cloudflare\CloudflareDns;
+use App\Support\Integrations\DockerHub\DockerHubApps;
 use App\Support\Integrations\Sentry\SentryReleases;
 use App\Support\Logs\LogStore;
 use App\Support\Machines\MachinePolicies;
@@ -160,7 +162,7 @@ class MachineServiceController extends Controller
                     'deployedAt' => $v['job']->created_at?->toIso8601String(),
                     'by' => $v['job']->startedByName(),
                     'push' => $v['job']->trigger === DeployOnPush::TRIGGER,
-                    'repo' => self::repoName((string) ($v['job']->command['job']['repo'] ?? '')),
+                    'repo' => self::repoName((string) ($v['job']->command['job']['repo'] ?? '')) ?? (ImageDeploy::of((array) $v['job']->command['job'])['reference'] ?? null)?->display(),
                     'data' => $v['restore'] !== [],
                     'dataAt' => $v['dataAt'],
                 ], AppVersions::for($machine, $deploy->service)),
@@ -169,6 +171,7 @@ class MachineServiceController extends Controller
             'deploy' => ($name = self::appName($found)) === null ? null : AppPage::props($machine, $name),
             'deployHistory' => Inertia::defer(fn () => ($name = self::appName($found)) === null ? [] : AppDeploys::history($machine, $name, 20)->map(fn (DaemonJob $job) => AppDeploys::row($job))->values()->all()),
             'cloudflare' => $deploy === null || ! app(CloudflareDns::class)->connected($workspace->id) ? null : Inertia::defer(fn () => app(CloudflareDns::class)->appProps($machine, (string) $deploy->service, (array) ($deploy->command['job']['domains'] ?? []))),
+            'dockerHub' => $deploy === null || ImageDeploy::of((array) $deploy->command['job']) === null ? null : Inertia::defer(fn () => app(DockerHubApps::class)->props($machine, (string) $deploy->service, $seesConsole)),
             'sentry' => $deploy === null ? null : Inertia::defer(fn () => SentryReleases::props($machine, (string) $deploy->service, array_map(fn (array $v) => $v['commit'], AppVersions::for($machine, (string) $deploy->service)))),
             'siteTraffic' => self::siteTraffic($machine, $found),
             'commandsEnabled' => (bool) config('daemon.commands_enabled'),

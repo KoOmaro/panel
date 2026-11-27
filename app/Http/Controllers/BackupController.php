@@ -12,6 +12,7 @@ use App\Support\Audit\AuditContext;
 use App\Support\Audit\Audited;
 use App\Support\Backups\BackupRunner;
 use App\Support\Deploys\ServiceLabels;
+use App\Support\Integrations\Storage\BackupStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,6 +39,9 @@ class BackupController extends Controller
         $labels = self::labels($machines);
         $stored = Backup::query()->whereIn('machine_id', $ids)->where('state', 'succeeded')->whereNotNull('backup_destination_id')
             ->selectRaw('backup_destination_id, sum(bytes) as bytes')->groupBy('backup_destination_id')->pluck('bytes', 'backup_destination_id');
+
+        $destinations = $workspace->backupDestinations()->with('machine')->orderBy('name')->get();
+        $madeBy = BackupStorage::madeBy(array_values($destinations->map(fn (BackupDestination $d) => $d->id)->all()));
 
         return Inertia::render('workspace/Backups', [
             'workspace' => $workspace->toPageProps(),
@@ -69,13 +73,14 @@ class BackupController extends Controller
                 'lastRun' => self::lastRun($recent->where('machine_id', $machine->id)),
                 'unavailable' => $runner->unavailable($machine),
             ]),
-            'destinations' => $workspace->backupDestinations()->with('machine')->orderBy('name')->get()
-                ->map(fn (BackupDestination $d) => [
-                    ...$d->toPageProps(),
-                    'machines' => $machines->where('backup_destination_id', $d->id)->count(),
-                    'provider' => $d->type === 'machine' ? $d->machine?->provider : null,
-                    'stored' => (int) ($stored[$d->id] ?? 0),
-                ]),
+            'destinations' => $destinations->map(fn (BackupDestination $d) => [
+                ...$d->toPageProps(),
+                'machines' => $machines->where('backup_destination_id', $d->id)->count(),
+                'provider' => $d->type === 'machine' ? $d->machine?->provider : null,
+                'stored' => (int) ($stored[$d->id] ?? 0),
+                'madeBy' => $madeBy[$d->id] ?? null,
+            ]),
+            'storage' => Gate::allows('manageMachines', $workspace) ? BackupStorage::shortcuts($workspace) : [],
             'summary' => self::summary($machines, $recent, (int) $stored->sum(), $labels),
             'history' => function () use ($machines, $runner, $labels) {
                 $backups = Backup::query()

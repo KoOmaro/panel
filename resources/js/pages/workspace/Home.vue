@@ -13,6 +13,7 @@ import HomeIssues from '@/components/home/HomeIssues.vue';
 import HomeNotice from '@/components/home/HomeNotice.vue';
 import HomeOverview from '@/components/home/HomeOverview.vue';
 import HomeSecurity from '@/components/home/HomeSecurity.vue';
+import HomeStartCard from '@/components/home/HomeStartCard.vue';
 import IntegrationsPromo from '@/components/home/IntegrationsPromo.vue';
 import type {
     HomeBackups as Backups,
@@ -265,7 +266,8 @@ onBeforeUnmount(() => {
         </div>
     </div>
 
-    <IntegrationsPromo v-if="integrationsPromo" />
+    <IntegrationsPromo v-if="integrationsPromo && hasMachines" />
+    <HomeStartCard v-else-if="!hasMachines && canManage" @connect="connect" />
     <MachineConnector v-if="canManage" ref="connector" />
     <NewProjectDialog v-if="canManage" v-model:open="creating" />
 </template>

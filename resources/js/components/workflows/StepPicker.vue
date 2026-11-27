@@ -54,6 +54,13 @@ const groups: Group[] = [
         kinds: ['alert', 'http'],
     },
     {
+        key: 'automations',
+        label: trans('Automations'),
+        description: trans('Start an n8n workflow.'),
+        icon: 'update-fill',
+        kinds: ['n8n'],
+    },
+    {
         key: 'agents',
         label: trans('Agents'),
         description: trans('A coding agent looks into it.'),

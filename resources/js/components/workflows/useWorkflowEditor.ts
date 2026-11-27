@@ -309,6 +309,8 @@ export function defaultRules(kind: StepKind): WorkflowNode['rules'] {
             return { timeout: 5 };
         case 'http':
             return { method: 'POST', url: '' };
+        case 'n8n':
+            return { integration: '', workflow: '', wait: 'no', minutes: 30 };
         case 'alert':
             return {
                 subject: '{{workflow}}: {{trigger}}',

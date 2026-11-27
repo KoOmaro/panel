@@ -4,6 +4,7 @@ namespace App\Support\Workflows;
 
 use App\Models\Machine;
 use App\Models\Workspace;
+use App\Support\Integrations\N8n\N8nStep;
 use App\Support\Projects\Environments;
 
 final class WorkflowSteps
@@ -29,12 +30,13 @@ final class WorkflowSteps
         'promote' => ['out', 'failed'],
         'check_monitor' => ['out', 'failed'],
         'http' => ['out', 'failed'],
+        'n8n' => ['out', 'failed'],
         'alert' => ['out'],
         'wait' => ['out'],
         'branch' => ['true', 'false'],
     ];
 
-    public const CONDITIONS = ['monitor_up', 'service_running', 'disk_below', 'time_between', 'trigger_field'];
+    public const CONDITIONS = ['monitor_up', 'service_running', 'disk_below', 'time_between', 'trigger_field', 'n8n_field'];
 
     public const FROM_TRIGGER = '@trigger';
 
@@ -126,6 +128,7 @@ final class WorkflowSteps
         $machines = $workspace->machines()->get()->keyBy('id');
         $monitors = $workspace->monitors()->pluck('id')->all();
         $projects = $workspace->projects()->with('environments')->get()->keyBy('id');
+        $n8n = $workspace->integrations()->where('provider', 'n8n')->pluck('id')->all();
         $trigger = collect($graph['nodes'])->firstWhere('kind', 'trigger');
         $event = $trigger ? (string) (((array) $trigger['rules'])['event'] ?? 'manual') : null;
 
@@ -210,6 +213,14 @@ final class WorkflowSteps
                 })(),
                 'check_monitor' => in_array((int) ($rules['monitor_id'] ?? 0), $monitors, true) ? null : 'Choose a monitor.',
                 'http' => filter_var($rules['url'] ?? '', FILTER_VALIDATE_URL) && preg_match('#^https?://#i', (string) $rules['url']) ? null : 'Enter the URL to call.',
+                'n8n' => match (true) {
+                    $n8n === [] => 'Connect n8n first, from Integrations.',
+                    ! in_array((int) ($rules['integration'] ?? 0), $n8n, true) => 'Choose the n8n account.',
+                    trim((string) ($rules['workflow'] ?? '')) === '' => 'Choose the n8n workflow to start.',
+                    ! in_array($rules['wait'] ?? 'no', N8nStep::WAITS, true) => 'Choose whether to wait for n8n.',
+                    trim((string) ($rules['body'] ?? '')) !== '' && ! is_array(json_decode((string) preg_replace('/\{\{[^}]*\}\}/', '0', (string) $rules['body']), true)) => 'Extra input is a JSON object, like {"reason": "{{trigger}}"}.',
+                    default => null,
+                },
                 'alert' => match (true) {
                     trim((string) ($rules['subject'] ?? '')) === '' => 'Write what the alert says.',
                     ($rules['to'] ?? 'team') !== 'team' && self::emails($rules['emails'] ?? null) === [] => 'Add who to email.',
@@ -217,7 +228,11 @@ final class WorkflowSteps
                     default => null,
                 },
                 'wait' => (int) ($rules['minutes'] ?? 0) >= 1 && (int) $rules['minutes'] <= 1440 ? null : 'Wait between 1 minute and a day.',
-                'branch' => in_array($rules['condition'] ?? null, self::CONDITIONS, true) ? null : 'Choose what to check.',
+                'branch' => match (true) {
+                    ! in_array($rules['condition'] ?? null, self::CONDITIONS, true) => 'Choose what to check.',
+                    $rules['condition'] === 'n8n_field' && ! collect($graph['nodes'])->contains(fn (array $n) => $n['kind'] === 'n8n') => 'Add a Run an n8n workflow step before this check.',
+                    default => null,
+                },
                 default => null,
             };
             if ($problem !== null) {
@@ -293,11 +308,11 @@ final class WorkflowSteps
     public static function withoutSecrets(array $graph): array
     {
         foreach ($graph['nodes'] as $i => $node) {
-            if (($node['kind'] ?? null) !== 'http') {
+            if (! in_array($node['kind'] ?? null, ['http', 'n8n'], true)) {
                 continue;
             }
             $rules = (array) ($node['rules'] ?? []);
-            if (filled($rules['url'] ?? null)) {
+            if ($node['kind'] === 'http' && filled($rules['url'] ?? null)) {
                 $host = parse_url((string) $rules['url'], PHP_URL_HOST);
                 $scheme = parse_url((string) $rules['url'], PHP_URL_SCHEME);
                 $rules['url'] = is_string($host) && is_string($scheme) ? strtolower($scheme).'://'.$host.'/…' : '[hidden]';

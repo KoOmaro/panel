@@ -3,6 +3,7 @@
 namespace App\Support\Fixes;
 
 use App\Models\AgentFix;
+use App\Support\Ai\AiFeatures;
 use App\Support\Ai\AiProviders;
 
 class FixDiagnoser
@@ -13,7 +14,7 @@ class FixDiagnoser
 
     public function diagnose(AgentFix $fix): void
     {
-        $ai = $this->ai->forAgent($fix->workspace_id);
+        $ai = $this->ai->forFeature($fix->workspace_id, AiFeatures::FIXES);
 
         $evidence = FixEvidence::gather($fix->machine, $fix->service_key);
         $fix->forceFill(['evidence' => $evidence, 'model' => $ai['model']])->save();

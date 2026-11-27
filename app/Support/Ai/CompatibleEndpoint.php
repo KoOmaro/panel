@@ -77,7 +77,12 @@ class CompatibleEndpoint
             $options['curl'] = [CURLOPT_RESOLVE => ["{$host}:{$port}:{$ip}"]];
         }
 
-        return Http::withToken($key)->connectTimeout(10)->timeout($timeout)->withOptions($options)
+        $request = Http::connectTimeout(10)->timeout($timeout)->withOptions($options);
+        if ($key !== '') {
+            $request->withToken($key);
+        }
+
+        return $request
             ->withResponseMiddleware(function (ResponseInterface $response) use ($bare): ResponseInterface {
                 if ($response->getBody()->getSize() > self::MAX_BYTES) {
                     throw self::tooLarge($bare);

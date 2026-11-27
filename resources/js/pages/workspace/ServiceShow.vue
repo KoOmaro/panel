@@ -39,6 +39,7 @@ import type {
     CloudflareCheck,
 } from '@/components/integrations/cloudflare';
 import CloudflareDnsNote from '@/components/integrations/CloudflareDnsNote.vue';
+import type { DockerHubApp } from '@/components/integrations/dockerHub';
 import type { ServiceSentry } from '@/components/integrations/incidents';
 import AppLimitsDialog from '@/components/machines/AppLimitsDialog.vue';
 import AppSiteDialog from '@/components/machines/AppSiteDialog.vue';
@@ -56,6 +57,7 @@ import DeploySettingsDialog from '@/components/service/DeploySettingsDialog.vue'
 import ServiceCharts from '@/components/service/ServiceCharts.vue';
 import ServiceConsole from '@/components/service/ServiceConsole.vue';
 import ServiceDeploys from '@/components/service/ServiceDeploys.vue';
+import ServiceImage from '@/components/service/ServiceImage.vue';
 import ServiceDetails from '@/components/service/ServiceDetails.vue';
 import ServiceDomain from '@/components/service/ServiceDomain.vue';
 import ServiceLogs from '@/components/service/ServiceLogs.vue';
@@ -153,6 +155,7 @@ const props = defineProps<{
     siteTraffic: ExistingSitesTrafficProps | null;
     cloudflare?: CloudflareApp | null;
     sentry?: ServiceSentry | null;
+    dockerHub?: DockerHubApp | null;
 }>();
 
 // The app's deploy setup, replaced straight away by what a save answers.
@@ -1659,6 +1662,15 @@ onBeforeUnmount(() => {
                     @rollback="askRollback"
                     @settings="deploySettingsOpen = true"
                     @drop="dropVersion"
+                />
+                <ServiceImage
+                    v-if="app && dockerHub !== null"
+                    :image="dockerHub"
+                    :workspace-slug="workspace.slug"
+                    :machine-id="machine.id!"
+                    :app="app.service"
+                    :can-manage="canManage"
+                    :online="online"
                 />
                 <ServiceVariables
                     :variables="app?.variables ?? null"

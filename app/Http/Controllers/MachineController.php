@@ -23,6 +23,7 @@ use App\Support\Files\FileJobs;
 use App\Support\Firewall;
 use App\Support\Health\WorkspaceHealth;
 use App\Support\Integrations\Servers\CloudServers;
+use App\Support\Integrations\Tailscale\TailscaleDevices;
 use App\Support\Machines\MachinePolicies;
 use App\Support\Machines\Readme\MachineReadmes;
 use App\Support\Machines\SshAccess;
@@ -105,6 +106,7 @@ class MachineController extends Controller
             'readme' => $onReadme ? $readme : Inertia::optional($readme),
             'access' => fn () => SshAccess::view($workspace, $machine, $request->user()),
             'cloudServer' => fn () => $seesConsole ? CloudServers::machineProps($machine) : null,
+            'tailnet' => fn () => $seesConsole ? TailscaleDevices::machineProps($machine) : null,
             'serviceGroups' => fn () => $machine->serviceGroups()->orderBy('name')->get()
                 ->map(fn (ServiceGroup $group) => $group->toPageProps())
                 ->all(),

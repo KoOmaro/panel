@@ -191,10 +191,18 @@ final class CloudServers
             ],
             'server' => $server->toArray(),
             'syncedAt' => $row->synced_at?->toIso8601String(),
-            'can' => array_map(fn (Capability $c) => $c->value, $provider->capabilities()),
+            'can' => array_map(fn (Capability $c) => $c->value, self::capabilities($row->integration, $server)),
             'rules' => $manager->rules()->toArray(),
             'operation' => $operation !== null && ($operation->active() || $operation->finished_at?->gt(now()->subMinutes(10))) ? ServerOperations::props($operation) : null,
         ];
+    }
+
+    /** @return list<Capability> */
+    public static function capabilities(Integration $integration, Server $server): array
+    {
+        $provider = $integration->provider();
+
+        return $provider instanceof LimitsServers ? $provider->capabilitiesOf($server) : $provider->capabilities();
     }
 
     /** @return array{0: IntegrationServer, 1: ManagesServers}|null */

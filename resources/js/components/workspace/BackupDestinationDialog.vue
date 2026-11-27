@@ -27,6 +27,7 @@ import MorphHeight from '@/components/workspace/MorphHeight.vue';
 import PickerMenu from '@/components/workspace/PickerMenu.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import { workspacePath } from '@/lib/workspaceRoute';
+import type { StorageShortcut } from '@/components/integrations/storage';
 
 export type BackupDestination = {
     id: number;
@@ -51,6 +52,7 @@ const props = defineProps<{
     machines: { id: number; name: string; online: boolean }[];
     editing?: BackupDestination | null;
     initialType?: 's3' | 'machine';
+    storage?: StorageShortcut[];
 }>();
 
 const open = defineModel<boolean>('open', { default: false });
@@ -145,6 +147,22 @@ const processing = ref(false);
 const preset = computed(
     () => providers.find((p) => p.value === provider.value) ?? providers[0],
 );
+
+const shortcut = computed(() => {
+    const key = { b2: 'backblaze', r2: 'r2' }[provider.value];
+
+    return props.storage?.find((item) => item.key === key) ?? null;
+});
+
+function useShortcut(): void {
+    if (!shortcut.value) return;
+    open.value = false;
+    router.visit(
+        workspacePath(
+            shortcut.value.accounts[0]?.href ?? shortcut.value.connect,
+        ),
+    );
+}
 
 watch(open, (isOpen) => {
     if (!isOpen) return;
@@ -382,6 +400,44 @@ const labelClass = 'text-[12.5px]/4 text-(--ds-text-muted)';
                                             }}</span>
                                         </button>
                                     </div>
+                                </div>
+
+                                <div
+                                    v-if="shortcut && !editing"
+                                    class="flex items-center gap-3 rounded-[10px] bg-(--ds-subtle) px-3 py-2.5 ring-1 ring-(--ds-border)"
+                                >
+                                    <p
+                                        class="min-w-0 flex-1 text-[12.5px]/4.5 text-(--ds-text-secondary)"
+                                    >
+                                        {{
+                                            shortcut.accounts.length
+                                                ? $t(
+                                                      'ServerOS can make the bucket and a key that only reaches it in :account.',
+                                                      {
+                                                          account:
+                                                              shortcut
+                                                                  .accounts[0]
+                                                                  .label,
+                                                      },
+                                                  )
+                                                : $t(
+                                                      'Connect your :provider account and ServerOS makes the bucket and a key that only reaches it.',
+                                                      {
+                                                          provider:
+                                                              shortcut.name,
+                                                      },
+                                                  )
+                                        }}
+                                    </p>
+                                    <AppButton size="sm" @click="useShortcut">
+                                        {{
+                                            shortcut.accounts.length
+                                                ? $t('Set it up for me')
+                                                : $t('Connect :provider', {
+                                                      provider: shortcut.name,
+                                                  })
+                                        }}
+                                    </AppButton>
                                 </div>
 
                                 <div

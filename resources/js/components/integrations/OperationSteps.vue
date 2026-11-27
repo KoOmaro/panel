@@ -1,8 +1,25 @@
 <script setup lang="ts">
 import { Check, X } from '@lucide/vue';
+import { trans } from 'laravel-vue-i18n';
+import DashButton from '@/components/dash/DashButton.vue';
 import type { Operation } from '@/components/integrations/integrations';
+import { toast } from '@/lib/toast';
 
-const { operation } = defineProps<{ operation: Operation }>();
+const { operation } = defineProps<{
+    operation: Pick<Operation, 'steps' | 'state' | 'error'> &
+        Partial<Pick<Operation, 'note' | 'command'>>;
+}>();
+
+async function copy(): Promise<void> {
+    try {
+        await navigator.clipboard.writeText(operation.command ?? '');
+        toast.success(trans('Install command copied'));
+    } catch {
+        toast.error(
+            trans('Could not copy. Select the command and copy it manually.'),
+        );
+    }
+}
 </script>
 
 <template>
@@ -64,6 +81,24 @@ const { operation } = defineProps<{ operation: Operation }>();
                 }}</span>
             </li>
         </ol>
+        <p
+            v-if="operation.note && operation.state !== 'failed'"
+            class="text-[12.5px]/[18px] text-fg-tertiary"
+            role="status"
+        >
+            {{ operation.note }}
+        </p>
+        <div v-if="operation.command" class="flex flex-col items-start gap-2">
+            <pre
+                class="max-h-40 w-full overflow-auto rounded-[8px] border-[0.5px] border-edge-field bg-surface-field px-3 py-2.5 font-ui-mono text-[12px]/[18px] break-all whitespace-pre-wrap text-fg-secondary shadow-field"
+                >{{ operation.command }}</pre>
+            <DashButton
+                size="sm"
+                icon="copy"
+                :label="$t('Copy command')"
+                @click="copy"
+            />
+        </div>
         <p
             v-if="operation.state === 'failed' && operation.error"
             class="rounded-[8px] border-[0.5px] border-[rgba(240,105,90,0.25)] bg-[rgba(240,105,90,0.07)] px-3 py-2 text-[12px]/[18px] text-fg-secondary"

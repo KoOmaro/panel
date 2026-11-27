@@ -21,6 +21,7 @@ import type { DashStatus } from '@/components/dash/StatusBadge.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { FilledIconName } from '@/components/icons/filledIcons';
 import type { MachineCloudServer } from '@/components/integrations/integrations';
+import type { MachineTailnet } from '@/components/integrations/tailscale';
 import FileBrowser from '@/components/machines/FileBrowser.vue';
 import type { FilePlace } from '@/components/machines/FileBrowser.vue';
 import FirewallPanel from '@/components/machines/FirewallPanel.vue';
@@ -121,6 +122,7 @@ const props = defineProps<{
     defaultTab?: 'overview' | 'readme';
     readme?: MachineReadmeData;
     cloudServer?: MachineCloudServer | null;
+    tailnet?: MachineTailnet | null;
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -690,6 +692,19 @@ onBeforeUnmount(() => {
                             }}
                         </DropdownMenuItem>
                     </template>
+                    <template v-if="canManage && tailnet">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem as-child>
+                            <Link :href="`${settingsUrl}#tailscale`">
+                                <FilledIcon name="globe-fill" />
+                                {{
+                                    tailnet.device
+                                        ? $t('Remove from tailnet')
+                                        : $t('Add to tailnet')
+                                }}
+                            </Link>
+                        </DropdownMenuItem>
+                    </template>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem as-child>
                         <Link :href="settingsUrl">
@@ -817,6 +832,8 @@ onBeforeUnmount(() => {
             :online="online"
             @tab="go"
             :cloud-server="canManage ? cloudServer : null"
+            :tailnet="canManage ? tailnet : null"
+            :settings-url="settingsUrl"
             @range="loadHistory"
             @server="serverAction"
         >

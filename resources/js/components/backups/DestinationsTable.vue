@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Link } from '@inertiajs/vue3';
 import {
     CircleCheck,
     CircleX,
@@ -22,6 +23,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { workspacePath } from '@/lib/workspaceRoute';
 import { destinationKind, size } from './backups';
 import type { Destination } from './backups';
 
@@ -73,6 +75,17 @@ const emit = defineEmits<{
                 <span class="truncate">{{
                     destinationKind(destination).label
                 }}</span>
+                <Link
+                    v-if="destination.madeBy"
+                    :href="workspacePath(destination.madeBy.href)"
+                    class="truncate text-[12px]/4 text-fg-muted hover:text-fg-primary hover:underline"
+                    :title="
+                        $t('Set up through :account', {
+                            account: destination.madeBy.label,
+                        })
+                    "
+                    >{{ $t('Managed') }}</Link
+                >
             </DashTd>
             <DashTd>
                 <TintBadge

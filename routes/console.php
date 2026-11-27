@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ChatPost;
 use App\Support\Edition;
 use App\Support\InstallPing;
 use App\Support\SchedulerHeartbeat;
@@ -22,8 +23,10 @@ Schedule::command('logs:flush-buffers')->everyMinute()->withoutOverlapping(5);
 Schedule::command('view-as:close-stale')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('monitors:run')->everyThirtySeconds()->withoutOverlapping(5)->runInBackground();
 Schedule::command('monitors:run --prune')->dailyAt('03:17')->withoutOverlapping();
+Schedule::command('model:prune', ['--model' => [ChatPost::class]])->dailyAt('03:29')->withoutOverlapping();
 Schedule::command('machines:watch')->everyMinute()->withoutOverlapping(5);
 Schedule::command('integrations:incidents')->everyMinute()->withoutOverlapping(5);
+Schedule::command('integrations:metrics')->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command('maintenance:tick')->everyMinute()->withoutOverlapping(5);
 Schedule::command('updates:check-due')->hourlyAt(23)->withoutOverlapping(30);
 Schedule::command('updates:tick')->everyMinute()->withoutOverlapping(5);

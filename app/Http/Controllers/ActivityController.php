@@ -150,7 +150,11 @@ class ActivityController extends Controller
 
         return [
             'source' => $a->source ?? ($via === 'mcp' ? 'mcp' : null),
-            'client' => in_array($via, ['mcp', 'api', 'scim'], true) && is_string($a->meta['client'] ?? null) ? $a->meta['client'] : null,
+            'client' => match (true) {
+                in_array($via, ['mcp', 'api', 'scim'], true) && is_string($a->meta['client'] ?? null) => $a->meta['client'],
+                in_array($via, AuditContext::CHATS, true) => $via,
+                default => null,
+            },
             'device' => $hidden ? null : Device::label($a->user_agent),
             'ip' => $hidden ? null : $a->ip,
             'userAgent' => $hidden ? null : $a->user_agent,

@@ -10,7 +10,10 @@ import integrationRoutes from '@/routes/workspace/integrations';
 
 const page = usePage<{ workspace?: { slug: string } }>();
 const slug = computed(() => page.props.workspace?.slug ?? '');
-const href = computed(() => onWorkspace(integrations(slug.value)).url);
+const href = computed(
+    () =>
+        onWorkspace(integrations(slug.value, { query: { from: 'promo' } })).url,
+);
 
 const shown = ref(true);
 
@@ -112,11 +115,11 @@ function dismiss(): void {
             :aria-label="$t('What’s new')"
         >
             <div
-                class="relative flex flex-col overflow-clip rounded-[12px] border-[0.5px] border-[rgb(61_94_240/0.28)] bg-linear-to-b from-[#161b3a] to-[#10132a] px-3.5 pt-3 pb-3.5 font-ui shadow-[0_8px_16px_-8px_rgb(0_0_0/0.35),0_1px_2px_rgb(0_0_0/0.5)]"
+                class="relative flex flex-col overflow-clip rounded-[12px] border-[0.5px] border-[#262626] bg-[#181818] px-3.5 pt-3 pb-3.5 font-ui shadow-[0_8px_16px_-8px_rgb(0_0_0/0.35),0_1px_2px_rgb(0_0_0/0.5)]"
             >
                 <div class="flex w-full gap-1" aria-hidden="true">
                     <span
-                        class="relative h-[1.5px] flex-1 overflow-clip rounded-[1px] bg-[rgb(143_163_255/0.18)]"
+                        class="relative h-[1.5px] flex-1 overflow-clip rounded-[1px] bg-white/12"
                     >
                         <span
                             class="integrations-promo-played absolute inset-y-0 left-0 rounded-[1px] bg-white/75"
@@ -203,7 +206,7 @@ function dismiss(): void {
                     <p class="text-[12px]/[17px] text-fg-muted">
                         {{
                             $t(
-                                'Connect GitHub, Slack, Discord and more in one place, then use them in deploys, alerts, workflows and agents.',
+                                'Connect GitHub, Slack, Cloudflare and your cloud accounts once, then use them in deploys, alerts, workflows and agents.',
                             )
                         }}
                     </p>

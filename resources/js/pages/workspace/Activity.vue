@@ -375,6 +375,18 @@ function from(entry: Entry): From {
                     ? trans('API (:client)', { client })
                     : trans('API'),
             };
+        case 'chat':
+            return {
+                ...base,
+                logo: client,
+                label:
+                    {
+                        slack: 'Slack',
+                        discord: 'Discord',
+                        telegram: 'Telegram',
+                        teams: 'Microsoft Teams',
+                    }[client ?? ''] ?? trans('Chat'),
+            };
         case 'workflow':
             return { ...base, icon: 'branch-fill', label: trans('Workflow') };
         case 'machine':

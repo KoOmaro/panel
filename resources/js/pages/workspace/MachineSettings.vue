@@ -13,6 +13,7 @@ import {
 import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
 import type { MachineCloudServer } from '@/components/integrations/integrations';
+import type { MachineTailnet } from '@/components/integrations/tailscale';
 import type { Machine } from '@/components/machines/machines';
 import CloudServerTray from '@/components/machines/server/CloudServerTray.vue';
 import MachineServerActions from '@/components/machines/server/MachineServerActions.vue';
@@ -33,6 +34,7 @@ import StatusPageSettings from '@/components/machines/settings/StatusPageSetting
 import type { StatusPageProps } from '@/components/machines/settings/StatusPageSettings.vue';
 import TrafficSettings from '@/components/machines/TrafficSettings.vue';
 import type { TrafficSettingsProps } from '@/components/machines/TrafficSettings.vue';
+import TailnetTray from '@/components/machines/TailnetTray.vue';
 import TunnelSettings from '@/components/machines/TunnelSettings.vue';
 import type { TunnelSettingsProps } from '@/components/machines/TunnelSettings.vue';
 import { usePathTab } from '@/composables/usePathTab';
@@ -62,6 +64,7 @@ const props = defineProps<{
     collectedData?: CollectedData;
     skippedLogs?: SkippedLogs;
     cloudServer?: MachineCloudServer | null;
+    tailnet?: MachineTailnet | null;
 }>();
 
 const serverActions =
@@ -267,6 +270,12 @@ onBeforeUnmount(() => {
                         :machine-name="machine.name"
                         :traffic="traffic"
                         :can-manage="canManage"
+                    />
+                    <TailnetTray
+                        v-if="tailnet && canManage && machine.id"
+                        :machine-id="machine.id"
+                        :machine-name="machine.name"
+                        :tailnet="tailnet"
                     />
                     <TunnelSettings
                         v-if="tunnel && machine.id"

@@ -3,10 +3,9 @@
 namespace App\Support\Monitors;
 
 use App\Models\Workspace;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
+use App\Support\Integrations\Chat\ChatFailed;
+use App\Support\Integrations\Telegram\TelegramApi;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 
 /**
  * Alerts posted to a Telegram chat by the workspace's own bot (made with
@@ -22,7 +21,7 @@ final class TelegramAlerts
     // What @BotFather hands out: the bot's number, a colon, then the secret.
     public const string TOKEN_PATTERN = '/^\d{3,20}:[A-Za-z0-9_-]{30,80}$/';
 
-    private const int MAX_TEXT = 4000;
+    public const int MAX_TEXT = 4000;
 
     public static function configured(Workspace $workspace): bool
     {
@@ -74,22 +73,6 @@ final class TelegramAlerts
         return ['chat' => $chat, 'token' => $token];
     }
 
-    /**
-     * Post the alert to the workspace's chat, if it has one. Failures are
-     * logged (never with the token), never thrown.
-     */
-    public function notify(Workspace $workspace, string $event, string $text): void
-    {
-        if (! self::configured($workspace)) {
-            return;
-        }
-
-        $error = $this->send((string) $workspace->alert_telegram_token, (string) $workspace->alert_telegram_chat, $text);
-        if ($error !== null) {
-            Log::warning('Telegram alert failed', ['workspace' => $workspace->id, 'event' => $event, 'error' => $error]);
-        }
-    }
-
     public function test(Workspace $workspace, string $token, string $chat): ?string
     {
         return $this->send($token, $chat, "Test from ServerOS: alerts for {$workspace->name} will arrive here.");
@@ -99,31 +82,15 @@ final class TelegramAlerts
     public function send(string $token, string $chat, string $text): ?string
     {
         try {
-            $response = Http::timeout(8)
-                ->withOptions(['allow_redirects' => false])
-                ->asJson()
-                ->post('https://api.telegram.org/bot'.$token.'/sendMessage', [
-                    'chat_id' => $chat,
-                    'text' => mb_substr($text, 0, self::MAX_TEXT),
-                    'disable_web_page_preview' => true,
-                ]);
-        } catch (Throwable) {
-            // The exception's message can hold the address, and with it the token.
-            return 'Couldn’t reach Telegram.';
+            app(TelegramApi::class)->call($token, 'sendMessage', [
+                'chat_id' => $chat,
+                'text' => mb_substr($text, 0, self::MAX_TEXT),
+                'disable_web_page_preview' => true,
+            ]);
+        } catch (ChatFailed $e) {
+            return $e->getMessage();
         }
 
-        if ($response->successful()) {
-            return null;
-        }
-
-        $said = strtolower((string) $response->json('description'));
-
-        return match (true) {
-            in_array($response->status(), [401, 404], true) => 'Telegram didn’t accept the bot token.',
-            str_contains($said, 'chat not found') => 'Telegram couldn’t find that chat. Add the bot to the group or channel first, or send the bot a message.',
-            $response->status() === 403 => 'The bot can’t post in that chat. Add it to the group or channel, or start a chat with it.',
-            $response->status() === 429 => 'Telegram is asking to slow down. Try again in a minute.',
-            default => "Telegram answered {$response->status()}.",
-        };
+        return null;
     }
 }

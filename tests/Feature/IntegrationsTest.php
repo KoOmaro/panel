@@ -70,7 +70,7 @@ test('the page lists the whole catalogue by category, with nothing connected in 
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Integrations')
-            ->has('integrations', 27)
+            ->has('integrations', 26)
             ->has('categories', 4)
             ->where('categories.0.key', 'developer')
             ->where('categories.3.icon', 'sparkle-fill')
@@ -82,28 +82,25 @@ test('the page lists the whole catalogue by category, with nothing connected in 
 
     $items = integrationsByKey($workspace);
     expect(collect($items)->where('connected', true))->toBeEmpty()
-        ->and(collect($items)->countBy('category')->all())->toBe(['developer' => 5, 'communication' => 6, 'cloud' => 10, 'ai' => 6])
+        ->and(collect($items)->countBy('category')->all())->toBe(['developer' => 5, 'communication' => 6, 'cloud' => 9, 'ai' => 6])
         ->and($items['teams']['initials'])->toBe('MT')
-        ->and($items['openrouter']['initials'])->toBe('OR')
+        ->and($items['openrouter']['logo'])->toBe('openrouter')
         ->and($items['slack']['action'])->toBe(['label' => 'Connect', 'alerts' => true])
-        ->and($items['docker-hub']['action'])->toBe(['label' => 'Connect', 'href' => '/settings/general#registries'])
-        ->and($items['backblaze']['action'])->toBe(['label' => 'Connect', 'href' => '/backups/destinations'])
-        ->and($items['anthropic']['action'])->toBe(['label' => 'Connect', 'href' => '/settings/mcp'])
+        ->and($items['docker-hub']['action'])->toBe(['label' => 'Connect', 'connect' => 'docker-hub'])
+        ->and($items['backblaze']['action'])->toBe(['label' => 'Connect', 'connect' => 'backblaze'])
+        ->and($items['r2']['action'])->toBe(['label' => 'Connect', 'connect' => 'r2'])
+        ->and($items['anthropic']['action'])->toBe(['label' => 'Connect', 'connect' => 'anthropic'])
         ->and($items['pagerduty']['action'])->toBe(['label' => 'Connect', 'connect' => 'pagerduty']);
 });
 
-test('what the panel can’t connect yet is never connected and opens the not available dialog', function () {
+test('integrations nobody has connected are never shown as connected and offer Connect', function () {
     $workspace = Workspace::factory()->create();
     Machine::factory()->for($workspace)->create(['provider' => 'Hetzner']);
     $workspace->forceFill(['alert_webhook_url' => 'https://acme.webhook.office.com/hook'])->save();
 
     $items = integrationsByKey($workspace);
 
-    foreach (['teams', 'aws', 'synteq', 'ovhcloud', 'proxmox', 'tailscale', 'n8n', 'grafana'] as $key) {
-        expect($items[$key]['connected'])->toBeFalse($key)
-            ->and($items[$key]['action'])->toBe(['label' => 'Connect', 'unavailable' => true], $key);
-    }
-    foreach (['hetzner', 'digitalocean', 'vultr', 'gitlab', 'sentry', 'pagerduty', 'linear'] as $key) {
+    foreach (['hetzner', 'digitalocean', 'vultr', 'aws', 'ovhcloud', 'proxmox', 'gitlab', 'sentry', 'pagerduty', 'linear', 'tailscale', 'backblaze', 'r2', 'n8n', 'grafana', 'teams'] as $key) {
         expect($items[$key]['connected'])->toBeFalse($key)
             ->and($items[$key]['action'])->toBe(['label' => 'Connect', 'connect' => $key], $key);
     }
@@ -199,7 +196,8 @@ test('container registries, backup destinations and machine tunnels come from wh
         ->and($connections['docker-hub']['detail'])->toBe('Signed in as acme')
         ->and($connections["registry-{$workspace->containerRegistries()->where('host', 'ghcr.io')->value('id')}"])->toMatchArray(['name' => 'GitHub Container Registry', 'logo' => 'github'])
         ->and($items['backblaze']['connected'])->toBeTrue()
-        ->and($items['backblaze']['action'])->toBe(['label' => 'Manage', 'href' => '/backups/destinations'])
+        ->and($items['backblaze']['action'])->toBe(['label' => 'Connect', 'connect' => 'backblaze'])
+        ->and($connections['backblaze']['target'])->toBe(['href' => '/backups/destinations'])
         ->and($connections['backblaze']['detail'])->toBe('Daily backups of web-1')
         ->and($items['r2']['connected'])->toBeFalse()
         ->and($connections["backups-{$s3->id}"])->toMatchArray(['name' => 'Amazon S3', 'logo' => 'aws', 'detail' => 'No machine backs up here yet'])
@@ -211,7 +209,7 @@ test('container registries, backup destinations and machine tunnels come from wh
         ->and($items['hetzner']['connected'])->toBeFalse();
 });
 
-test('AI keys connect Anthropic and OpenAI, and an OpenAI-compatible address can be OpenRouter or Ollama', function () {
+test('AI keys are accounts of their own providers, and an OpenAI-compatible address can still be OpenRouter or Ollama', function () {
     $workspace = Workspace::factory()->create();
     $key = fn (string $provider, ?string $url = null) => WorkspaceAiKey::query()->updateOrCreate(
         ['workspace_id' => $workspace->id, 'provider' => $provider],
@@ -223,19 +221,25 @@ test('AI keys connect Anthropic and OpenAI, and an OpenAI-compatible address can
     $props = integrationsProps($workspace);
     $items = collect($props['integrations'])->keyBy('key');
     $connections = collect($props['connections'])->keyBy('key');
-    expect($items['openai']['connected'])->toBeTrue()
-        ->and($items['openai']['action'])->toBe(['label' => 'Manage', 'href' => '/settings/mcp'])
-        ->and($connections['openai']['detail'])->toBe('Agents use your key')
+    $openai = $workspace->integrations()->where('provider', 'openai')->sole();
+    expect($openai->credentials)->toBe([])
+        ->and($items['openai']['connected'])->toBeTrue()
+        ->and($items['openai']['action'])->toBe(['label' => 'Manage', 'href' => '/integrations/'.$openai->id])
+        ->and($connections['integration-'.$openai->id]['detail'])->toBe('Used by Ask AI and 2 more')
         ->and($items['openrouter']['connected'])->toBeTrue()
+        ->and($items['openrouter']['action'])->toBe(['label' => 'Connect', 'connect' => 'openrouter'])
         ->and($connections['openrouter']['detail'])->toBe('Used when you pick its models')
         ->and($items['anthropic']['connected'])->toBeFalse()
-        ->and($items['ollama']['connected'])->toBeFalse();
+        ->and($items['ollama']['connected'])->toBeFalse()
+        ->and($props['providers'])->toHaveKeys(['anthropic', 'openai', 'openrouter', 'ollama']);
 
     $key('anthropic');
     $key('custom', 'https://ollama.acme.dev:11434/v1');
     $props = integrationsProps($workspace);
     $items = collect($props['integrations'])->keyBy('key');
-    expect(collect($props['connections'])->firstWhere('key', 'anthropic')['detail'])->toBe('Agents use your key')
+    $anthropic = $workspace->integrations()->where('provider', 'anthropic')->sole();
+    expect(collect($props['connections'])->firstWhere('key', 'integration-'.$anthropic->id)['detail'])->toBe('Used by Ask AI and 2 more')
+        ->and(collect($props['connections'])->firstWhere('key', 'integration-'.$openai->id)['detail'])->toBe('Used when you pick its models')
         ->and($items['ollama']['connected'])->toBeTrue()
         ->and($items['openrouter']['connected'])->toBeFalse();
 
@@ -243,6 +247,10 @@ test('AI keys connect Anthropic and OpenAI, and an OpenAI-compatible address can
     $props = integrationsProps($workspace);
     expect(collect($props['integrations'])->firstWhere('key', 'ollama')['connected'])->toBeFalse()
         ->and(collect($props['connections'])->firstWhere('key', 'ai-custom'))->toMatchArray(['name' => 'OpenAI-compatible']);
+
+    WorkspaceAiKey::query()->where('provider', 'openai')->delete();
+    integrationsProps($workspace);
+    expect($workspace->integrations()->where('provider', 'openai')->exists())->toBeFalse();
 });
 
 test('people without the permission a setting needs see the page read-only', function () {
@@ -262,7 +270,8 @@ test('people without the permission a setting needs see the page read-only', fun
         ->and($connections['telegram']['detail'])->toBe('Alerts')
         ->and($connections['telegram']['target'])->toBeNull()
         ->and($connections['docker-hub']['detail'])->toBe('Private images')
-        ->and($connections['anthropic']['target'])->toBeNull();
+        ->and($connections['integration-'.$workspace->integrations()->where('provider', 'anthropic')->value('id')]['target'])->toBeNull()
+        ->and($props['providers'])->not->toHaveKey('anthropic');
 
     $member = integrationsMember($workspace, 'member');
     $items = integrationsByKey($workspace, $member);
@@ -273,12 +282,13 @@ test('people without the permission a setting needs see the page read-only', fun
     $settingsOnly = $workspace->customRoles()->create(['name' => 'Settings', 'permissions' => ['manage-settings']]);
     $keeper = integrationsMember($workspace, 'viewer', $settingsOnly->id);
     $items = integrationsByKey($workspace, $keeper);
-    expect($items['anthropic']['action'])->toBe(['label' => 'Manage', 'href' => '/settings/mcp'])
+    expect($items['anthropic']['action'])->toBe(['label' => 'Manage', 'href' => '/integrations/'.$workspace->integrations()->where('provider', 'anthropic')->value('id')])
+        ->and(integrationsProps($workspace, $keeper)['providers'])->toHaveKey('anthropic')->not->toHaveKey('gitlab')
         ->and($items['telegram']['action'])->toBeNull()
         ->and($items['docker-hub']['action'])->toBeNull();
 });
 
-test('the Integrations card shows on Home once for people who can connect, until they dismiss it or open the page', function () {
+test('the Integrations card shows on Home for people who can connect, until they dismiss it or follow it', function () {
     $workspace = Workspace::factory()->create();
     $owner = $workspace->owner;
     $owner->forceFill(['integrations_promo_seen_at' => null])->save();
@@ -295,6 +305,9 @@ test('the Integrations card shows on Home once for people who can connect, until
     $member = integrationsMember($workspace, 'member');
     $home($member)->assertInertia(fn (Assert $page) => $page->where('integrationsPromo', true));
     $this->actingAs($member)->get(integrationsUrl($workspace))->assertOk();
+    expect($member->fresh()->integrations_promo_seen_at)->toBeNull();
+    $home($member)->assertInertia(fn (Assert $page) => $page->where('integrationsPromo', true));
+    $this->actingAs($member)->get(integrationsUrl($workspace).'?from=promo')->assertOk();
     expect($member->fresh()->integrations_promo_seen_at)->not->toBeNull();
     $home($member)->assertInertia(fn (Assert $page) => $page->where('integrationsPromo', false));
 });

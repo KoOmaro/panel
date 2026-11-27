@@ -11,6 +11,7 @@ import type { FilledIconName } from '@/components/icons/filledIcons';
 import DiskUsagePanel from '@/components/machines/DiskUsagePanel.vue';
 import DockerPanel from '@/components/machines/DockerPanel.vue';
 import DotRidge from '@/components/machines/DotRidge.vue';
+import TailnetSummary from '@/components/machines/TailnetSummary.vue';
 import MachineGlobe from '@/components/machines/MachineGlobe.vue';
 import UsageRing from '@/components/machines/UsageRing.vue';
 import VolumeBars from '@/components/machines/VolumeBars.vue';
@@ -33,6 +34,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { MachineCloudServer } from '@/components/integrations/integrations';
+import type { MachineTailnet } from '@/components/integrations/tailscale';
 import OperationSteps from '@/components/integrations/OperationSteps.vue';
 import { operationActive } from '@/components/integrations/useOperation';
 import type { ServerAction } from '@/components/machines/server/MachineServerActions.vue';
@@ -114,6 +116,8 @@ const props = defineProps<{
     canManage: boolean;
     online: boolean;
     cloudServer?: MachineCloudServer | null;
+    tailnet?: MachineTailnet | null;
+    settingsUrl?: string | null;
 }>();
 
 const metric = defineModel<Metric>('metric', { default: 'cpu' });
@@ -621,6 +625,15 @@ function resize(): void {
 
         return;
     }
+    if (props.cloudServer) {
+        toast.info(
+            trans('ServerOS can’t resize this :provider server.', {
+                provider: props.cloudServer.integration.name,
+            }),
+        );
+
+        return;
+    }
     toast.info(
         trans(
             'Connect its cloud account in Integrations to resize it from here.',
@@ -1089,6 +1102,12 @@ function resize(): void {
                     </button>
                 </div>
             </section>
+
+            <TailnetSummary
+                v-if="tailnet?.device"
+                :device="tailnet.device"
+                :settings-url="canManage ? settingsUrl : null"
+            />
 
             <section class="flex flex-col gap-3">
                 <div class="flex items-center gap-2">

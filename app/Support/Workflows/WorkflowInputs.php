@@ -3,6 +3,7 @@
 namespace App\Support\Workflows;
 
 use App\Models\DaemonJob;
+use App\Models\Integration;
 use App\Models\Machine;
 use App\Models\Monitor;
 use App\Models\Project;
@@ -12,7 +13,7 @@ use App\Models\Workspace;
 
 final class WorkflowInputs
 {
-    /** @return array{machines: list<array{id: int, name: string, services: list<array{key: string, name: string, managed: bool, container: bool}>, deploys: list<string>}>, monitors: list<array{id: int, name: string}>, projects: list<array{id: int, name: string, environments: list<array{id: int, name: string, source: int|null}>}>} */
+    /** @return array{machines: list<array{id: int, name: string, services: list<array{key: string, name: string, managed: bool, container: bool}>, deploys: list<string>}>, monitors: list<array{id: int, name: string}>, projects: list<array{id: int, name: string, environments: list<array{id: int, name: string, source: int|null}>}>, n8n: list<array{id: int, label: string, failing: bool}>} */
     public static function options(Workspace $workspace): array
     {
         $machines = $workspace->machines()->orderBy('name')->get();
@@ -32,6 +33,8 @@ final class WorkflowInputs
                 'name' => $p->name,
                 'environments' => array_values($p->environments->whereNull('pull_request')->map(fn (ProjectEnvironment $e) => ['id' => $e->id, 'name' => $e->name, 'source' => $e->source_id])->values()->all()),
             ])->all()),
+            'n8n' => array_values($workspace->integrations()->where('provider', 'n8n')->orderBy('label')->get()
+                ->map(fn (Integration $i) => ['id' => $i->id, 'label' => $i->label, 'failing' => $i->status === Integration::FAILING])->all()),
         ];
     }
 

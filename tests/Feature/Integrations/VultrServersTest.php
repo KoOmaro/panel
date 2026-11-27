@@ -103,7 +103,7 @@ test('connecting Vultr checks the key, names the account after Vultr’s and lin
     $this->actingAs($workspace->owner)->get($workspace->url("/machines/{$web->id}"))
         ->assertInertia(fn (Assert $page) => $page
             ->where('cloudServer.integration.name', 'Vultr')
-            ->where('cloudServer.rules', ['powerOff' => false, 'disk' => 'always', 'down' => false, 'gracefulRestart' => false, 'snapshotsPerServer' => false]));
+            ->where('cloudServer.rules', ['powerOff' => false, 'disk' => 'always', 'down' => false, 'gracefulRestart' => false, 'snapshotsPerServer' => false, 'sizing' => 'types', 'powerCycleSteps' => false, 'stopChangesIp' => false, 'rootPassword' => true]));
 });
 
 test('a key Vultr turns down is never saved, and one limited to other addresses says so', function () {

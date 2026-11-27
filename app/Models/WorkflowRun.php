@@ -104,6 +104,9 @@ class WorkflowRun extends Model
 
         $steps = [];
         foreach ($this->steps ?? [] as $id => $step) {
+            if (($kinds[(string) $id] ?? null) === 'n8n') {
+                unset($step['response']);
+            }
             if ($runsCommands((string) $id)) {
                 unset($step['summary']);
                 if (is_string($step['message'] ?? null)) {

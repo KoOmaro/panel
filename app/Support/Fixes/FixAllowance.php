@@ -4,6 +4,7 @@ namespace App\Support\Fixes;
 
 use App\Models\AgentFix;
 use App\Models\Workspace;
+use App\Support\Ai\AiFeatures;
 use App\Support\Ai\AiProviders;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
@@ -23,7 +24,7 @@ final class FixAllowance
      */
     public static function for(Workspace $workspace): array
     {
-        $ownKey = app(AiProviders::class)->forAgent($workspace)['own'];
+        $ownKey = app(AiProviders::class)->forFeature($workspace, AiFeatures::FIXES)['own'];
         $limit = $ownKey ? self::PER_HOUR_OWN_KEY : self::PER_HOUR;
         $since = now()->subHour();
         $used = AgentFix::query()->where('workspace_id', $workspace->id)->where('created_at', '>', $since)->count();

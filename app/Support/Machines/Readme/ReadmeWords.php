@@ -3,6 +3,7 @@
 namespace App\Support\Machines\Readme;
 
 use App\Models\Workspace;
+use App\Support\Ai\AiFeatures;
 use App\Support\Ai\AiProviders;
 use App\Support\Assistant\AssistantAllowance;
 use RuntimeException;
@@ -102,8 +103,8 @@ final class ReadmeWords
      */
     public function write(Workspace $workspace, array $facts): array
     {
-        $ai = $this->ai->forAgent($workspace);
-        if ($ai['key'] === '') {
+        $ai = $this->ai->forFeature($workspace, AiFeatures::README);
+        if (! $ai['own'] && $ai['key'] === '') {
             return self::fallback($facts, 'no_model');
         }
         if (AssistantAllowance::take($workspace) !== null) {

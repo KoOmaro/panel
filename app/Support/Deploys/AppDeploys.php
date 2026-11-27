@@ -20,7 +20,8 @@ final class AppDeploys
 
     /**
      * An app ServerOS builds or runs itself, as one release at a time:
-     * from code (a repository, or an uploaded .zip) or a prebuilt image.
+     * from code (a repository, or an uploaded .zip) or a prebuilt image,
+     * including one from Docker Hub pinned to its digest (ImageDeploy).
      * Template stacks (a ready-made Compose file) aren't.
      */
     public static function isApp(mixed $spec): bool
@@ -30,7 +31,8 @@ final class AppDeploys
         }
 
         return filled($spec['repo'] ?? null)
-            || (is_array($spec['build'] ?? null) && ($spec['build']['method'] ?? null) === BuildSettings::IMAGE && filled($spec['build']['image'] ?? null));
+            || (is_array($spec['build'] ?? null) && ($spec['build']['method'] ?? null) === BuildSettings::IMAGE && filled($spec['build']['image'] ?? null))
+            || ImageDeploy::of($spec) !== null;
     }
 
     public static function isImage(mixed $spec): bool

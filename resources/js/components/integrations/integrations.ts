@@ -15,6 +15,7 @@ export type IntegrationAction = IntegrationTarget & {
     label: string;
     unavailable?: boolean;
     connect?: string;
+    connectPath?: string;
     accounts?: IntegrationAccountLink[];
     hint?: { text: string; href: string | null; label: string | null };
 };
@@ -29,6 +30,7 @@ export type Integration = {
     tags: string[];
     connected: boolean;
     action: IntegrationAction | null;
+    note?: string | null;
 };
 
 export type IntegrationCategory = {
@@ -57,6 +59,10 @@ export type ConnectField = {
     linkLabel: string | null;
     placeholder: string | null;
     value?: string | null;
+    required?: boolean;
+    options?: { value: string; label: string; link?: string | null }[];
+    snippet?: string | null;
+    snippetLabel?: string | null;
 };
 
 export type Capability = { key: string; label: string; description: string };
@@ -67,6 +73,10 @@ export type ProviderInfo = {
     fields: ConnectField[];
     capabilities: Capability[];
     multiple: boolean;
+    reuse?: {
+        provider: string;
+        accounts: { id: number; label: string }[];
+    };
 };
 
 export type OperationStep = {
@@ -78,7 +88,7 @@ export type OperationStep = {
 export type Operation = {
     id: number;
     integrationId: number;
-    kind: 'create' | 'resize';
+    kind: 'create' | 'resize' | 'power_cycle';
     state: 'queued' | 'running' | 'done' | 'failed';
     name: string;
     type: string | null;
@@ -87,6 +97,8 @@ export type Operation = {
     machineId: number | null;
     machineName: string | null;
     error: string | null;
+    note?: string | null;
+    command?: string | null;
     steps: OperationStep[];
     createdAt: string | null;
     finishedAt: string | null;
@@ -108,14 +120,29 @@ export type CloudServer = {
     ipv6: string | null;
     architecture: string | null;
     createdAt: string | null;
+    fixedIp?: boolean | null;
 };
 
 export type ServerRules = {
     powerOff: boolean;
-    disk: 'optional' | 'always';
+    disk: 'optional' | 'always' | 'kept';
     down: boolean;
     gracefulRestart: boolean;
     snapshotsPerServer: boolean;
+    sizing?: 'types' | 'custom';
+    powerCycleSteps?: boolean;
+    stopChangesIp?: boolean;
+    rootPassword?: boolean;
+};
+
+export type ServerSize = { cores: number; memoryGb: number; diskGb: number };
+
+export type SizeLimits = {
+    maxCores: number;
+    maxMemoryGb: number;
+    minDiskGb: number;
+    liveCores: boolean;
+    liveMemory: boolean;
 };
 
 export type MachineCloudServer = {
@@ -163,9 +190,14 @@ export type ServerPlans = {
         version: string | null;
         architecture: string;
         recommended: boolean;
+        location?: string | null;
+        size?: ServerSize | null;
+        agent?: boolean | null;
+        cloudInit?: boolean | null;
     }[];
     keys: { id: string; name: string; fingerprint: string | null }[];
     currency: string;
+    rules?: ServerRules;
 };
 
 export type Snapshot = {
@@ -177,9 +209,7 @@ export type Snapshot = {
     createdAt: string | null;
 };
 
-export const LOGO_IMAGES: Record<string, string> = {
-    synteq: '/images/integrations/synteq.png',
-};
+export const LOGO_IMAGES: Record<string, string> = {};
 
 export function sizeLine(type: {
     cores: number;
@@ -265,4 +295,23 @@ export async function sendJson<T>(
         (typeof data?.message === 'string' ? data.message : '');
 
     return { ok: false, errors, message };
+}
+
+export type CloudRegion = {
+    name: string;
+    city: string;
+    country: string;
+    zone: string | null;
+    chosen: boolean;
+    default: boolean;
+    servers: number;
+    linked: string[];
+};
+
+export function stopChangesIp(cloud: MachineCloudServer): boolean {
+    return (
+        !!cloud.rules.stopChangesIp &&
+        cloud.server.fixedIp !== true &&
+        cloud.server.ipv4 !== null
+    );
 }

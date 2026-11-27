@@ -214,6 +214,7 @@ class WorkspaceSettingsController extends Controller
                 'weeklySummary' => (bool) ($membership->weekly_summary ?? true),
                 'getsAlerts' => in_array($membership->role ?? null, ['owner', 'admin'], true),
             ],
+            'chatAccounts' => ChatAccountController::props($workspace, $request->user()),
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'status' => $request->session()->get('status'),
             'deleteAccount' => [

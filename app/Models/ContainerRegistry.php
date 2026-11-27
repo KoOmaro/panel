@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $username
  * @property string $password
  * @property int|null $user_id
+ * @property int|null $integration_id the Docker Hub account it came from, when it did
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -63,5 +64,11 @@ class ContainerRegistry extends Model
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
+    }
+
+    /** @return BelongsTo<Integration, $this> */
+    public function integration(): BelongsTo
+    {
+        return $this->belongsTo(Integration::class);
     }
 }

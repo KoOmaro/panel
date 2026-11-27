@@ -72,6 +72,11 @@ final class WorkflowWords
             'promote' => 'Promote '.$this->environmentName($r['project'] ?? null, $r['from'] ?? null).' to '.$this->environmentName($r['project'] ?? null, $r['to'] ?? null).' in '.$this->projectName($r['project'] ?? null),
             'check_monitor' => 'Check '.$this->monitorName($r['monitor_id'] ?? null).' is up, for up to '.($r['timeout'] ?? 5).' min',
             'http' => ($r['method'] ?? 'POST').' '.(filled($r['url'] ?? null) ? Str::limit((string) preg_replace('#^https?://#i', '', (string) $r['url']), 48, '…') : 'a URL'),
+            'n8n' => 'Start the n8n workflow '.(filled($r['workflow_name'] ?? null) ? '“'.$r['workflow_name'].'”' : (filled($r['workflow'] ?? null) ? (string) $r['workflow'] : '…')).match ($r['wait'] ?? 'no') {
+                'answer' => ' and wait for its answer',
+                'callback' => ' and wait for it to call back',
+                default => '',
+            },
             'alert' => 'Email '.match ($r['to'] ?? 'team') {
                 'emails' => filled($r['emails'] ?? null) ? (string) $r['emails'] : 'someone',
                 'both' => 'the team and '.(filled($r['emails'] ?? null) ? (string) $r['emails'] : 'someone'),
@@ -84,6 +89,7 @@ final class WorkflowWords
                 'disk_below' => "Is {$machine}’s disk under ".($r['percent'] ?? 85).'%?',
                 'time_between' => 'Is it between '.($r['from'] ?? '09:00').' and '.($r['to'] ?? '17:00').' UTC?',
                 'trigger_field' => filled($r['field'] ?? null) ? "Is {$r['field']} “".($r['value'] ?? '').'”?' : 'Choose what to check',
+                'n8n_field' => filled($r['field'] ?? null) ? "Did n8n send {$r['field']} “".($r['value'] ?? '').'”?' : 'Choose what to check',
                 default => 'Choose what to check',
             },
             default => (string) ($node['kind'] ?? 'step'),

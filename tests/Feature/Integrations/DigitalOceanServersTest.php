@@ -101,7 +101,7 @@ test('connecting DigitalOcean checks the token, names the account after the team
     $this->actingAs($workspace->owner)->get($workspace->url("/machines/{$web->id}"))
         ->assertInertia(fn (Assert $page) => $page
             ->where('cloudServer.integration.name', 'DigitalOcean')
-            ->where('cloudServer.rules', ['powerOff' => true, 'disk' => 'optional', 'down' => true, 'gracefulRestart' => true, 'snapshotsPerServer' => true]));
+            ->where('cloudServer.rules', ['powerOff' => true, 'disk' => 'optional', 'down' => true, 'gracefulRestart' => true, 'snapshotsPerServer' => true, 'sizing' => 'types', 'powerCycleSteps' => false, 'stopChangesIp' => false, 'rootPassword' => true]));
 });
 
 test('a token DigitalOcean turns down is never saved', function () {

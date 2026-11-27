@@ -8,6 +8,8 @@ use App\Models\MonitorIncident;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Notifications\MonitorAlert;
+use App\Support\Integrations\Chat\ChatAlert;
+use App\Support\Integrations\Chat\ChatTargets;
 use App\Support\Integrations\Incidents\IncidentRouter;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
@@ -17,7 +19,7 @@ use Throwable;
 
 class MonitorAlerts
 {
-    public function __construct(private readonly HostResolver $resolver, private readonly TelegramAlerts $telegram) {}
+    public function __construct(private readonly HostResolver $resolver, private readonly ChatTargets $chats) {}
 
     public function down(Monitor $monitor, MonitorIncident $incident): void
     {
@@ -65,11 +67,18 @@ class MonitorAlerts
      */
     private function send(Monitor $monitor, string $event, string $subject, array $lines, bool $bad): void
     {
+        $workspace = $monitor->workspace;
         if (! $monitor->alerts || $monitor->muted()) {
+            if ($monitor->alerts && ! $bad) {
+                $this->resolvedQuietly($workspace, $event, $subject, $lines, $workspace->url('/monitors/'.$monitor->id), 'Open the monitor', [
+                    'monitor' => ['id' => $monitor->id, 'name' => $monitor->name, 'target' => $monitor->target(), 'status' => $monitor->status],
+                ]);
+            }
+
             return;
         }
 
-        $workspace = $monitor->workspace;
+        $service = $bad ? rescue(fn () => MonitorService::of($monitor), null, false) : null;
         $this->notify($workspace, $event, $subject, $lines, $workspace->url('/monitors/'.$monitor->id), $bad, 'Open the monitor', [
             'monitor' => [
                 'id' => $monitor->id,
@@ -77,6 +86,10 @@ class MonitorAlerts
                 'target' => $monitor->target(),
                 'status' => $monitor->status,
             ],
+            ...($service !== null && $service['managed'] ? [
+                'machine' => ['id' => $service['machine'], 'name' => $service['machineName']],
+                'service' => ['key' => $service['key'], 'name' => $service['name']],
+            ] : []),
         ]);
     }
 
@@ -101,19 +114,44 @@ class MonitorAlerts
             }
         }
 
-        $this->webhook($workspace, $event, $subject.': '.implode(' ', $lines).' '.$url, $url, $extra);
+        $this->webhook($workspace, $event, $subject.': '.implode(' ', $lines).' '.$url, $url, $extra,
+            new ChatAlert($workspace, $event, $subject, $lines, $url, $bad, $actionLabel, $extra));
+    }
+
+    /**
+     * A problem fixed while its alerts are quiet (a muted monitor, a machine
+     * in maintenance): chats edit the alert still open, nothing new goes out.
+     *
+     * @param  list<string>  $lines
+     * @param  array<string, mixed>  $extra
+     */
+    public function resolvedQuietly(Workspace $workspace, string $event, string $subject, array $lines, string $url, string $actionLabel, array $extra = []): void
+    {
+        $this->chats->deliver((new ChatAlert($workspace, $event, $subject, $lines, $url, false, $actionLabel, $extra))->quietly());
+    }
+
+    /**
+     * A deploy that finished, for the chats that post every deploy (a
+     * Discord deploys channel). Not an alert: muted kinds don't apply.
+     *
+     * @param  list<string>  $lines
+     * @param  array<string, mixed>  $extra
+     */
+    public function deployNotice(Workspace $workspace, string $subject, array $lines, string $url, bool $failed, array $extra = []): void
+    {
+        $this->chats->deliver(new ChatAlert($workspace, ChatAlert::DEPLOY_NOTICE, $subject, $lines, $url, $failed, 'Open the deploy', $extra));
     }
 
     /**
      * Post to the workspace's webhook, if it has one (Slack reads `text`,
-     * Discord `content`), and to its Telegram chat, if it has one. Failures
-     * are logged, never thrown.
+     * Discord `content`), and to its chats (ChatTargets: its Telegram chat,
+     * a Discord server). Failures are logged, never thrown.
      *
      * @param  array<string, mixed>  $extra  more fields for the body
      */
-    public function webhook(Workspace $workspace, string $event, string $text, string $url, array $extra = []): void
+    public function webhook(Workspace $workspace, string $event, string $text, string $url, array $extra = [], ?ChatAlert $alert = null): void
     {
-        $this->telegram->notify($workspace, $event, $text);
+        $this->chats->deliver($alert ?? ChatAlert::plain($workspace, $event, $text, $url, $extra));
 
         if (! is_string($workspace->alert_webhook_url) || $workspace->alert_webhook_url === '') {
             return;

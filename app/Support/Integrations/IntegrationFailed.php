@@ -24,7 +24,8 @@ final class IntegrationFailed extends RuntimeException
 
     public const string CONFLICT = 'conflict';
 
-    public function __construct(string $message, public readonly string $reason = self::INVALID, public readonly ?int $status = null)
+    /** @param  string|null  $field  the connect field it's about, when it's one the person can fix */
+    public function __construct(string $message, public readonly string $reason = self::INVALID, public readonly ?int $status = null, public readonly ?string $field = null)
     {
         parent::__construct($message);
     }

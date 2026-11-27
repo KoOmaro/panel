@@ -29,6 +29,7 @@ const accountUrl = computed(
 defineEmits<{ action: [action: ServerAction] }>();
 
 const busy = computed(() => operationActive(cloud.operation));
+const readOnly = computed(() => !cloud.can.some((c) => c !== 'servers'));
 const place = computed(() =>
     [cloud.server.city, cloud.server.location].filter(Boolean).join(' · '),
 );
@@ -70,7 +71,7 @@ const statusText = computed(
             :hint="`${cloud.server.name} · ${statusText}`"
         />
         <SettingsRow
-            :label="$t('Type')"
+            :label="cloud.rules.sizing === 'custom' ? $t('Size') : $t('Type')"
             :hint="`${cloud.server.typeLabel} · ${sizeLine(cloud.server)}`"
         >
             <DashButton
@@ -82,6 +83,15 @@ const statusText = computed(
             />
         </SettingsRow>
         <SettingsRow :label="$t('Location')" :hint="place" />
+        <SettingsRow
+            v-if="readOnly"
+            :label="$t('Read only')"
+            :hint="
+                $t('ServerOS lists it, but doesn’t change it at :provider', {
+                    provider: cloud.integration.name,
+                })
+            "
+        />
         <SettingsRow
             v-if="cloud.can.includes('snapshots')"
             :label="$t('Snapshots')"

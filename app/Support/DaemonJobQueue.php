@@ -118,13 +118,17 @@ class DaemonJobQueue
      * @param  array<string, mixed>  $job
      * @param  array{kind: string, job: array<string, mixed>, service: string|null}|null  $then
      * @param  array<string, mixed>  $meta  what the activity log keeps instead of the job itself
+     * @param  array<string, string>  $secretEnv  settings added to the job's env as it's sent, never stored (a one-off key)
      *
      * @throws RuntimeException
      */
-    public function queue(Machine $machine, User $user, string $kind, array $job, ?string $service, int $timeoutSecs = 300, ?array $then = null, array $meta = [], bool $hold = false, ?string $trigger = null, bool $audit = true): DaemonJob
+    public function queue(Machine $machine, User $user, string $kind, array $job, ?string $service, int $timeoutSecs = 300, ?array $then = null, array $meta = [], bool $hold = false, ?string $trigger = null, bool $audit = true, array $secretEnv = []): DaemonJob
     {
         if (($reason = self::needsPlan($machine, $kind)) !== null) {
             throw new RuntimeException($reason);
+        }
+        if ($hold && $secretEnv !== []) {
+            throw new RuntimeException('A job with secrets is sent straight away, never held.');
         }
 
         $session = AuditContext::viewAsSession($user);
@@ -153,7 +157,7 @@ class DaemonJobQueue
         ]);
 
         if (! $hold) {
-            $this->send($machine, $record, $command);
+            $this->send($machine, $record, $command, $secretEnv);
         }
         // A scheduled command is recorded once, when it's saved, not every run.
         if ($audit) {
@@ -626,9 +630,14 @@ class DaemonJobQueue
 
     /**
      * @param  array<string, mixed>  $command
+     * @param  array<string, string>  $secretEnv
      */
-    private function send(Machine $machine, DaemonJob $record, array $command): void
+    private function send(Machine $machine, DaemonJob $record, array $command, array $secretEnv = []): void
     {
+        if ($secretEnv !== []) {
+            $command['job']['env'] = [...(array) ($command['job']['env'] ?? []), ...$secretEnv];
+        }
+
         try {
             $this->gateway->dispatch($machine, $record->id, $this->withRegistryLogins($machine, $this->withRepoToken($machine, self::withMaps($command))));
         } catch (RuntimeException $e) {

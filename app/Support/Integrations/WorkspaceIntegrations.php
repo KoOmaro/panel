@@ -6,14 +6,16 @@ use App\Models\BackupDestination;
 use App\Models\ContainerRegistry;
 use App\Models\GitHubInstallation;
 use App\Models\Integration;
+use App\Models\IntegrationBucket;
 use App\Models\Machine;
 use App\Models\User;
 use App\Models\Workflow;
 use App\Models\Workspace;
 use App\Models\WorkspaceAiKey;
-use App\Support\Ai\AiProviders;
 use App\Support\Edition;
 use App\Support\GitHub\GitHubApp;
+use App\Support\Integrations\Ai\AiAccounts;
+use App\Support\Integrations\Telegram\TelegramWebhooks;
 use App\Support\Machines\CloudflareTunnel;
 use App\Support\Monitors\TelegramAlerts;
 use Illuminate\Support\Collection;
@@ -23,7 +25,7 @@ use Illuminate\Support\Facades\Gate;
  * @phpstan-type Target array{href?: string, alerts?: bool}
  * @phpstan-type Connection array{key: string, name: string, logo: string|null, detail: string, target: Target|null, failing?: bool}
  * @phpstan-type Account array{id: int, label: string, href: string, detail: string, failing: bool}
- * @phpstan-type State array{connected: bool, detail: string|null, manage: Target|null, setup: Target|null, ability: string, hint?: array{text: string, href: string|null, label: string|null}, connect?: string, accounts?: list<Account>}
+ * @phpstan-type State array{connected: bool, detail: string|null, manage: Target|null, setup: Target|null, ability: string, hint?: array{text: string, href: string|null, label: string|null}, connect?: string, connectPath?: string, accounts?: list<Account>, note?: string}
  */
 final class WorkspaceIntegrations
 {
@@ -60,6 +62,7 @@ final class WorkspaceIntegrations
         $this->user = $user;
         $this->machines = Gate::forUser($user)->allows(self::MACHINES, $workspace);
         $this->extras = [];
+        AiAccounts::sync($workspace);
 
         $states = [
             'github' => $this->github(),
@@ -72,6 +75,11 @@ final class WorkspaceIntegrations
         ];
         foreach ($this->accounts() as $key => $state) {
             $states[$key] = isset($states[$key]) ? $this->besidePanelState($key, $states[$key], $state) : $state;
+        }
+        foreach (app(IntegrationProviders::class)->all() as $key => $provider) {
+            if (isset($states[$key]) && ! isset($states[$key]['accounts']) && ! $provider->available() && ($note = $provider->unavailableNote()) !== null) {
+                $states[$key]['note'] = $note;
+            }
         }
 
         $canConnect = $this->machines || Gate::forUser($user)->allows(self::SETTINGS, $workspace);
@@ -87,6 +95,7 @@ final class WorkspaceIntegrations
                 ...$entry,
                 'connected' => $connected,
                 'action' => $this->action($state, $connected, $allowed, $canConnect),
+                'note' => $state['note'] ?? null,
             ];
 
             if ($connected && isset($state['accounts'])) {
@@ -112,9 +121,9 @@ final class WorkspaceIntegrations
         }
 
         $providers = [];
-        if ($this->machines) {
-            foreach (app(IntegrationProviders::class)->all() as $key => $provider) {
-                $providers[$key] = $provider->toArray();
+        foreach (app(IntegrationProviders::class)->all() as $key => $provider) {
+            if (Gate::forUser($user)->allows($provider->ability(), $workspace)) {
+                $providers[$key] = [...$provider->toArray(), ...$this->reuse($provider)];
             }
         }
 
@@ -137,9 +146,10 @@ final class WorkspaceIntegrations
 
             return match (true) {
                 ! $allowed => null,
+                $accounts === [] && isset($state['connectPath']) => ['label' => self::t('Connect'), 'href' => $state['connectPath']],
                 $accounts === [] => ['label' => self::t('Connect'), 'connect' => $state['connect']],
                 count($accounts) === 1 => ['label' => self::t('Manage'), 'href' => $accounts[0]['href']],
-                default => ['label' => self::t('Manage'), 'connect' => $state['connect'], 'accounts' => array_map(fn (array $a) => ['id' => $a['id'], 'label' => $a['label'], 'href' => $a['href']], $accounts)],
+                default => ['label' => self::t('Manage'), 'connect' => $state['connect'], ...(isset($state['connectPath']) ? ['connectPath' => $state['connectPath']] : []), 'accounts' => array_map(fn (array $a) => ['id' => $a['id'], 'label' => $a['label'], 'href' => $a['href']], $accounts)],
             };
         }
         if ($state === null || ($state['setup'] === null && ! $connected)) {
@@ -199,19 +209,43 @@ final class WorkspaceIntegrations
                 'failing' => $integration->status === Integration::FAILING,
             ])->all());
             $first = $accounts[0] ?? null;
+            if ($first === null && ! $provider->available()) {
+                continue;
+            }
 
             $states[$key] = [
                 'connected' => $first !== null,
                 'detail' => $first['detail'] ?? null,
                 'manage' => $first === null ? null : ['href' => $first['href']],
                 'setup' => null,
-                'ability' => self::MACHINES,
+                'ability' => $provider->ability(),
                 'connect' => $key,
+                ...(($path = $provider->connectPath()) !== null ? ['connectPath' => $path] : []),
                 'accounts' => $accounts,
             ];
         }
 
         return $states;
+    }
+
+    /**
+     * The connected accounts whose token a provider can use instead of a new one.
+     *
+     * @return array{reuse?: array{provider: string, accounts: list<array{id: int, label: string}>}}
+     */
+    private function reuse(Provider $provider): array
+    {
+        $of = $provider->reusesTokenOf();
+        $other = $of === null ? null : app(IntegrationProviders::class)->find($of);
+        if ($other === null) {
+            return [];
+        }
+        $accounts = $this->workspace->integrations()->where('provider', $of)->where('status', Integration::CONNECTED)->orderBy('label')->get(['id', 'label']);
+
+        return $accounts->isEmpty() ? [] : ['reuse' => [
+            'provider' => $other->name(),
+            'accounts' => array_values($accounts->map(fn (Integration $integration) => ['id' => $integration->id, 'label' => $integration->label])->all()),
+        ]];
     }
 
     /** @return State */
@@ -284,7 +318,7 @@ final class WorkspaceIntegrations
     private function registries(): array
     {
         $registries = $this->workspace->containerRegistries()->orderBy('host')->get();
-        $hub = $registries->firstWhere('host', ContainerRegistry::DOCKER_HUB);
+        $hub = $registries->first(fn (ContainerRegistry $registry) => $registry->host === ContainerRegistry::DOCKER_HUB && $registry->integration_id === null);
         $signedIn = fn (ContainerRegistry $registry): string => $this->machines
             ? self::t('Signed in as :name', ['name' => $registry->username])
             : self::t('Private images');
@@ -349,7 +383,12 @@ final class WorkspaceIntegrations
             'discord' => $state('discord', $brand),
             'telegram' => [
                 'connected' => $telegram,
-                'detail' => $telegram ? ($this->machines ? self::t('Alerts to :chat', ['chat' => (string) $this->workspace->alert_telegram_chat]) : self::t('Alerts')) : null,
+                'detail' => match (true) {
+                    ! $telegram => null,
+                    ! $this->machines => self::t('Alerts'),
+                    TelegramWebhooks::answering($this->workspace) !== null => self::t('Alerts and commands in :chat', ['chat' => (string) $this->workspace->alert_telegram_chat]),
+                    default => self::t('Alerts to :chat', ['chat' => (string) $this->workspace->alert_telegram_chat]),
+                },
                 'manage' => $alerts,
                 'setup' => $alerts,
                 'ability' => self::MACHINES,
@@ -377,6 +416,7 @@ final class WorkspaceIntegrations
     private function storage(): array
     {
         $destinations = $this->workspace->backupDestinations()
+            ->whereNotIn('id', IntegrationBucket::query()->whereNotNull('backup_destination_id')->select('backup_destination_id'))
             ->with(['machines' => fn ($query) => $query->orderBy('name'), 'machine:id,name,provider'])
             ->orderBy('name')
             ->get();
@@ -409,40 +449,42 @@ final class WorkspaceIntegrations
         return ['backblaze' => $state($known['backblaze']), 'r2' => $state($known['r2'])];
     }
 
-    /** @return array{anthropic: State, openai: State, openrouter: State, ollama: State} */
+    /**
+     * Anthropic, OpenAI, OpenRouter and Ollama keys are accounts of their own
+     * providers (AiAccounts). An OpenAI-compatible key from Settings that
+     * points at OpenRouter or an Ollama still shows beside them.
+     *
+     * @return array<string, State>
+     */
     private function ai(): array
     {
-        $keys = WorkspaceAiKey::query()->where('workspace_id', $this->workspace->id)->get()->keyBy('provider');
-        $agents = collect(AiProviders::PREFERENCE)->first(fn (string $provider) => $keys->has($provider));
+        $custom = WorkspaceAiKey::query()->where('workspace_id', $this->workspace->id)->where('provider', 'custom')->first();
+        if ($custom === null) {
+            return [];
+        }
         $settings = ['href' => '/settings/mcp'];
-        $detail = fn (string $provider): string => $agents === $provider ? self::t('Agents use your key') : self::t('Used when you pick its models');
-        $custom = $keys->get('custom');
-        $customKind = $custom instanceof WorkspaceAiKey ? self::compatibleKind((string) $custom->base_url) : null;
+        $detail = AiAccounts::summary($this->workspace, 'custom');
+        $kind = self::compatibleKind((string) $custom->base_url);
 
-        if ($custom instanceof WorkspaceAiKey && $customKind === null) {
+        if ($kind === null) {
             $this->extras[] = [
                 'key' => 'ai-custom',
                 'name' => self::t('OpenAI-compatible'),
                 'logo' => null,
-                'detail' => $detail('custom'),
+                'detail' => $detail,
                 'target' => Gate::forUser($this->user)->allows(self::SETTINGS, $this->workspace) ? $settings : null,
             ];
+
+            return [];
         }
 
-        $state = fn (bool $connected, string $provider): array => [
-            'connected' => $connected,
-            'detail' => $connected ? $detail($provider) : null,
+        return [$kind => [
+            'connected' => true,
+            'detail' => $detail,
             'manage' => $settings,
             'setup' => $settings,
             'ability' => self::SETTINGS,
-        ];
-
-        return [
-            'anthropic' => $state($keys->has('anthropic'), 'anthropic'),
-            'openai' => $state($keys->has('openai'), 'openai'),
-            'openrouter' => $state($customKind === 'openrouter', 'custom'),
-            'ollama' => $state($customKind === 'ollama', 'custom'),
-        ];
+        ]];
     }
 
     public static function chatBrand(string $url): ?string

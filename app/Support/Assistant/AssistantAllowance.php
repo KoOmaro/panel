@@ -3,6 +3,7 @@
 namespace App\Support\Assistant;
 
 use App\Models\Workspace;
+use App\Support\Ai\AiFeatures;
 use App\Support\Ai\AiProviders;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -19,7 +20,7 @@ final class AssistantAllowance
     /** @return array{used: int, limit: int, ownKey: bool, resetsIn: int|null} */
     public static function for(Workspace $workspace): array
     {
-        $ownKey = app(AiProviders::class)->forAgent($workspace)['own'];
+        $ownKey = app(AiProviders::class)->forFeature($workspace, AiFeatures::ASSISTANT)['own'];
         $limit = $ownKey ? self::PER_HOUR_OWN_KEY : self::PER_HOUR;
         $key = self::key($workspace);
         $used = min($limit, RateLimiter::attempts($key));

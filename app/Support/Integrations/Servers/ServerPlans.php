@@ -73,7 +73,7 @@ final readonly class ServerPlans
                 array_values(array_map('strval', (array) ($t['locations'] ?? []))),
                 array_map(fn ($p) => ['monthly' => (float) ($p['monthly'] ?? 0), 'hourly' => (float) ($p['hourly'] ?? 0)], (array) ($t['prices'] ?? [])),
             ), $list('types')),
-            array_map(fn (array $i) => new ServerImage((string) ($i['id'] ?? ''), (string) ($i['label'] ?? ''), (string) ($i['os'] ?? ''), isset($i['version']) ? (string) $i['version'] : null, (string) ($i['architecture'] ?? 'x86'), (bool) ($i['recommended'] ?? false)), $list('images')),
+            array_map(fn (array $i) => ServerImage::fromArray($i), $list('images')),
             array_map(fn (array $k) => new SshKey((string) ($k['id'] ?? ''), (string) ($k['name'] ?? ''), isset($k['fingerprint']) ? (string) $k['fingerprint'] : null), $list('keys')),
             (string) ($data['currency'] ?? 'EUR'),
         );

@@ -13,15 +13,24 @@ use App\Support\Audit\Audited;
 use App\Support\Integrations\Capability;
 use App\Support\Integrations\Cloudflare\CloudflareDns;
 use App\Support\Integrations\Cloudflare\CloudflareProvider;
+use App\Support\Integrations\ConnectField;
+use App\Support\Integrations\DockerHub\DockerHubApps;
+use App\Support\Integrations\DockerHub\DockerHubProvider;
+use App\Support\Integrations\HasAccountPage;
 use App\Support\Integrations\HostsRepositories;
 use App\Support\Integrations\Incidents\AccountPage;
 use App\Support\Integrations\IntegrationCatalogue;
 use App\Support\Integrations\IntegrationFailed;
 use App\Support\Integrations\IntegrationProviders;
+use App\Support\Integrations\KeepsCredentials;
 use App\Support\Integrations\Provider;
+use App\Support\Integrations\Servers\ChoosesRegions;
+use App\Support\Integrations\Servers\CloudRegions;
 use App\Support\Integrations\Servers\CloudServers;
 use App\Support\Integrations\Servers\Server;
 use App\Support\Integrations\Servers\ServerOperations;
+use App\Support\Integrations\Tailscale\TailscaleDevices;
+use App\Support\Integrations\Tailscale\TailscaleProvider;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -34,9 +43,13 @@ class IntegrationAccountController extends Controller
     public function show(Request $request, Workspace $workspace, Integration $integration, CloudServers $clouds): Response
     {
         abort_unless($integration->workspace_id === $workspace->id, 404);
-        Gate::authorize('manageMachines', $workspace);
-        ServerOperations::expireLost();
         $provider = $integration->provider();
+        Gate::authorize($provider->ability(), $workspace);
+        if ($provider instanceof KeepsCredentials && $provider->credentials($integration) === []) {
+            $integration->delete();
+            abort(404);
+        }
+        ServerOperations::expireLost();
         $entry = collect(IntegrationCatalogue::all())->firstWhere('key', $provider->key());
 
         return Inertia::render('workspace/IntegrationShow', [
@@ -58,12 +71,17 @@ class IntegrationAccountController extends Controller
             'provider' => $provider->toArray(),
             'usage' => $this->usage($integration, $provider),
             'dependents' => $this->dependents($integration),
+            'disconnectChoices' => $provider->disconnectChoices($integration),
             'managesServers' => $provider->managesServers(),
             'canMakeServers' => $provider->can(Capability::CreateServers) && (bool) config('daemon.install_ready'),
             'canImport' => (bool) config('daemon.install_ready'),
             'servers' => $provider->managesServers() ? Inertia::defer(fn () => $this->servers($integration, $clouds)) : null,
             'cloudflare' => $provider instanceof CloudflareProvider ? Inertia::defer(fn () => app(CloudflareDns::class)->accountProps($integration)) : null,
             'projects' => $provider instanceof HostsRepositories ? Inertia::defer(fn () => $provider->projects($integration)) : null,
+            'regions' => $provider instanceof ChoosesRegions ? Inertia::defer(fn () => CloudRegions::props($integration, $provider)) : null,
+            'tailscale' => $provider instanceof TailscaleProvider ? Inertia::defer(fn () => app(TailscaleDevices::class)->accountProps($integration)) : null,
+            'dockerHub' => $provider instanceof DockerHubProvider ? Inertia::defer(fn () => app(DockerHubApps::class)->accountProps($integration)) : null,
+            'account' => $provider instanceof HasAccountPage ? Inertia::defer(fn () => $provider->accountPage($integration)) : null,
             'operations' => $integration->operations()->latest('id')->limit(8)->get()
                 ->map(fn (IntegrationOperation $op) => ServerOperations::props($op))->all(),
             ...AccountPage::props($integration, $provider),
@@ -73,8 +91,15 @@ class IntegrationAccountController extends Controller
     #[Audited]
     public function store(Request $request, Workspace $workspace, string $provider, IntegrationProviders $providers, CloudServers $clouds): RedirectResponse
     {
-        Gate::authorize('manageMachines', $workspace);
         $built = $providers->find($provider) ?? abort(404);
+        abort_if($built->connectPath() !== null, 404);
+        Gate::authorize($built->ability(), $workspace);
+
+        if ($request->filled('from') && ($of = $built->reusesTokenOf()) !== null) {
+            $other = $workspace->integrations()->where('provider', $of)->whereKey((int) $request->input('from'))->first()
+                ?? throw ValidationException::withMessages(['from' => __('That account isn’t connected any more.')]);
+            $request->merge(['credentials' => [...(array) $request->input('credentials', []), ...$built->reusedCredentials($other)]]);
+        }
 
         $rules = ['label' => ['nullable', 'string', 'max:80']];
         $names = ['label' => __('name')];
@@ -84,34 +109,48 @@ class IntegrationAccountController extends Controller
         }
         $data = $request->validate($rules, [], $names);
         $credentials = array_map(fn ($value) => trim((string) $value), (array) ($data['credentials'] ?? []));
-        $first = 'credentials.'.($built->fields()[0]->key ?? 'token');
+        $fields = $built->fields();
+        $first = 'credentials.'.(collect($fields)->first(fn (ConnectField $field) => $field->secret)->key ?? $fields[0]->key ?? 'token');
 
         if (! $built->multipleAccounts() && $workspace->integrations()->where('provider', $provider)->exists()) {
             throw ValidationException::withMessages([$first => __(':provider is connected already. Disconnect it first to connect another account.', ['provider' => $built->name()])]);
         }
-        $fingerprint = Integration::fingerprintOf($provider, $credentials);
-        $same = $workspace->integrations()->where('provider', $provider)->where('fingerprint', $fingerprint)->first();
-        if ($same !== null) {
-            throw ValidationException::withMessages([$first => __('This account is connected already, as :label.', ['label' => $same->label])]);
-        }
+        $unique = function (array $credentials) use ($workspace, $provider, $first): string {
+            $fingerprint = Integration::fingerprintOf($provider, $credentials);
+            $same = $workspace->integrations()->where('provider', $provider)->where('fingerprint', $fingerprint)->first();
+            if ($same !== null) {
+                throw ValidationException::withMessages([$first => __('This account is connected already, as :label.', ['label' => $same->label])]);
+            }
+
+            return $fingerprint;
+        };
+        $fingerprint = $unique($credentials);
 
         try {
             $account = $built->verify($credentials);
         } catch (IntegrationFailed $e) {
-            throw ValidationException::withMessages([$first => $e->getMessage()]);
+            throw ValidationException::withMessages([$e->field === null ? $first : 'credentials.'.$e->field => $e->getMessage()]);
+        }
+        if ($account->credentials !== []) {
+            $credentials = [...$credentials, ...$account->credentials];
+            $fingerprint = $unique($credentials);
         }
 
         $integration = $workspace->integrations()->create([
             'provider' => $provider,
             'label' => $this->freeLabel($workspace, $provider, trim((string) ($data['label'] ?? '')) ?: $account->label),
-            'credentials' => $credentials,
+            'credentials' => $built instanceof KeepsCredentials ? [] : $credentials,
             'fingerprint' => $fingerprint,
             'meta' => $account->meta,
             'status' => Integration::CONNECTED,
             'last_checked_at' => now(),
             'created_by' => $request->user()->id,
         ]);
+        if ($built instanceof KeepsCredentials) {
+            $built->keep($integration, $credentials, $request->user());
+        }
         Activity::record($workspace, 'integration.connect', $integration->label, null, $request->user(), ['provider' => $built->name()]);
+        $built->connected($integration);
 
         $linked = 0;
         if ($built->managesServers()) {
@@ -125,19 +164,19 @@ class IntegrationAccountController extends Controller
             ? trans_choice('Connected :name and linked :count machine.|Connected :name and linked :count machines.', $linked, ['name' => $integration->label, 'count' => $linked])
             : __('Connected :name.', ['name' => $integration->label])]);
 
-        return redirect($workspace->url('/integrations/'.$integration->id));
+        return redirect($workspace->url('/integrations/'.$integration->id.($built->can(Capability::BackupStorage) ? '?setup' : '')));
     }
 
     #[Audited]
     public function check(Request $request, Workspace $workspace, Integration $integration, CloudServers $clouds): RedirectResponse
     {
         abort_unless($integration->workspace_id === $workspace->id, 404);
-        Gate::authorize('manageMachines', $workspace);
         $provider = $integration->provider();
+        Gate::authorize($provider->ability(), $workspace);
         $was = $integration->status;
 
         try {
-            $account = $provider->verify($integration->credentials);
+            $account = $provider->verify($provider instanceof KeepsCredentials ? $provider->credentials($integration) : $integration->credentials);
             $integration->forceFill([
                 'meta' => [...($integration->meta ?? []), ...$account->meta],
                 'status' => Integration::CONNECTED,
@@ -147,6 +186,7 @@ class IntegrationAccountController extends Controller
             if ($provider->managesServers()) {
                 $clouds->sync($integration);
             }
+            $provider->connected($integration);
             $ok = true;
         } catch (IntegrationFailed $e) {
             CloudServers::failed($integration, $e);
@@ -169,7 +209,7 @@ class IntegrationAccountController extends Controller
     public function update(Request $request, Workspace $workspace, Integration $integration): RedirectResponse
     {
         abort_unless($integration->workspace_id === $workspace->id, 404);
-        Gate::authorize('manageMachines', $workspace);
+        Gate::authorize($integration->provider()->ability(), $workspace);
         $data = $request->validate(['label' => ['required', 'string', 'max:80']], [], ['label' => __('name')]);
         $label = trim($data['label']);
         $from = $integration->label;
@@ -193,15 +233,19 @@ class IntegrationAccountController extends Controller
     public function destroy(Request $request, Workspace $workspace, Integration $integration): RedirectResponse
     {
         abort_unless($integration->workspace_id === $workspace->id, 404);
-        Gate::authorize('manageMachines', $workspace);
-        if ($this->dependents($integration) !== [] && $request->string('confirm')->trim()->toString() !== $integration->label) {
+        Gate::authorize($integration->provider()->ability(), $workspace);
+        $provider = $integration->provider();
+        $chosen = array_values(array_intersect(
+            array_column($provider->disconnectChoices($integration), 'key'),
+            array_map('strval', (array) $request->input('choices', [])),
+        ));
+        if (($this->dependents($integration) !== [] || $chosen !== []) && $request->string('confirm')->trim()->toString() !== $integration->label) {
             throw ValidationException::withMessages(['confirm' => __('Type :name to disconnect it.', ['name' => $integration->label])]);
         }
 
-        $provider = $integration->provider();
         $machines = $integration->servers()->whereNotNull('machine_id')->count();
-        Activity::record($workspace, 'integration.disconnect', $integration->label, null, $request->user(), ['provider' => $provider->name(), 'machines' => $machines]);
-        $done = $provider->disconnect($integration);
+        Activity::record($workspace, 'integration.disconnect', $integration->label, null, $request->user(), ['provider' => $provider->name(), 'machines' => $machines, ...($chosen === [] ? [] : ['also' => implode(',', $chosen)])]);
+        $done = $provider->disconnectWith($integration, $chosen);
         $integration->delete();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $done ?? __('Disconnected :name. Nothing changed at :provider.', ['name' => $integration->label, 'provider' => $provider->name()])]);
@@ -222,16 +266,21 @@ class IntegrationAccountController extends Controller
         $making = $integration->operations()->where('kind', ServerOperations::CREATE)->whereIn('state', IntegrationOperation::ACTIVE)->pluck('server_id')->all();
 
         return [
-            'list' => array_values($rows->map(fn (IntegrationServer $row) => [
-                'id' => $row->id,
-                ...Server::fromArray($row->details ?? [])->toArray(),
-                'machine' => $row->machine === null ? null : [
-                    'id' => $row->machine->id,
-                    'name' => $row->machine->name,
-                    'href' => '/machines/'.$row->machine->id,
-                ],
-                'joining' => $row->machine === null && in_array($row->server_id, $making, true),
-            ])->all()),
+            'list' => array_values($rows->map(function (IntegrationServer $row) use ($integration, $making): array {
+                $server = Server::fromArray($row->details ?? []);
+
+                return [
+                    'id' => $row->id,
+                    ...$server->toArray(),
+                    'can' => array_map(fn (Capability $c) => $c->value, CloudServers::capabilities($integration, $server)),
+                    'machine' => $row->machine === null ? null : [
+                        'id' => $row->machine->id,
+                        'name' => $row->machine->name,
+                        'href' => '/machines/'.$row->machine->id,
+                    ],
+                    'joining' => $row->machine === null && in_array($row->server_id, $making, true),
+                ];
+            })->all()),
             'error' => $error,
         ];
     }
@@ -239,11 +288,8 @@ class IntegrationAccountController extends Controller
     /** @return list<string> */
     private function usage(Integration $integration, Provider $provider): array
     {
-        if ($provider instanceof HostsRepositories) {
-            return $provider->usage($integration);
-        }
         if (! $provider->managesServers()) {
-            return [];
+            return $provider->usage($integration);
         }
         $linked = $integration->servers()->whereNotNull('machine_id')->with('machine:id,name')->get()->pluck('machine.name')->filter()->sort()->values();
         $made = $integration->operations()->where('kind', ServerOperations::CREATE)->where('state', 'done')->count();
@@ -261,7 +307,7 @@ class IntegrationAccountController extends Controller
             $out[] = trans_choice('ServerOS made :count server here.|ServerOS made :count servers here.', $made, ['count' => $made]);
         }
 
-        return array_map('strval', $out);
+        return array_map('strval', [...$out, ...$provider->usage($integration)]);
     }
 
     /** @return list<string> */
@@ -276,10 +322,7 @@ class IntegrationAccountController extends Controller
         if ($active > 0) {
             $out[] = (string) trans_choice(':count change in progress stops being followed.|:count changes in progress stop being followed.', $active, ['count' => $active]);
         }
-        $host = $integration->provider();
-        if ($host instanceof HostsRepositories) {
-            array_push($out, ...$host->dependents($integration));
-        }
+        array_push($out, ...$integration->provider()->dependents($integration));
         $records = IntegrationDnsRecord::query()->where('integration_id', $integration->id)->count();
         if ($records > 0) {
             $out[] = (string) trans_choice(':count DNS record stops being kept pointed at its machine. It stays at Cloudflare.|:count DNS records stop being kept pointed at their machines. They stay at Cloudflare.', $records, ['count' => $records]);

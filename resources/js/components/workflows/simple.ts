@@ -60,6 +60,7 @@ export const PLAIN: Record<StepKind, string> = {
     promote: trans('Promote Staging'),
     check_monitor: trans('Check a site is up'),
     http: trans('Call a URL'),
+    n8n: trans('Run an n8n workflow'),
     alert: trans('Send an email'),
     wait: trans('Wait a few minutes'),
     branch: trans('Check something (yes or no)'),

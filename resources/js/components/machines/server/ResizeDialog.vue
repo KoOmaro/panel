@@ -9,15 +9,19 @@ import type {
     CloudServer,
     MachineCloudServer,
     Operation,
+    ServerSize,
     ServerTypeOption,
+    SizeLimits,
 } from '@/components/integrations/integrations';
 import {
     money,
     sendJson,
     sizeLine,
+    stopChangesIp,
 } from '@/components/integrations/integrations';
 import OperationSteps from '@/components/integrations/OperationSteps.vue';
 import ServerTypeList from '@/components/integrations/ServerTypeList.vue';
+import SizeFields from '@/components/integrations/SizeFields.vue';
 import {
     operationActive,
     useOperation,
@@ -39,6 +43,8 @@ type Options = {
     currency: string;
     needsPowerOff: boolean;
     busy: boolean;
+    sizing?: 'types' | 'custom';
+    limits?: SizeLimits;
 };
 
 const { machine, cloud } = defineProps<{
@@ -60,6 +66,10 @@ const picked = ref<string | null>(null);
 const growDisk = ref(false);
 const saving = ref(false);
 const error = ref('');
+const errors = ref<Record<string, string>>({});
+const size = ref<ServerSize>({ cores: 1, memoryGb: 1, diskGb: 1 });
+const restart = ref(true);
+const custom = computed(() => cloud.rules.sizing === 'custom');
 
 const { operation, follow } = useOperation(
     () => page.props.workspace.slug,
@@ -78,6 +88,24 @@ const smaller = computed(
         !!options.value?.current &&
         chosen.value.cores * 1000 + chosen.value.memoryGb <
             options.value.current.cores * 1000 + options.value.current.memoryGb,
+);
+const sizeChanged = computed(
+    () =>
+        !!options.value &&
+        (size.value.cores !== options.value.server.cores ||
+            Math.abs(size.value.memoryGb - options.value.server.memoryGb) >
+                0.01 ||
+            size.value.diskGb > (options.value.limits?.minDiskGb ?? 0)),
+);
+const restartNeeded = computed(
+    () =>
+        !!options.value?.limits &&
+        options.value.server.status === 'running' &&
+        ((size.value.cores !== options.value.server.cores &&
+            !options.value.limits.liveCores) ||
+            (Math.abs(size.value.memoryGb - options.value.server.memoryGb) >
+                0.01 &&
+                !options.value.limits.liveMemory)),
 );
 const canGrowDisk = computed(
     () =>
@@ -102,6 +130,11 @@ async function load(): Promise<void> {
         return;
     }
     options.value = result.data;
+    size.value = {
+        cores: result.data.server.cores,
+        memoryGb: result.data.server.memoryGb,
+        diskGb: result.data.limits?.minDiskGb ?? result.data.server.diskGb,
+    };
     picked.value =
         result.data.types.find(
             (t) =>
@@ -117,7 +150,9 @@ async function load(): Promise<void> {
 watch(open, (shown) => {
     if (!shown) return;
     error.value = '';
+    errors.value = {};
     growDisk.value = false;
+    restart.value = true;
     if (!operationActive(operation.value)) {
         operation.value = null;
         void load();
@@ -125,17 +160,33 @@ watch(open, (shown) => {
 });
 
 async function submit(): Promise<void> {
-    if (!picked.value) return;
+    if (custom.value ? !sizeChanged.value : !picked.value) return;
     saving.value = true;
     error.value = '';
+    errors.value = {};
     const result = await sendJson<{ operation: Operation }>(
         'POST',
         onWorkspace(serverRoutes.resize(args.value)).url,
-        { type: picked.value, grow_disk: canGrowDisk.value && growDisk.value },
+        custom.value
+            ? {
+                  cores: size.value.cores,
+                  memory_gb: size.value.memoryGb,
+                  disk_gb: size.value.diskGb,
+                  restart: restart.value,
+              }
+            : {
+                  type: picked.value,
+                  grow_disk: canGrowDisk.value && growDisk.value,
+              },
     );
     saving.value = false;
     if (!result.ok) {
-        error.value = result.message || trans('That didn’t work. Try again.');
+        errors.value = result.errors;
+        error.value =
+            result.errors.form ??
+            (custom.value && Object.keys(result.errors).length
+                ? ''
+                : result.message || trans('That didn’t work. Try again.'));
 
         return;
     }
@@ -163,10 +214,15 @@ async function submit(): Promise<void> {
                                 ? $t(
                                       'You can close this. It keeps going, and shows on the machine page.',
                                   )
-                                : $t(
-                                      'Move it to another :provider server type. Its disk and everything on it stay.',
-                                      { provider: cloud.integration.name },
-                                  )
+                                : custom
+                                  ? $t(
+                                        'Change its cores, memory and disk at :provider. Everything on it stays.',
+                                        { provider: cloud.integration.name },
+                                    )
+                                  : $t(
+                                        'Move it to another :provider server type. Its disk and everything on it stay.',
+                                        { provider: cloud.integration.name },
+                                    )
                         }}
                     </DialogDescription>
                 </div>
@@ -215,6 +271,90 @@ async function submit(): Promise<void> {
                             @click="load"
                         />
                     </div>
+                    <template v-else-if="options && custom">
+                        <div
+                            class="flex items-center gap-3 rounded-[10px] border-[0.5px] border-edge-card bg-surface-card px-3 py-2"
+                        >
+                            <span class="flex min-w-0 flex-1 flex-col">
+                                <span class="text-[12px]/4 text-fg-muted">{{
+                                    $t('Now')
+                                }}</span>
+                                <span
+                                    class="text-[13px]/5 font-medium text-fg-primary"
+                                    >{{ sizeLine(options.server) }}</span
+                                >
+                            </span>
+                        </div>
+                        <SizeFields
+                            v-model="size"
+                            :max-cores="options.limits?.maxCores"
+                            :max-memory-gb="options.limits?.maxMemoryGb"
+                            :min-disk-gb="options.limits?.minDiskGb"
+                            :errors="errors"
+                        />
+                        <label
+                            v-if="restartNeeded"
+                            class="flex cursor-pointer items-start gap-2.5 text-[13px]/5"
+                        >
+                            <span class="pt-[3px]">
+                                <DashCheckbox
+                                    v-model="restart"
+                                    :label="$t('Restart it now')"
+                                />
+                            </span>
+                            <span class="flex flex-col">
+                                <span class="text-fg-primary">{{
+                                    $t('Restart it now')
+                                }}</span>
+                                <span class="text-[12px]/4 text-fg-muted">{{
+                                    $t(
+                                        'Leave it off to keep it running. The new size then applies the next time it restarts.',
+                                    )
+                                }}</span>
+                            </span>
+                        </label>
+                        <p
+                            class="flex items-start gap-2.5 rounded-[8px] border-[0.5px] border-[rgba(245,168,51,0.22)] bg-[rgba(245,168,51,0.07)] px-3 py-2.5 text-[12px]/[18px] text-fg-secondary"
+                        >
+                            <FilledIcon
+                                name="info-fill"
+                                :size="14"
+                                class="mt-0.5 text-[#f5a833]"
+                            />
+                            <span>{{
+                                restartNeeded && restart
+                                    ? $t(
+                                          ':provider changes cores, and memory without memory hotplug, only when a VM restarts. ServerOS restarts :name for you, so everything on it is down for a minute.',
+                                          {
+                                              name: machine.name,
+                                              provider: cloud.integration.name,
+                                          },
+                                      )
+                                    : restartNeeded
+                                      ? $t(
+                                            'The new size is saved now and applies the next time :name restarts.',
+                                            { name: machine.name },
+                                        )
+                                      : $t(
+                                            ':provider makes this change without a restart. A bigger disk also needs its partition grown inside the system, which cloud images do on their next boot.',
+                                            {
+                                                provider:
+                                                    cloud.integration.name,
+                                            },
+                                        )
+                            }}</span>
+                        </p>
+                        <p
+                            v-if="options.busy"
+                            class="text-[12.5px]/[18px] text-status-pending"
+                        >
+                            {{
+                                $t(
+                                    'Something else is changing this server. Wait for it to finish.',
+                                )
+                            }}
+                        </p>
+                    </template>
                     <template v-else-if="options">
                         <div
                             v-if="options.current"
@@ -296,6 +436,17 @@ async function submit(): Promise<void> {
                             }}</span>
                         </p>
                         <p
+                            v-if="options.needsPowerOff && stopChangesIp(cloud)"
+                            class="text-[12px]/4 text-fg-muted"
+                        >
+                            {{
+                                $t(
+                                    'It has no Elastic IP, so it comes back with a new public IP address. ServerOS keeps working with it, but DNS records and firewalls that use :ip need the new one.',
+                                    { ip: cloud.server.ipv4 ?? '' },
+                                )
+                            }}
+                        </p>
+                        <p
                             v-if="!cloud.rules.down"
                             class="text-[12px]/4 text-fg-muted"
                         >
@@ -347,12 +498,14 @@ async function submit(): Promise<void> {
                         type="submit"
                         variant="primary"
                         :label="
-                            chosen
+                            chosen && !custom
                                 ? $t('Resize to :type', { type: chosen.label })
                                 : $t('Resize')
                         "
                         :loading="saving"
-                        :disabled="!chosen || options?.busy"
+                        :disabled="
+                            (custom ? !sizeChanged : !chosen) || options?.busy
+                        "
                     />
                 </div>
             </form>

@@ -13,6 +13,7 @@ use App\Support\Audit\Audited;
 use App\Support\Audit\NotAudited;
 use App\Support\Deploys\AppReleases;
 use App\Support\Deploys\ServiceLabels;
+use App\Support\Integrations\Telegram\TelegramWebhooks;
 use App\Support\Monitors\AlertKinds;
 use App\Support\Monitors\HostResolver;
 use App\Support\Monitors\MonitorAlerts;
@@ -262,6 +263,7 @@ class MonitorController extends Controller
             ? array_values(array_intersect(AlertKinds::keys(), $data['muted']))
             : AlertKinds::muted($workspace);
 
+        $previousToken = $workspace->alert_telegram_token;
         $workspace->forceFill([
             'alert_email' => $data['email'],
             'alert_webhook_url' => $webhook,
@@ -270,6 +272,7 @@ class MonitorController extends Controller
             'alert_muted' => $muted,
         ])->save();
         Activity::record($workspace, 'alerts.update', null, meta: ['email' => (bool) $data['email'], 'webhook' => $webhook !== null, 'telegram' => $telegram['chat'] !== null, 'muted' => $muted]);
+        app(TelegramWebhooks::class)->sync($workspace, $previousToken);
 
         return back();
     }
@@ -315,7 +318,7 @@ class MonitorController extends Controller
             ->map(fn (Machine $m) => ['id' => $m->id, 'name' => $m->name, 'ip' => $m->ip_address])->all());
     }
 
-    /** @return array{email: bool, webhook: string|null, webhookSet: bool, telegram: array{chat: string|null, set: bool}, muted: list<string>} */
+    /** @return array{email: bool, webhook: string|null, webhookSet: bool, telegram: array{chat: string|null, set: bool}, telegramBot: array{state: string, username: string|null, error: string|null}|null, muted: list<string>} */
     private function alertSettings(Workspace $workspace): array
     {
         return AlertKinds::props($workspace, Gate::allows('manageMachines', $workspace));

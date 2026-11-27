@@ -24,6 +24,7 @@ use App\Support\Health\JobAlerts;
 use App\Support\Images\ImageUpdates;
 use App\Support\Integrations\GitLab\GitLabHooks;
 use App\Support\Integrations\Sentry\SentryReleases;
+use App\Support\Integrations\Slack\SlackChat;
 use App\Support\Logs\LogIngest;
 use App\Support\Logs\LogSkipRules;
 use App\Support\Machines\CloudflareTunnel;
@@ -592,6 +593,7 @@ class DaemonGatewayController extends Controller
             }
             PointCloudflareDomains::afterJob($job);
             app(SentryReleases::class)->jobFinished($job);
+            app(SlackChat::class)->jobFinished($job);
             if ($job->workflow_run_id !== null) {
                 app(WorkflowEngine::class)->jobFinished($job);
             }

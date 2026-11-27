@@ -28,6 +28,7 @@ import {
     siNginx,
     siNodedotjs,
     siOllama,
+    siOpenrouter,
     siOvh,
     siPagerduty,
     siPlausibleanalytics,
@@ -121,6 +122,7 @@ export const brandLogos = {
         light: MONO_LIGHT,
     },
     ollama: mono(siOllama),
+    openrouter: mono(siOpenrouter),
     grafana: mark(siGrafana),
 } satisfies Record<string, BrandMark>;
 

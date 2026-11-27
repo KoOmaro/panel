@@ -235,6 +235,10 @@ function detail(node: WorkflowNode): string {
                           .slice(0, 48)
                     : 'a URL'
             }`;
+        case 'n8n':
+            return trans('Start :name in n8n', {
+                name: String(r.workflow_name || trans('an n8n workflow')),
+            });
         case 'alert': {
             const to =
                 r.to === 'emails'
@@ -275,6 +279,13 @@ function detail(node: WorkflowNode): string {
                 case 'trigger_field':
                     return r.field
                         ? trans('Is :field “:value”?', {
+                              field: String(r.field),
+                              value: String(r.value ?? ''),
+                          })
+                        : trans('Choose what to check');
+                case 'n8n_field':
+                    return r.field
+                        ? trans('Did n8n send :field “:value”?', {
                               field: String(r.field),
                               value: String(r.value ?? ''),
                           })

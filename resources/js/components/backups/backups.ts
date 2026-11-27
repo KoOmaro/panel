@@ -72,6 +72,7 @@ export type Destination = {
     } | null;
     provider: string | null;
     stored: number;
+    madeBy?: { label: string; provider: string; href: string } | null;
 };
 
 export type BackupRow = {

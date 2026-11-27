@@ -54,6 +54,12 @@ final readonly class ImageReference
         return $this->registry === ContainerRegistry::DOCKER_HUB ? 'registry-1.docker.io' : $this->registry;
     }
 
+    /** The full name to pull: docker.io/library/postgres:16. */
+    public function pullName(): string
+    {
+        return $this->registry.'/'.$this->repository.':'.$this->tag;
+    }
+
     /** The name as people write it: postgres:16, ghcr.io/acme/app:1. */
     public function display(): string
     {

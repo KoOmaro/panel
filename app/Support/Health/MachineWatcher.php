@@ -74,9 +74,12 @@ class MachineWatcher
             unset($state['offline']);
             Activity::system($machine->workspace_id, 'machine.online', $machine->name, $machine, ['seconds' => $seconds]);
             app(IncidentRouter::class)->machineOnline($machine, $seconds);
-            $maintenance || $this->alerts->notify($machine->workspace, 'machine.online', "{$machine->name} is reporting again", [
-                'Back after '.MonitorAlerts::duration($seconds).' without a report.',
-            ], $url, false, 'Open the machine', ['machine' => ['id' => $machine->id, 'name' => $machine->name]]);
+            $subject = "{$machine->name} is reporting again";
+            $lines = ['Back after '.MonitorAlerts::duration($seconds).' without a report.'];
+            $about = ['machine' => ['id' => $machine->id, 'name' => $machine->name]];
+            $maintenance
+                ? $this->alerts->resolvedQuietly($machine->workspace, 'machine.online', $subject, $lines, $url, 'Open the machine', $about)
+                : $this->alerts->notify($machine->workspace, 'machine.online', $subject, $lines, $url, false, 'Open the machine', $about);
             $sent += $maintenance ? 0 : 1;
         }
 

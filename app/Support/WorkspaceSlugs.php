@@ -20,15 +20,15 @@ class WorkspaceSlugs
     public const array RESERVED = [
         'about', 'account', 'accounts', 'admin', 'administrator', 'api', 'app', 'apps', 'ask',
         'assets', 'auth', 'billing', 'blog', 'build', 'careers', 'cdn', 'changelog', 'checkout',
-        'cloud', 'console', 'contact', 'dashboard', 'deck', 'demo', 'dev', 'docs', 'donate',
-        'email', 'feedback', 'forgot-password', 'ftp', 'github', 'health', 'help', 'home', 'imap',
-        'install', 'internal', 'invitations', 'join-requests', 'locale', 'login', 'logout', 'mail',
-        'mcp', 'my', 'ns1', 'ns2', 'oauth', 'panel', 'partners', 'passkeys', 'pitch', 'pop',
-        'portal', 'register', 'reset-password', 'root', 'scim', 'security', 'serveros', 'settings',
-        'shape', 'shop', 'signin', 'signup', 'smtp', 'sso', 'staging', 'start', 'startups',
-        'static', 'status', 'storage', 'store', 'support', 'synteq', 'system', 'test', 'themes',
-        'two-factor-challenge', 'unsubscribe', 'user', 'users', 'vendor', 'waitlist', 'webhooks',
-        'workspace', 'workspaces', 'www',
+        'cloud', 'console', 'contact', 'dashboard', 'deck', 'demo', 'dev', 'discord', 'docs',
+        'donate', 'email', 'feedback', 'forgot-password', 'ftp', 'github', 'health', 'help', 'home',
+        'imap', 'install', 'integrations', 'internal', 'invitations', 'join-requests', 'locale',
+        'login', 'logout', 'mail', 'mcp', 'my', 'ns1', 'ns2', 'oauth', 'panel', 'partners',
+        'passkeys', 'pitch', 'pop', 'portal', 'register', 'reset-password', 'root', 'scim',
+        'security', 'serveros', 'settings', 'shape', 'shop', 'signin', 'signup', 'smtp', 'sso',
+        'staging', 'start', 'startups', 'static', 'status', 'storage', 'store', 'support', 'synteq',
+        'system', 'test', 'themes', 'two-factor-challenge', 'unsubscribe', 'user', 'users',
+        'vendor', 'waitlist', 'webhooks', 'workspace', 'workspaces', 'www',
     ];
 
     public static function routePattern(): string

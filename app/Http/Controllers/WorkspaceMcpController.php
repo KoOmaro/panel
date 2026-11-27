@@ -8,6 +8,7 @@ use App\Models\Activity;
 use App\Models\McpToken;
 use App\Models\McpToolCall;
 use App\Models\Workspace;
+use App\Support\Ai\AiFeatures;
 use App\Support\Audit\Audited;
 use App\Support\ConsoleLock;
 use App\Support\Docs\DocsUrl;
@@ -55,6 +56,7 @@ class WorkspaceMcpController extends Controller
             'twoFactor' => $user->hasEnabledTwoFactorAuthentication(),
             'consoleUnlocked' => $console->isUnlocked($user),
             'ai' => WorkspaceAiController::props($workspace, Gate::allows('manageSettings', $workspace)),
+            'aiModels' => Inertia::defer(fn () => AiFeatures::props($workspace)),
             'canChange' => $workspace->allows($user, WorkspacePermission::ManageMachines),
             'seesAll' => $seesAll,
             'scopes' => Scopes::describe(),

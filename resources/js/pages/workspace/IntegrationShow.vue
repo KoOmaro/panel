@@ -10,6 +10,7 @@ import StatusBadge from '@/components/dash/StatusBadge.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { CloudflareAccount } from '@/components/integrations/cloudflare';
 import CloudflareZones from '@/components/integrations/CloudflareZones.vue';
+import CloudRegions from '@/components/integrations/CloudRegions.vue';
 import CreateServerDialog from '@/components/integrations/CreateServerDialog.vue';
 import IncidentRouting from '@/components/integrations/IncidentRouting.vue';
 import type {
@@ -24,9 +25,28 @@ import OpenIncidents from '@/components/integrations/OpenIncidents.vue';
 import SentryApps from '@/components/integrations/SentryApps.vue';
 import GitLabProjects from '@/components/integrations/GitLabProjects.vue';
 import type { GitLabProject } from '@/components/integrations/GitLabProjects.vue';
+import type { TailscaleAccount } from '@/components/integrations/tailscale';
+import TailscaleDevices from '@/components/integrations/TailscaleDevices.vue';
+import GrafanaAccount from '@/components/integrations/GrafanaAccount.vue';
+import type { GrafanaAccount as GrafanaAccountProps } from '@/components/integrations/grafana';
+import N8nAccount from '@/components/integrations/N8nAccount.vue';
+import type { N8nAccount as N8nAccountProps } from '@/components/integrations/n8n';
+import DockerHubAccountTrays from '@/components/integrations/DockerHubAccount.vue';
+import type { DockerHubAccount } from '@/components/integrations/dockerHub';
+import AiAccount from '@/components/integrations/AiAccount.vue';
+import BackupBuckets from '@/components/integrations/BackupBuckets.vue';
+import type { BackupStorageAccount } from '@/components/integrations/storage';
+import { STORAGE_PROVIDERS } from '@/components/integrations/storage';
+import { isAiAccount } from '@/components/integrations/ai';
+import ChatAccount from '@/components/integrations/ChatAccount.vue';
+import type {
+    SlackAccount,
+    TeamsAccount,
+} from '@/components/integrations/chat';
 import ImportServerDialog from '@/components/integrations/ImportServerDialog.vue';
 import IntegrationLogo from '@/components/integrations/IntegrationLogo.vue';
 import type {
+    CloudRegion,
     CloudServer,
     Operation,
     ProviderInfo,
@@ -48,7 +68,11 @@ import type { Workspace } from '@/types';
 type ServerRow = CloudServer & {
     machine: { id: number; name: string; href: string } | null;
     joining: boolean;
+    can?: string[];
 };
+
+const readOnly = (server: ServerRow): boolean =>
+    server.can !== undefined && !server.can.some((c) => c !== 'servers');
 
 const props = defineProps<{
     workspace: Workspace;
@@ -69,17 +93,22 @@ const props = defineProps<{
     provider: ProviderInfo;
     usage: string[];
     dependents: string[];
+    disconnectChoices?: { key: string; label: string; detail: string }[];
     managesServers: boolean;
     canMakeServers: boolean;
     canImport: boolean;
     servers?: { list: ServerRow[]; error: string | null } | null;
     cloudflare?: CloudflareAccount | null;
     projects?: GitLabProject[] | null;
+    regions?: { list: CloudRegion[]; error: string | null } | null;
+    tailscale?: TailscaleAccount | null;
+    dockerHub?: DockerHubAccount | null;
     operations: Operation[];
     routing?: PagerDutyRouting | LinearRouting | null;
     events?: IntegrationEventRow[] | null;
     incidents?: OpenIncident[] | null;
     linkedApps?: LinkedApp[] | null;
+    account?: Record<string, unknown> | null;
 }>();
 
 const args = computed(() => ({
@@ -161,7 +190,10 @@ function rename(): void {
 }
 
 const disconnecting = ref(false);
-const disconnectForm = useForm({ confirm: '' });
+const disconnectForm = useForm<{ confirm: string; choices: string[] }>({
+    confirm: '',
+    choices: [],
+});
 
 watch(disconnecting, (open) => {
     if (open) {
@@ -172,8 +204,12 @@ watch(disconnecting, (open) => {
 
 const canDisconnect = computed(
     () =>
-        props.dependents.length === 0 ||
+        (props.dependents.length === 0 &&
+            disconnectForm.choices.length === 0) ||
         disconnectForm.confirm.trim() === props.integration.label,
+);
+const needsConfirm = computed(
+    () => props.dependents.length > 0 || disconnectForm.choices.length > 0,
 );
 
 function disconnect(): void {
@@ -221,6 +257,12 @@ function made(): void {
 }
 
 function opTitle(op: Operation): string {
+    if (op.kind === 'power_cycle') {
+        return trans('Power cycling :name', {
+            name: op.machineName ?? (op.name || trans('a machine')),
+        });
+    }
+
     return op.kind === 'create'
         ? trans('Making :name', { name: op.name || trans('a server') })
         : trans('Resizing :name to :type', {
@@ -400,6 +442,21 @@ const fieldClass =
                                         >{{ server.typeLabel }} ·
                                         {{ sizeLine(server) }} ·
                                         {{ server.city ?? server.location }}
+                                        <template v-if="readOnly(server)"
+                                            >·
+                                            <span
+                                                :title="
+                                                    $t(
+                                                        'ServerOS lists it and links it to its machine, but doesn’t change it at :provider.',
+                                                        {
+                                                            provider:
+                                                                integration.providerName,
+                                                        },
+                                                    )
+                                                "
+                                                >{{ $t('Read only') }}</span
+                                            ></template
+                                        >
                                     </span>
                                 </span>
                                 <span
@@ -479,12 +536,81 @@ const fieldClass =
                     </template>
                 </DashTray>
 
+                <CloudRegions
+                    v-if="regions !== null"
+                    :regions="regions"
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
+
                 <CloudflareZones
                     v-if="cloudflare !== null"
                     :account="cloudflare"
                 />
 
                 <GitLabProjects v-if="projects !== null" :projects="projects" />
+
+                <TailscaleDevices
+                    v-if="tailscale !== null"
+                    :account="tailscale"
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
+
+                <DockerHubAccountTrays
+                    v-if="dockerHub !== null"
+                    :account="dockerHub"
+                    :workspace-slug="workspace.slug"
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
+
+                <BackupBuckets
+                    v-if="
+                        STORAGE_PROVIDERS.includes(integration.provider) &&
+                        account !== null
+                    "
+                    :account="account as BackupStorageAccount | undefined"
+                    :integration-id="integration.id"
+                    :provider-name="integration.providerName"
+                    :disabled="failing"
+                />
+
+                <AiAccount
+                    v-if="isAiAccount(account)"
+                    :account="account"
+                    :workspace-slug="workspace.slug"
+                    :disabled="failing"
+                />
+
+                <N8nAccount
+                    v-if="integration.provider === 'n8n' && account !== null"
+                    :account="account as N8nAccountProps | undefined"
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
+
+                <ChatAccount
+                    v-if="
+                        (integration.provider === 'slack' ||
+                            integration.provider === 'teams') &&
+                        account !== null
+                    "
+                    :account="
+                        account as SlackAccount | TeamsAccount | undefined
+                    "
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
+
+                <GrafanaAccount
+                    v-if="
+                        integration.provider === 'grafana' && account !== null
+                    "
+                    :account="account as GrafanaAccountProps | undefined"
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
 
                 <IncidentRouting
                     v-if="
@@ -796,20 +922,45 @@ const fieldClass =
                     }}</DialogTitle>
                     <DialogDescription>
                         {{
-                            $t(
-                                'ServerOS forgets the token and stops showing this account. Your servers keep running, and nothing changes at :provider.',
-                                { provider: integration.providerName },
-                            )
+                            disconnectForm.choices.length
+                                ? $t(
+                                      'ServerOS forgets the token and takes back what you ticked below. Nothing else changes at :provider.',
+                                      { provider: integration.providerName },
+                                  )
+                                : $t(
+                                      'ServerOS forgets the token and stops showing this account. Your servers keep running, and nothing changes at :provider.',
+                                      { provider: integration.providerName },
+                                  )
                         }}
                     </DialogDescription>
                 </div>
+                <label
+                    v-for="choice in disconnectChoices ?? []"
+                    :key="choice.key"
+                    class="flex cursor-pointer items-start gap-2.5 rounded-[8px] border-[0.5px] border-edge-field bg-surface-field px-3 py-2.5 shadow-field"
+                >
+                    <input
+                        v-model="disconnectForm.choices"
+                        type="checkbox"
+                        :value="choice.key"
+                        class="mt-[3px] size-3.5 shrink-0 accent-status-down"
+                    />
+                    <span class="flex min-w-0 flex-col gap-0.5">
+                        <span class="text-[13px]/5 text-fg-primary">{{
+                            choice.label
+                        }}</span>
+                        <span class="text-[12px]/4 text-fg-muted">{{
+                            choice.detail
+                        }}</span>
+                    </span>
+                </label>
                 <ul
                     v-if="dependents.length"
                     class="flex flex-col gap-1 rounded-[8px] border-[0.5px] border-[rgba(240,148,60,0.25)] bg-[rgba(240,148,60,0.07)] px-3 py-2.5 text-[12.5px]/[18px] text-fg-secondary"
                 >
                     <li v-for="line in dependents" :key="line">{{ line }}</li>
                 </ul>
-                <div v-if="dependents.length" class="grid gap-2">
+                <div v-if="needsConfirm" class="grid gap-2">
                     <label for="disconnect-integration" class="text-[13px]/5">
                         {{ ' ' + $t('Type') }}
                         <span class="font-ui-mono text-fg-primary">{{

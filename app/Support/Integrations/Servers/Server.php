@@ -4,7 +4,9 @@ namespace App\Support\Integrations\Servers;
 
 /**
  * A server at a provider, in ServerOS's words. Status is one of running,
- * starting, stopping, off, deleting or other.
+ * starting, stopping, off, deleting or other. fixedIp is true when its
+ * public IPv4 address stays through a stop (an Elastic IP at AWS), and null
+ * where the provider never changes it.
  */
 final readonly class Server
 {
@@ -24,9 +26,10 @@ final readonly class Server
         public ?string $ipv6,
         public ?string $architecture = null,
         public ?string $createdAt = null,
+        public ?bool $fixedIp = null,
     ) {}
 
-    /** @return array{id: string, name: string, status: string, type: string, typeLabel: string, cores: int, memoryGb: float, diskGb: int, location: string, city: string|null, country: string|null, ipv4: string|null, ipv6: string|null, architecture: string|null, createdAt: string|null} */
+    /** @return array{id: string, name: string, status: string, type: string, typeLabel: string, cores: int, memoryGb: float, diskGb: int, location: string, city: string|null, country: string|null, ipv4: string|null, ipv6: string|null, architecture: string|null, createdAt: string|null, fixedIp: bool|null} */
     public function toArray(): array
     {
         return [
@@ -45,6 +48,7 @@ final readonly class Server
             'ipv6' => $this->ipv6,
             'architecture' => $this->architecture,
             'createdAt' => $this->createdAt,
+            'fixedIp' => $this->fixedIp,
         ];
     }
 
@@ -67,6 +71,7 @@ final readonly class Server
             isset($data['ipv6']) ? (string) $data['ipv6'] : null,
             isset($data['architecture']) ? (string) $data['architecture'] : null,
             isset($data['createdAt']) ? (string) $data['createdAt'] : null,
+            isset($data['fixedIp']) ? (bool) $data['fixedIp'] : null,
         );
     }
 }

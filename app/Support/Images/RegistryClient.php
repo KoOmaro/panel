@@ -32,15 +32,16 @@ class RegistryClient
     public function __construct(private readonly HostResolver $hosts) {}
 
     /**
-     * The digest the tag points at now (`sha256:…`).
+     * The digest the tag points at now (`sha256:…`). Fresh skips the
+     * kept answer, for when a push just moved the tag.
      *
      * @throws RuntimeException when the registry can't be asked or won't say
      */
-    public function digest(ImageReference $image, ?ContainerRegistry $login = null): string
+    public function digest(ImageReference $image, ?ContainerRegistry $login = null, bool $fresh = false): string
     {
         $key = 'images:digest:'.sha1($image->display().'|'.($login !== null ? $login->id.':'.$login->updated_at?->timestamp : ''));
 
-        $cached = Cache::get($key);
+        $cached = $fresh ? null : Cache::get($key);
         if (is_string($cached)) {
             return $cached;
         }

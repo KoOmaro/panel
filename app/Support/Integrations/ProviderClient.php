@@ -62,7 +62,7 @@ abstract class ProviderClient
     }
 
     /**
-     * @param  array<string, mixed>  $body
+     * @param  array<string, mixed>|list<array<string, mixed>>  $body  a list for APIs that replace a whole collection at once (Discord's commands)
      * @return array<string, mixed>
      */
     public function put(string $path, array $body = []): array
@@ -103,6 +103,16 @@ abstract class ProviderClient
             throw $this->failure($response) ?? $this->byStatus($response);
         }
 
+        return $this->decode($response);
+    }
+
+    /**
+     * A successful response's body as an array. JSON unless the API answers in something else (AWS's XML).
+     *
+     * @return array<string, mixed>
+     */
+    protected function decode(Response $response): array
+    {
         $json = $response->json();
 
         return is_array($json) ? $json : [];

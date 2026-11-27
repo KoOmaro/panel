@@ -42,6 +42,12 @@ defineEmits<{ act: [integration: Integration] }>();
             <p class="text-[12px]/[17px] text-fg-muted">
                 {{ integration.description }}
             </p>
+            <p
+                v-if="integration.note"
+                class="text-[12px]/[17px] text-fg-tertiary"
+            >
+                {{ integration.note }}
+            </p>
         </div>
         <ul
             class="flex w-[196px] shrink-0 flex-wrap items-start gap-1 max-md:hidden"
