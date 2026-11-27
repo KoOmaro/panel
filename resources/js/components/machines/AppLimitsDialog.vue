@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref, watch } from 'vue';
 import {
@@ -12,6 +13,8 @@ import { SelectMenu } from '@/components/ui/select';
 import { appButtonClasses } from '@/lib/appButton';
 import { toast } from '@/lib/toast';
 import { describe, networkMessage } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import appsRoutes from '@/routes/workspace/apps';
 
 export type AppLimits = {
     setting: { cpus: number | null; memoryMb: number | null } | null;
@@ -27,6 +30,7 @@ const props = defineProps<{
 }>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ saved: [jobId: string | null] }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const cpus = ref('');
 const memory = ref('');
@@ -78,7 +82,13 @@ async function save(): Promise<void> {
     busy.value = true;
     error.value = null;
     const response = await fetch(
-        `/machines/${props.machineId}/apps/${encodeURIComponent(props.app)}/limits`,
+        onWorkspace(
+            appsRoutes.limits({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+                service: encodeURIComponent(props.app),
+            }),
+        ).url,
         {
             method: 'PUT',
             credentials: 'same-origin',

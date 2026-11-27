@@ -19,6 +19,7 @@ declare module '@inertiajs/core' {
         sharedPageProps: {
             name: string;
             appUrl: string;
+            dashboardUrl: string;
             statusUrl: string | null;
             brand: {
                 company: string | null;
@@ -40,6 +41,7 @@ declare module '@inertiajs/core' {
             auth: Auth;
             workspaces: WorkspaceSummary[];
             workspaceAccess: WorkspaceAccess | null;
+            workspaceBase?: string | null;
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

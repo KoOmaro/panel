@@ -40,7 +40,7 @@ function plannedTravel(Machine $machine, DateTimeInterface $to): void
 
 function plannedUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function planMaintenance(Workspace $workspace, Machine $machine, array $fields = []): MaintenanceWindow

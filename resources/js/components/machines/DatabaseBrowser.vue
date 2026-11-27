@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { LoaderCircle, Play, Search } from '@lucide/vue';
 import {
     SolarDatabase as DatabaseIcon,
@@ -26,6 +26,9 @@ import TickBox from '@/components/workspace/TickBox.vue';
 import { edit as securityEdit } from '@/routes/security';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import consoleRoutes from '@/routes/workspace/console';
+import machinesRoutes from '@/routes/workspace/machines';
 
 type Result = {
     database: string | null;
@@ -55,6 +58,7 @@ const props = defineProps<{
     };
     available: boolean;
 }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 class DatabaseError extends Error {
     constructor(
@@ -97,7 +101,14 @@ async function call(
 
 const FINISHED = ['succeeded', 'failed', 'cancelled', 'timed_out', 'refused'];
 const base = computed(
-    () => `/machines/${props.machineId}/services/${props.serviceKey}/database`,
+    () =>
+        onWorkspace(
+            machinesRoutes.services.database({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+                service: props.serviceKey,
+            }),
+        ).url,
 );
 
 async function ask(payload: {
@@ -121,7 +132,17 @@ async function ask(payload: {
         await new Promise((resolve) =>
             setTimeout(resolve, waited < 4000 ? 200 : 1000),
         );
-        const status = await call('GET', `${base.value}/${id}`);
+        const status = await call(
+            'GET',
+            onWorkspace(
+                machinesRoutes.services.database.result({
+                    workspace: page.props.workspace.slug,
+                    machine: props.machineId,
+                    service: props.serviceKey,
+                    job: id,
+                }),
+            ).url,
+        );
         const state = status.body.state as string | undefined;
         if (!status.ok || !state) {
             throw new DatabaseError(
@@ -176,9 +197,13 @@ async function unlock(): Promise<void> {
     unlocking.value = true;
     unlockError.value = null;
     try {
-        const response = await call('POST', '/console/unlock', {
-            code: unlockCode.value,
-        });
+        const response = await call(
+            'POST',
+            onWorkspace(consoleRoutes.unlock(page.props.workspace.slug)).url,
+            {
+                code: unlockCode.value,
+            },
+        );
         if (!response.ok) {
             unlockError.value = describe(response.status, response.body);
             unlockCode.value = '';
@@ -195,7 +220,10 @@ async function unlock(): Promise<void> {
 }
 
 async function lockNow(): Promise<void> {
-    await call('POST', '/console/lock');
+    await call(
+        'POST',
+        onWorkspace(consoleRoutes.lock(page.props.workspace.slug)).url,
+    );
     router.reload({ only: ['consoleLock'] });
 }
 

@@ -28,6 +28,7 @@ import PickerMenu from '@/components/workspace/PickerMenu.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import { edit as securityEdit } from '@/routes/security';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const props = defineProps<{
     machineId: number;
@@ -39,6 +40,7 @@ const props = defineProps<{
         unlockedUntil: string | null;
         minutes: number;
     };
+    inline?: boolean;
 }>();
 
 const open = defineModel<boolean>('open', { default: false });
@@ -114,7 +116,7 @@ async function unlock(): Promise<void> {
     if (unlockCode.value.length !== 6 || unlocking.value) return;
     unlocking.value = true;
     unlockError.value = null;
-    const { ok, status, body } = await post('/console/unlock', {
+    const { ok, status, body } = await post(workspacePath('/console/unlock'), {
         code: unlockCode.value,
     });
     unlocking.value = false;
@@ -131,7 +133,7 @@ async function unlock(): Promise<void> {
 }
 
 async function lock(): Promise<void> {
-    await post('/console/lock');
+    await post(workspacePath('/console/lock'));
     router.reload({ only: ['consoleLock'] });
 }
 
@@ -165,7 +167,9 @@ async function run(): Promise<void> {
     sending.value = true;
     commandError.value = null;
     const { ok, status, body } = await post(
-        `/machines/${props.machineId}/services/${encodeURIComponent(container.value)}/actions`,
+        workspacePath(
+            `/machines/${props.machineId}/services/${encodeURIComponent(container.value)}/actions`,
+        ),
         { action: 'exec', command: text },
     );
     sending.value = false;
@@ -197,7 +201,7 @@ function follow(): void {
         router.reload({
             only: ['jobs'],
             onFinish: () => {
-                if (open.value && running.value) follow();
+                if ((open.value || props.inline) && running.value) follow();
             },
         });
     }, 1200);
@@ -232,23 +236,33 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <Teleport to="body">
+    <Teleport to="body" :disabled="inline">
         <Transition name="console-sheet">
             <div
-                v-if="open"
-                class="fixed inset-0 z-50 flex flex-col justify-end"
-                @keydown.esc="open = false"
+                v-if="open || inline"
+                :class="
+                    inline
+                        ? 'flex flex-col'
+                        : 'fixed inset-0 z-50 flex flex-col justify-end'
+                "
+                @keydown.esc="!inline && (open = false)"
             >
                 <div
+                    v-if="!inline"
                     class="console-scrim absolute inset-0 bg-black/40"
                     aria-hidden="true"
                     @click="open = false"
                 />
                 <section
-                    role="dialog"
-                    aria-modal="true"
+                    :role="inline ? 'region' : 'dialog'"
+                    :aria-modal="inline ? undefined : 'true'"
                     :aria-label="$t('Console')"
-                    class="console-panel dark workspace-panel relative mx-2 mb-2 flex h-[min(80vh,780px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#151514] font-ui text-(--ds-text) shadow-[0_-24px_80px_-20px_rgb(0_0_0/0.6)]"
+                    class="dark workspace-panel relative flex flex-col overflow-hidden bg-[#151514] font-ui text-(--ds-text)"
+                    :class="
+                        inline
+                            ? 'h-[min(62vh,520px)] rounded-[10px] border-[0.5px] border-[#282828] shadow-card'
+                            : 'console-panel mx-2 mb-2 h-[min(80vh,780px)] rounded-2xl border border-white/[0.08] shadow-[0_-24px_80px_-20px_rgb(0_0_0/0.6)]'
+                    "
                 >
                     <header
                         class="flex h-12 shrink-0 items-center gap-3 border-b border-white/[0.06] bg-[#1b1b1a] px-4"
@@ -294,6 +308,7 @@ onBeforeUnmount(() => {
                             </button>
                         </span>
                         <button
+                            v-if="!inline"
                             type="button"
                             class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--ds-text-muted) hover:bg-white/[0.06] hover:text-(--ds-text)"
                             :class="{

@@ -39,7 +39,7 @@ function delLine(string $line, array $overrides = []): array
 
 function delUrl(Workspace $workspace, string $path = '/logs'): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 beforeEach(function () {

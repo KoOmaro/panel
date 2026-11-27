@@ -18,12 +18,14 @@ import { SelectMenu } from '@/components/ui/select';
 import type { SelectMenuGroup, SelectMenuOption } from '@/components/ui/select';
 import { getInitials } from '@/composables/useInitials';
 import {
-    LICENSE_SETTINGS_PATH,
+    licenseSettingsPath,
     useSelfHosted,
 } from '@/composables/useSelfHosted';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import invitationRoutes from '@/routes/workspace/invitations';
+import joinRequestRoutes from '@/routes/workspace/join-requests';
 import memberRoutes from '@/routes/workspace/members';
+import roleRoutes from '@/routes/workspace/roles';
 import type {
     Workspace,
     WorkspaceInvitation,
@@ -124,15 +126,21 @@ function startRole(role: CustomRole | null): void {
 }
 
 function saveRole(): void {
-    const url = `/settings/roles${editing.value ? `/${editing.value.id}` : ''}`;
     const options = {
         preserveScroll: true,
         onSuccess: () => {
             showRoleForm.value = false;
         },
     };
-    if (editing.value) roleForm.put(url, options);
-    else roleForm.post(url, options);
+    if (editing.value) {
+        const route = roleRoutes.update({
+            workspace: slug.value,
+            role: editing.value.id,
+        });
+        roleForm.put(onWorkspace(route).url, options);
+    } else {
+        roleForm.post(onWorkspace(roleRoutes.store(slug.value)).url, options);
+    }
 }
 
 function deleteRole(role: CustomRole): void {
@@ -144,7 +152,8 @@ function deleteRole(role: CustomRole): void {
         )
     )
         return;
-    router.delete(`/settings/roles/${role.id}`, {
+    const route = roleRoutes.destroy({ workspace: slug.value, role: role.id });
+    router.delete(onWorkspace(route).url, {
         preserveScroll: true,
     });
 }
@@ -276,8 +285,13 @@ function requestRole(request: JoinRequest): string {
 const deciding = ref<number | null>(null);
 function decide(request: JoinRequest, approve: boolean): void {
     deciding.value = request.id;
+    const args = { workspace: slug.value, joinRequest: request.id };
     router.post(
-        `/settings/join-requests/${request.id}/${approve ? 'approve' : 'deny'}`,
+        onWorkspace(
+            approve
+                ? joinRequestRoutes.approve(args)
+                : joinRequestRoutes.deny(args),
+        ).url,
         approve ? { role: requestRole(request) } : {},
         {
             preserveScroll: true,
@@ -306,7 +320,7 @@ const selectClass =
 <template>
     <Head :title="$t('Members')" />
 
-    <div class="flex flex-col gap-5">
+    <div class="flex flex-col">
         <Tile
             id="invite"
             v-if="canManageMembers"
@@ -683,7 +697,7 @@ const selectClass =
                                     ' '
                                 }}
                                 <Link
-                                    :href="LICENSE_SETTINGS_PATH"
+                                    :href="licenseSettingsPath()"
                                     class="underline underline-offset-2"
                                     >{{
                                         $t('Add one in Settings › License')

@@ -61,7 +61,7 @@ function panelReleases(string $tag, bool $reachable = true): void
 
 function panelSettingsUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().'/settings/'.$path;
+    return $workspace->url().'/settings/'.$path;
 }
 
 function updaterRuns(): void
@@ -261,7 +261,7 @@ test('the install’s first account sees an update on the home dashboard until o
     $workspace = Workspace::factory()->create();
     $member = User::factory()->create();
     $workspace->members()->attach($member, ['role' => 'admin']);
-    $home = 'https://'.$workspace->host().'/';
+    $home = $workspace->url().'/';
 
     $this->actingAs($workspace->owner)->get($home)->assertInertia(fn (Assert $page) => $page->where('panelUpdate', null));
 

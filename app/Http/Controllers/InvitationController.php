@@ -30,7 +30,7 @@ class InvitationController extends Controller
                 'email' => $invitation->email,
                 'role' => $invitation->role->label(),
                 'workspace' => $invitation->workspace->name,
-                'host' => $invitation->workspace->host(),
+                'host' => $invitation->workspace->address(),
                 'invitedBy' => $invitation->inviterName(),
             ],
         ])->toResponse($request);

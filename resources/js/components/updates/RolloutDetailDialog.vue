@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { CircleDashed, CircleMinus, LoaderCircle } from '@lucide/vue';
 import {
@@ -18,6 +19,8 @@ import AppButton from '@/components/workspace/AppButton.vue';
 import MorphHeight from '@/components/workspace/MorphHeight.vue';
 import { timeAgo } from '@/lib/timeAgo';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import updatesRoutes from '@/routes/workspace/updates';
 import {
     rolloutOpen,
     rolloutStatus,
@@ -32,6 +35,8 @@ const props = defineProps<{ rolloutId: number | null; canManage: boolean }>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ changed: [] }>();
 
+const page = usePage<{ workspace: { slug: string } }>();
+
 const rollout = ref<RolloutDetail | null>(null);
 const error = ref<string | null>(null);
 const cancelling = ref(false);
@@ -43,7 +48,12 @@ async function load(): Promise<void> {
     try {
         const { rollout: fresh } = await sendJson<{ rollout: RolloutDetail }>(
             'GET',
-            `/updates/rollouts/${props.rolloutId}`,
+            onWorkspace(
+                updatesRoutes.rollouts.show({
+                    workspace: page.props.workspace.slug,
+                    rollout: props.rolloutId,
+                }),
+            ).url,
         );
         const wasOpen = rollout.value ? rolloutOpen(rollout.value) : false;
         rollout.value = fresh;
@@ -78,7 +88,12 @@ async function cancel(): Promise<void> {
     try {
         const { rollout: fresh } = await sendJson<{ rollout: RolloutDetail }>(
             'DELETE',
-            `/updates/rollouts/${rollout.value.id}`,
+            onWorkspace(
+                updatesRoutes.rollouts.cancel({
+                    workspace: page.props.workspace.slug,
+                    rollout: rollout.value.id,
+                }),
+            ).url,
         );
         rollout.value = fresh;
         toast.success(

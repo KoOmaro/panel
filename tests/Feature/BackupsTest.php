@@ -40,7 +40,7 @@ function backupWorkspace(?object $storage = null): array
         ['key' => 'systemd:nginx.service', 'name' => 'nginx', 'kind' => 'web_server', 'ports' => [80], 'details' => []],
     ]);
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 /**
@@ -521,7 +521,7 @@ test('only people who manage machines can restore, and only in their workspace',
     $other = Workspace::factory()->create();
 
     $this->actingAs($viewer)->postJson($base."/backups/{$backup->id}/restore", ['confirm' => 'serveros-mc-mc-1'])->assertForbidden();
-    $this->actingAs($other->owner)->postJson('https://'.$other->host()."/backups/{$backup->id}/restore", ['confirm' => 'serveros-mc-mc-1'])->assertNotFound();
+    $this->actingAs($other->owner)->postJson($other->url()."/backups/{$backup->id}/restore", ['confirm' => 'serveros-mc-mc-1'])->assertNotFound();
     expect(commandsSent())->toBe([]);
 });
 
@@ -539,4 +539,45 @@ test('AI apps restore with the name typed back, and see what can be restored', f
     $result = mcpCall($workspace, $key, 'restore_backup', ['backup' => $backup->id, 'confirm' => 'serveros-mc-mc-1']);
     expect($result['error'])->toBeFalse()
         ->and(commandsSent()[0]['command']['job']['type'])->toBe('restore');
+});
+
+test('the Backups page sums up coverage, the last day and what each destination holds', function () {
+    [$workspace, $machine, $base] = backupWorkspace();
+    $destination = s3Destination($workspace);
+    $machine->forceFill(['backup_destination_id' => $destination->id, 'backup_schedule' => 'daily', 'inventory' => ['services' => [
+        ['key' => 'docker:mc', 'name' => 'serveros-mc-mc-1', 'kind' => 'game_server', 'details' => ['managed' => 'true', 'compose_project' => 'serveros-mc']],
+    ]]])->save();
+    $idle = onlineMachine($workspace, 'spare-box');
+    $old = finishedBackup($machine, 'snap-1', ['backup_destination_id' => $destination->id, 'bytes' => 1_000_000, 'restore_state' => 'succeeded', 'restored_at' => now()->subDay()]);
+    $old->forceFill(['created_at' => now()->subDays(2)])->save();
+    $failed = $machine->backups()->create(['service' => 'docker:mc', 'service_name' => 'serveros-mc-mc-1', 'trigger' => 'scheduled', 'state' => 'failed', 'backup_destination_id' => $destination->id]);
+    $failed->forceFill(['error' => 'The bucket said no.', 'created_at' => now()->subHour()])->save();
+
+    $this->actingAs($workspace->owner)->get($base.'/backups')->assertInertia(fn (Assert $page) => $page
+        ->component('workspace/Backups')
+        ->where('summary.machines', 2)
+        ->where('summary.covered', 1)
+        ->where('summary.services', 1)
+        ->where('summary.stored', 1_000_000)
+        ->where('summary.restores', 1)
+        ->where('summary.succeededRate', 50)
+        ->where('summary.day.failed', 1)
+        ->where('summary.day.done', 0)
+        ->where('summary.day.shown.0.service', 'mc')
+        ->where('summary.day.shown.0.state', 'failed')
+        ->where('destinations.0.stored', 1_000_000)
+        ->where('destinations.0.machines', 1)
+        ->where('machines.0.name', 'game-box')
+        ->where('machines.0.lastRun.state', 'failed')
+        ->where('machines.0.lastRun.error', 'The bucket said no.')
+        ->where('machines.0.serviceList.0.key', 'docker:mc')
+        ->where('machines.0.serviceList.0.name', 'mc')
+        ->where('machines.0.serviceList.0.last.id', $failed->id)
+        ->where('machines.0.serviceList.0.last.serviceName', 'serveros-mc-mc-1')
+        ->where('machines.1.name', 'spare-box')
+        ->where('machines.1.lastRun', null)
+        ->where('history.0.serviceLabel', 'mc')
+        ->etc());
+
+    expect($idle->fresh()->backup_destination_id)->toBeNull();
 });

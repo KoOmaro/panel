@@ -800,7 +800,7 @@ test('a monitor can have a section of its own, kept when the page is saved from 
         ->toContain('Only monitors');
 
     $page = $machine->fresh()->statusPage;
-    $this->actingAs($workspace->owner)->put('https://'.$workspace->host().'/machines/'.$machine->id.'/status-page', [
+    $this->actingAs($workspace->owner)->put($workspace->url().'/machines/'.$machine->id.'/status-page', [
         'enabled' => true, 'public' => true, 'slug' => $page->slug, 'include_new' => true, 'show_uptime' => true,
         'services' => [['key' => 'monitor:'.$uk->id, 'shown' => true, 'label' => 'Renamed'], ['key' => 'monitor:'.$shop->id, 'shown' => true, 'label' => null]],
     ])->assertSessionHasNoErrors();

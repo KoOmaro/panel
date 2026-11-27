@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ApplyMachinePolicy;
+use App\Jobs\PointCloudflareDomains;
+use App\Jobs\SyncGitLabHooks;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\MachineSample;
@@ -20,12 +22,19 @@ use App\Support\Files\FileJobs;
 use App\Support\Fixes\FixRunner;
 use App\Support\Health\JobAlerts;
 use App\Support\Images\ImageUpdates;
+use App\Support\Integrations\GitLab\GitLabHooks;
+use App\Support\Integrations\Sentry\SentryReleases;
+use App\Support\Integrations\Slack\SlackChat;
 use App\Support\Logs\LogIngest;
 use App\Support\Logs\LogSkipRules;
 use App\Support\Machines\CloudflareTunnel;
 use App\Support\Machines\DaemonUpdateNotices;
+use App\Support\Machines\MachineDisks;
 use App\Support\Machines\MachineMetadata;
+use App\Support\Machines\MachineVitals;
 use App\Support\Machines\PackageUpdates;
+use App\Support\Machines\Readme\MachineReadmes;
+use App\Support\Machines\SshAccess;
 use App\Support\Projects\ProjectData;
 use App\Support\Projects\ProjectLinks;
 use App\Support\Projects\ProjectNetwork;
@@ -36,6 +45,7 @@ use App\Support\Workflows\WorkflowEvents;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
+use Throwable;
 
 use function Illuminate\Support\defer;
 
@@ -43,7 +53,7 @@ class DaemonGatewayController extends Controller
 {
     private const FINISHED_JOB_STATES = ['succeeded', 'failed', 'cancelled', 'timed_out', 'refused'];
 
-    private const RESCAN_AFTER = ['deploy', 'rollback', 'service_remove', 'service_repair', 'service_action', 'service_clone', 'adopt', 'image_update', 'docker_prune'];
+    private const RESCAN_AFTER = ['deploy', 'rollback', 'service_remove', 'service_repair', 'service_action', 'service_clone', 'adopt', 'image_update', 'docker_prune', 'docker_install'];
 
     private function authorised(Request $request): bool
     {
@@ -95,6 +105,7 @@ class DaemonGatewayController extends Controller
             'disconnected_at' => null,
             ...(isset($data['hello']['log_skip']) ? ['log_skip' => LogSkipRules::fromDaemon($data['hello']['log_skip'])] : []),
             ...(isset($data['hello']['proxy']) ? ['proxy' => $data['hello']['proxy']] : []),
+            ...(self::rebooted($machine, $data['hello']['facts']) ? ['net_rx_bytes' => null, 'net_tx_bytes' => null] : []),
         ])->save();
 
         if (is_string($versionBefore) && $versionBefore !== $machine->daemon_version) {
@@ -119,6 +130,15 @@ class DaemonGatewayController extends Controller
                 'mode' => config('daemon.commands_enabled') ? 'managed' : 'read_only',
             ],
         ]);
+    }
+
+    /** @param  array<mixed>  $facts */
+    private static function rebooted(Machine $machine, array $facts): bool
+    {
+        $before = $machine->facts['boot_ts'] ?? null;
+        $now = $facts['boot_ts'] ?? null;
+
+        return is_numeric($before) && is_numeric($now) && $before > 0 && $now > 0 && abs((int) $now - (int) $before) > 60;
     }
 
     /** @param  array<mixed>  $facts */
@@ -149,6 +169,7 @@ class DaemonGatewayController extends Controller
         $changes = ['last_seen_at' => now(), 'disconnected_at' => null];
         $traffic = [];
         $firstInventory = $machine->inventory === null;
+        $vitals = MachineVitals::of($machine);
         foreach ($data['envelopes'] as $envelope) {
             $payload = $envelope['payload'];
             switch ($envelope['kind']) {
@@ -184,13 +205,14 @@ class DaemonGatewayController extends Controller
                             $changes['memory_used_mb'] = max(0, (int) floor($sample['mem_used'] / 1048576));
                         }
                         if (isset($sample['disks']) && is_array($sample['disks'])) {
-                            $disks = self::disks($sample['disks']);
+                            $disks = self::disks($sample['disks'], $changes['facts'] ?? $machine->facts);
                             $changes['disks'] = $disks;
-                            $changes['disk_percent'] = self::fullest($disks);
+                            $changes['disk_percent'] = MachineDisks::fullest($disks);
                         }
-                        $readings[] = $this->machineReading($sample);
+                        $readings[] = $this->machineReading($sample, $changes['facts'] ?? $machine->facts);
                     }
-                    MachineSample::record($machine, $readings);
+                    MachineSample::record($machine, $vitals->count($readings));
+                    $changes = [...$changes, ...$vitals->changes()];
                     if (is_array($payload['traffic'] ?? null)) {
                         // Each site's minutes, counted from the proxy's access logs: stored together below.
                         $traffic = [...$traffic, ...array_slice(array_values($payload['traffic']), 0, TrafficRollup::MAX_PER_REQUEST - count($traffic))];
@@ -231,10 +253,21 @@ class DaemonGatewayController extends Controller
                     if ($job === null) {
                         return response()->json(['error' => 'Job not found for this machine.', 'code' => 'job_unknown'], 404);
                     }
+                    // Someone stopped waiting on it, but the machine kept going:
+                    // its final word is how it really went, so that's kept.
+                    $late = false;
                     if (in_array($job->state, self::FINISHED_JOB_STATES, true)) {
-                        break;
+                        if (! $job->stoppedWaiting() || ! in_array($state, self::FINISHED_JOB_STATES, true)) {
+                            break;
+                        }
+                        $late = true;
                     }
                     $lines = is_array($payload['log'] ?? null) ? array_values(array_filter($payload['log'], 'is_string')) : [];
+                    if ($late) {
+                        $lines[] = $state === 'cancelled'
+                            ? 'The machine cancelled it after ServerOS stopped waiting.'
+                            : 'The machine finished it after ServerOS stopped waiting: this is how it went.';
+                    }
                     if ($job->kind === 'database_query' && $lines !== []) {
                         // The database's rows, and the query itself: kept encrypted until read.
                         $lines = [DatabaseConsole::seal($lines)];
@@ -246,7 +279,7 @@ class DaemonGatewayController extends Controller
                         'progress' => is_numeric($payload['progress'] ?? null) ? max(0, min(100, (int) $payload['progress'])) : $job->progress,
                         'log' => $log,
                         'result' => is_array($payload['result'] ?? null) ? FileJobs::seal($job, $payload['result']) : $job->result,
-                        'error' => is_array($payload['error'] ?? null) ? $payload['error'] : $job->error,
+                        'error' => is_array($payload['error'] ?? null) ? $payload['error'] : ($late && $state === 'succeeded' ? null : $job->error),
                         'finished_at' => in_array($state, self::FINISHED_JOB_STATES, true) ? now() : null,
                     ])->save();
 
@@ -258,6 +291,9 @@ class DaemonGatewayController extends Controller
                         }
                         if ($job->kind === 'image_update') {
                             ImageUpdates::finished($job);
+                        }
+                        if ($job->kind === SshAccess::KIND) {
+                            SshAccess::finished($job);
                         }
                     }
 
@@ -273,6 +309,10 @@ class DaemonGatewayController extends Controller
                         BackupRunner::recordRollback($job);
                     }
 
+                    if ($state === 'succeeded' && $job->kind === 'docker_install' && is_string($payload['result']['version'] ?? null)) {
+                        $machine->forceFill(['facts' => [...($machine->facts ?? []), 'docker_version' => substr($payload['result']['version'], 0, 40)]])->save();
+                    }
+
                     if ($state === 'succeeded' && in_array($job->kind, self::RESCAN_AFTER, true)) {
                         $rescanFor = $job;
                     }
@@ -286,6 +326,13 @@ class DaemonGatewayController extends Controller
                         if (is_array($inventory)) {
                             $changes['inventory'] = $this->withoutService($inventory, $job->service);
                             $changes['services_count'] = ServiceLabels::shownCount($machine, $changes['inventory']['services'] ?? []);
+                            try {
+                                if (app(GitLabHooks::class)->removed($machine, $job->service, $inventory, $changes['inventory'])) {
+                                    SyncGitLabHooks::dispatch($machine->workspace_id);
+                                }
+                            } catch (Throwable $e) {
+                                report($e);
+                            }
                         }
                     }
 
@@ -343,6 +390,9 @@ class DaemonGatewayController extends Controller
 
         if ($firstInventory && $machine->inventory !== null) {
             $this->startSetupScan($machine);
+            MachineReadmes::queue($machine);
+        } elseif (isset($changes['inventory']) || isset($changes['facts'])) {
+            MachineReadmes::changed($machine);
         }
 
         return response()->json(['ok' => true]);
@@ -465,19 +515,27 @@ class DaemonGatewayController extends Controller
 
     /**
      * @param  array<string, mixed>  $sample
-     * @return array{ts: int, cpu: float|null, mem: int|null, disk: int|null}
+     * @return array{ts: int, cpu: float|null, mem: int|null, disk: int|null, load: array{0: float, 1: float, 2: float}|null, processes: int|null, rxBytes: int|null, txBytes: int|null}
      */
-    private function machineReading(array $sample): array
+    private function machineReading(array $sample, mixed $facts): array
     {
         $now = now()->getTimestamp();
         $ts = is_numeric($sample['ts'] ?? null) ? (int) $sample['ts'] : $now;
-        $disks = is_array($sample['disks'] ?? null) ? self::disks($sample['disks']) : [];
+        $disks = is_array($sample['disks'] ?? null) ? self::disks($sample['disks'], $facts) : [];
+        $count = fn (string $key) => is_numeric($sample[$key] ?? null) ? max(0, (int) $sample[$key]) : null;
+        $load = is_array($sample['load'] ?? null) ? array_values($sample['load']) : [];
 
         return [
             'ts' => $ts > $now ? $now : $ts,
             'cpu' => is_numeric($sample['cpu_percent'] ?? null) ? round(max(0, min(100, (float) $sample['cpu_percent'])), 2) : null,
             'mem' => is_numeric($sample['mem_used'] ?? null) ? max(0, (int) $sample['mem_used']) : null,
-            'disk' => self::fullest($disks),
+            'disk' => MachineDisks::fullest($disks),
+            'load' => count($load) === 3 && is_numeric($load[0]) && is_numeric($load[1]) && is_numeric($load[2])
+                ? [round(max(0, (float) $load[0]), 2), round(max(0, (float) $load[1]), 2), round(max(0, (float) $load[2]), 2)]
+                : null,
+            'processes' => $count('process_count'),
+            'rxBytes' => $count('net_rx_bytes'),
+            'txBytes' => $count('net_tx_bytes'),
         ];
     }
 
@@ -533,6 +591,9 @@ class DaemonGatewayController extends Controller
             if ($job->kind === 'service_exec') {
                 app(ProjectData::class)->jobFinished($job);
             }
+            PointCloudflareDomains::afterJob($job);
+            app(SentryReleases::class)->jobFinished($job);
+            app(SlackChat::class)->jobFinished($job);
             if ($job->workflow_run_id !== null) {
                 app(WorkflowEngine::class)->jobFinished($job);
             }
@@ -550,17 +611,11 @@ class DaemonGatewayController extends Controller
         });
     }
 
-    /** @param  list<array{mount: string, used: int, total: int}>  $disks */
-    private static function fullest(array $disks): ?int
-    {
-        return $disks === [] ? null : max(array_map(fn (array $d) => (int) floor($d['used'] / $d['total'] * 100), $disks));
-    }
-
     /**
      * @param  array<int, mixed>  $samples
      * @return list<array{mount: string, used: int, total: int}>
      */
-    private static function disks(array $samples): array
+    private static function disks(array $samples, mixed $facts): array
     {
         $disks = [];
         foreach (array_slice($samples, 0, 64) as $disk) {
@@ -568,15 +623,10 @@ class DaemonGatewayController extends Controller
                 continue;
             }
             $mount = substr($disk['mount'], 0, 200);
-            $used = (int) $disk['used_bytes'];
-            $total = $used + (int) $disk['free_bytes'];
-            if ($total < 1 << 30 || preg_match('#^/(snap|boot/efi|run|dev|sys|proc)(/|$)#', $mount) === 1) {
-                continue;
-            }
-            $disks[$mount] = ['mount' => $mount, 'used' => $used, 'total' => $total];
+            $used = max(0, (int) $disk['used_bytes']);
+            $disks[$mount] = ['mount' => $mount, 'used' => $used, 'total' => $used + max(0, (int) $disk['free_bytes'])];
         }
-        usort($disks, fn (array $a, array $b) => $b['used'] / $b['total'] <=> $a['used'] / $a['total']);
 
-        return array_slice($disks, 0, 8);
+        return MachineDisks::clean(array_values($disks), $facts);
     }
 }

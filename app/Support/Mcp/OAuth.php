@@ -5,6 +5,7 @@ namespace App\Support\Mcp;
 use App\Mcp\Scopes;
 use App\Models\Workspace;
 use App\Support\Extensions\Extensions;
+use App\Support\Workspaces\Dashboard;
 
 final class OAuth
 {
@@ -15,9 +16,9 @@ final class OAuth
         return rtrim((string) config('app.url'), '/');
     }
 
-    public static function resource(Workspace $workspace): string
+    public static function resource(Workspace $workspace, bool $legacy = false): string
     {
-        return route('mcp', ['workspace' => $workspace->slug]);
+        return route($legacy ? 'mcp.legacy' : 'mcp', ['workspace' => $workspace->slug]);
     }
 
     public static function workspaceFor(?string $resource): ?Workspace
@@ -26,13 +27,22 @@ final class OAuth
             return null;
         }
         $host = strtolower((string) parse_url($resource, PHP_URL_HOST));
-        $suffix = '.'.strtolower((string) config('app.domain'));
-        if (! str_ends_with($host, $suffix)) {
+        $slug = $host === Dashboard::host()
+            ? explode('/', ltrim((string) parse_url($resource, PHP_URL_PATH), '/'), 2)[0]
+            : Dashboard::slugFromLegacyHost($host);
+        if ($slug === null || $slug === '') {
             return null;
         }
-        $workspace = Workspace::query()->where('slug', substr($host, 0, -strlen($suffix)))->first();
+        $workspace = Workspace::query()->where('slug', $slug)->first();
+        $named = fn (Workspace $workspace) => collect([self::resource($workspace), self::resource($workspace, true)])
+            ->contains(fn (string $url) => rtrim($resource, '/') === rtrim($url, '/'));
 
-        return $workspace !== null && rtrim($resource, '/') === rtrim(self::resource($workspace), '/') ? $workspace : null;
+        return $workspace !== null && $named($workspace) ? $workspace : null;
+    }
+
+    public static function resourceFor(Workspace $workspace, mixed $requested): string
+    {
+        return is_string($requested) && self::workspaceFor($requested)?->is($workspace) ? $requested : self::resource($workspace);
     }
 
     public static function redirectAllowed(mixed $uri): bool
@@ -95,10 +105,10 @@ final class OAuth
     }
 
     /** @return array<string, mixed> */
-    public static function resourceMetadata(Workspace $workspace): array
+    public static function resourceMetadata(Workspace $workspace, bool $legacy = false): array
     {
         return [
-            'resource' => self::resource($workspace),
+            'resource' => self::resource($workspace, $legacy),
             'authorization_servers' => [self::issuer()],
             'scopes_supported' => Scopes::ALL,
             'bearer_methods_supported' => ['header'],

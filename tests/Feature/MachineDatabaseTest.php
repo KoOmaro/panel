@@ -53,7 +53,7 @@ function databaseMachine(): array
         ]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/services/'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/services/'];
 }
 
 /** @return array<string, mixed> */
@@ -74,7 +74,7 @@ function unlockDatabases(User $user, Workspace $workspace): void
     $provider->shouldReceive('verify')->andReturnUsing(fn ($secret, $code) => $code === '123456');
     app()->instance(TwoFactorAuthenticationProvider::class, $provider);
 
-    test()->actingAs($user)->postJson('https://'.$workspace->host().'/console/unlock', ['code' => '123456'])->assertOk();
+    test()->actingAs($user)->postJson($workspace->url().'/console/unlock', ['code' => '123456'])->assertOk();
 }
 
 /**
@@ -190,7 +190,7 @@ test('a query runs read-only in the container unless changes are allowed, and go
     expect($queries()->count())->toBe(2);
 
     // Nor do database jobs crowd the machine's own job list.
-    $this->actingAs($owner)->get('https://'.$workspace->host().'/machines/'.$machine->id)
+    $this->actingAs($owner)->get($workspace->url().'/machines/'.$machine->id)
         ->assertInertia(fn (Assert $page) => $page->has('jobs', 0)->etc());
 });
 

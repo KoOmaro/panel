@@ -9,7 +9,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function settingsUrl(Workspace $workspace, string $path = 'general'): string
 {
-    return 'https://'.$workspace->host().'/settings/'.$path;
+    return $workspace->url().'/settings/'.$path;
 }
 
 function addMember(Workspace $workspace, string $role): User
@@ -24,7 +24,7 @@ test('settings redirects to the general tab', function () {
     $workspace = Workspace::factory()->create();
 
     $this->actingAs($workspace->owner)
-        ->get('https://'.$workspace->host().'/settings')
+        ->get($workspace->url().'/settings')
         ->assertRedirect(settingsUrl($workspace));
 });
 
@@ -119,7 +119,7 @@ test('owners can delete a workspace by typing its address', function () {
 
     $this->actingAs($workspace->owner)
         ->withHeaders(['X-Inertia' => 'true'])
-        ->delete('https://'.$workspace->host().'/settings/workspace', ['confirmation' => 'acme'])
+        ->delete($workspace->url().'/settings/workspace', ['confirmation' => 'acme'])
         ->assertStatus(409)
         ->assertHeader('X-Inertia-Location', rtrim(config('app.url'), '/').'/workspaces');
 
@@ -133,7 +133,7 @@ test('deleting needs the exact address', function () {
     $workspace = Workspace::factory()->create(['slug' => 'acme']);
 
     $this->actingAs($workspace->owner)
-        ->delete('https://'.$workspace->host().'/settings/workspace', ['confirmation' => 'Acme'])
+        ->delete($workspace->url().'/settings/workspace', ['confirmation' => 'Acme'])
         ->assertSessionHasErrors(['confirmation' => 'That doesn’t match. Type acme to confirm.']);
 
     expect(Workspace::find($workspace->id))->not->toBeNull();
@@ -148,7 +148,7 @@ test('only the owner can delete a workspace', function () {
         ->assertInertia(fn (Assert $page) => $page->where('canDelete', false));
 
     $this->actingAs($admin)
-        ->delete('https://'.$workspace->host().'/settings/workspace', ['confirmation' => 'acme'])
+        ->delete($workspace->url().'/settings/workspace', ['confirmation' => 'acme'])
         ->assertForbidden();
 
     expect(Workspace::find($workspace->id))->not->toBeNull();

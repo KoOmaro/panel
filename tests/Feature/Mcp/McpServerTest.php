@@ -13,11 +13,15 @@ use App\Models\Workspace;
 test('without a token the server says how to sign in', function () {
     $workspace = Workspace::factory()->create();
 
-    $this->postJson('https://'.$workspace->host().'/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize'])
+    $this->postJson($workspace->url().'/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize'])
         ->assertUnauthorized()
-        ->assertHeader('WWW-Authenticate', 'Bearer resource_metadata="https://'.$workspace->host().'/.well-known/oauth-protected-resource/mcp"');
+        ->assertHeader('WWW-Authenticate', 'Bearer resource_metadata="https://'.$workspace->host().'/.well-known/oauth-protected-resource/'.$workspace->slug.'/mcp"');
 
-    $this->withHeaders(['Authorization' => 'Bearer nope'])->postJson('https://'.$workspace->host().'/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping'])
+    $this->postJson('https://'.$workspace->slug.'.'.config('app.domain').'/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize'])
+        ->assertUnauthorized()
+        ->assertHeader('WWW-Authenticate', 'Bearer resource_metadata="https://'.$workspace->slug.'.'.config('app.domain').'/.well-known/oauth-protected-resource/mcp"');
+
+    $this->withHeaders(['Authorization' => 'Bearer nope'])->postJson($workspace->url().'/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping'])
         ->assertUnauthorized()
         ->assertHeader('WWW-Authenticate');
 });
@@ -38,13 +42,13 @@ test('it initializes and answers pings without a session', function () {
     mcpRequest($workspace, $key, 'ping')->assertOk()->assertJsonPath('jsonrpc', '2.0');
 
     $this->withHeaders(['Authorization' => "Bearer {$key}"])
-        ->postJson('https://'.$workspace->host().'/mcp', ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'])
+        ->postJson($workspace->url().'/mcp', ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'])
         ->assertStatus(202);
 
     mcpRequest($workspace, $key, 'no/such')->assertJsonPath('error.code', -32601);
-    $this->call('POST', 'https://'.$workspace->host().'/mcp', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_AUTHORIZATION' => "Bearer {$key}"], '{nope')
+    $this->call('POST', $workspace->url().'/mcp', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_AUTHORIZATION' => "Bearer {$key}"], '{nope')
         ->assertStatus(400)->assertJsonPath('error.code', -32700);
-    $this->withHeaders(['Authorization' => "Bearer {$key}"])->get('https://'.$workspace->host().'/mcp')->assertStatus(405);
+    $this->withHeaders(['Authorization' => "Bearer {$key}"])->get($workspace->url().'/mcp')->assertStatus(405);
 });
 
 test('a key only works for its own workspace, and not once revoked', function () {
@@ -131,7 +135,7 @@ test('changes made through MCP are credited to the person, via MCP', function ()
 test('browsers can reach it: CORS preflight', function () {
     $workspace = Workspace::factory()->create();
 
-    $this->call('OPTIONS', 'https://'.$workspace->host().'/mcp')
+    $this->call('OPTIONS', $workspace->url().'/mcp')
         ->assertNoContent()
         ->assertHeader('Access-Control-Allow-Origin', '*');
 });

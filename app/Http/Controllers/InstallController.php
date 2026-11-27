@@ -14,6 +14,7 @@ use App\Support\Install\Installer;
 use App\Support\Install\MailSetup;
 use App\Support\Install\ServerChecks;
 use App\Support\Install\SetupCode;
+use App\Support\Workspaces\Dashboard;
 use App\Support\WorkspaceSlugs;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Database\Events\MigrationEnded;
@@ -614,7 +615,6 @@ class InstallController extends Controller
         $owner = $request->session()->get('install.owner');
         $connection = (array) config('database.connections.'.config('database.default'));
         $driver = (string) ($connection['driver'] ?? '');
-        $domain = (string) config('app.domain');
 
         return [
             'address' => rtrim((string) config('app.url'), '/'),
@@ -623,7 +623,7 @@ class InstallController extends Controller
                 ? 'From '.config('mail.from.address').', through '.config('mail.mailers.smtp.host')
                 : null,
             'owner' => ['name' => $owner['name'], 'email' => $owner['email']],
-            'workspace' => ['name' => $owner['workspace'], 'address' => $owner['slug'].'.'.$domain],
+            'workspace' => ['name' => $owner['workspace'], 'address' => Dashboard::host().'/'.$owner['slug']],
         ];
     }
 }

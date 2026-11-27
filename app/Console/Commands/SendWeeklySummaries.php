@@ -31,7 +31,7 @@ class SendWeeklySummaries extends Command
                         }
                         $recipients = $workspace->members()->wherePivot('weekly_summary', true)->get();
                         if ($recipients->isNotEmpty()) {
-                            Notification::send($recipients, new WeeklySummaryMail($workspace->name, $summary, 'https://'.$workspace->host(), $workspace->id));
+                            Notification::send($recipients, new WeeklySummaryMail($workspace->name, $summary, $workspace->url(), $workspace->id));
                             $sent += $recipients->count();
                         }
                     } catch (Throwable $e) {

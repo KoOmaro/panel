@@ -9,7 +9,7 @@ use App\Models\WorkspaceCustomRole;
 
 function onHost(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('a Scale workspace can make a role and give it to someone', function () {

@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Support\Deploys\AppReleases;
+use App\Support\Machines\MachineDisks;
 use App\Support\SecurityScan;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -19,6 +20,8 @@ class MachineResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $now = $this->isReporting();
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -31,13 +34,14 @@ class MachineResource extends JsonResource
             'tier' => $this->tier,
             'labels' => (object) ($this->labels ?? []),
             'services' => $this->services_count,
-            'memory' => $this->memory_used_mb === null
-                ? '—'
+            'memory' => ! $now || $this->memory_used_mb === null
+                ? '–'
                 : number_format($this->memory_used_mb / 1024, 1).' GiB',
-            'memoryMb' => $this->memory_used_mb,
-            'cpu' => $this->cpu_percent ?? 0,
+            'memoryMb' => $now ? $this->memory_used_mb : null,
+            'cpu' => $now ? $this->cpu_percent : null,
             'groupId' => $this->machine_group_id,
             'lastBackup' => $this->last_backup_at?->diffForHumans(['short' => true]) ?? __('Never'),
+            'lastBackupAt' => $this->last_backup_at?->toIso8601String(),
             'uid' => $this->uid,
             'iconUrl' => $this->iconUrl(),
             'connection' => self::connection($this->resource),
@@ -47,9 +51,9 @@ class MachineResource extends JsonResource
                 ...$this->inventory,
                 'services' => AppReleases::visible($this->resource),
             ],
-            'facts' => $this->facts,
-            'disks' => $this->disks ?? [],
-            'diskPercent' => $this->disk_percent,
+            'facts' => is_array($this->facts['disks'] ?? null) ? [...$this->facts, 'disks' => MachineDisks::facts($this->facts)] : $this->facts,
+            'disks' => $this->volumes(),
+            'diskPercent' => $this->fullestDisk(),
             'maintenance' => $this->inMaintenance() ? [
                 'until' => $this->maintenance_until->toIso8601String(),
                 'reason' => $this->maintenance_reason,

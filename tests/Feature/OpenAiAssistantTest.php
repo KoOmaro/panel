@@ -65,7 +65,7 @@ test('OpenAI tool results keep the original call id and encrypted reasoning acro
         ->push(openAiAssistantResponse([$reasoning, $call]))
         ->push(openAiAssistantResponse([openAiAssistantText('There are no machines.')]))]);
 
-    $response = $this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'List my machines.']);
+    $response = $this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'List my machines.']);
     $response->assertOk();
     $body = $response->streamedContent();
     $events = openAiAssistantEvents($body);
@@ -93,7 +93,7 @@ test('OpenAI resumes a cached tool call only after approval', function (bool $ap
         ->push(openAiAssistantResponse([openAiAssistantCall('call_load', 'load_tools', ['names' => ['create_machine_group']])]))
         ->push(openAiAssistantResponse([$reasoning, $call]))
         ->push(openAiAssistantResponse([openAiAssistantText($approve ? 'The Web group is ready.' : 'The change was declined.')]))]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $events = openAiAssistantEvents($this->actingAs($workspace->owner)->post($url, ['message' => 'Create a group called Web.'])->streamedContent());
     $approval = collect($events)->firstWhere('type', 'approval');
@@ -121,7 +121,7 @@ test('a new OpenAI chat message resolves the pending call without running it', f
         ->push(openAiAssistantResponse([openAiAssistantCall('call_load', 'load_tools', ['names' => ['create_machine_group']])]))
         ->push(openAiAssistantResponse([openAiAssistantCall('call_pending', 'create_machine_group', ['name' => 'Web'])]))
         ->push(openAiAssistantResponse([openAiAssistantText('The change was skipped.')]))]);
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
     $events = openAiAssistantEvents($this->actingAs($workspace->owner)->post($url, ['message' => 'Create a group called Web.'])->streamedContent());
     $chat = collect($events)->firstWhere('type', 'chat')['id'];
 
@@ -144,7 +144,7 @@ test('OpenAI never executes calls from incomplete failed or refused responses', 
     Http::preventStrayRequests();
     Http::fake(['api.openai.com/v1/responses' => Http::response($response)]);
 
-    $events = openAiAssistantEvents($this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', ['message' => 'Create a group.'])->streamedContent());
+    $events = openAiAssistantEvents($this->actingAs($workspace->owner)->post($workspace->url().'/assistant', ['message' => 'Create a group.'])->streamedContent());
     expect(array_column($events, 'type'))->toBe(['chat', 'error', 'done'])
         ->and($workspace->machineGroups()->count())->toBe(0);
     Http::assertSentCount(1);

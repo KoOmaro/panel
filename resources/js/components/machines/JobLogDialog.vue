@@ -14,6 +14,8 @@ import { usePage } from '@inertiajs/vue3';
 import { appButtonClasses } from '@/lib/appButton';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 
 export type DaemonJob = {
     id: string;
@@ -51,8 +53,19 @@ const props = defineProps<{
 }>();
 
 // Agents can pick up a failed job with its log, when they're turned on.
-const agentsPage = usePage<{ agentsPreview?: boolean }>();
+const agentsPage = usePage<{
+    agentsPreview?: boolean;
+    workspace: { slug: string };
+}>();
 const agentsPreview = computed(() => agentsPage.props.agentsPreview === true);
+
+function fixWithAgentUrl(jobId: string): string {
+    return onWorkspace(
+        agentsRoutes.index(agentsPage.props.workspace.slug, {
+            query: { from: `job:${jobId}` },
+        }),
+    ).url;
+}
 
 const copiedInstall = ref(false);
 function copyInstall(): void {
@@ -144,7 +157,9 @@ const error = ref<string | null>(null);
 
 async function post(action: 'retry' | 'abandon'): Promise<string | null> {
     const response = await fetch(
-        `/machines/${props.machineId}/jobs/${props.job?.id}/${action}`,
+        workspacePath(
+            `/machines/${props.machineId}/jobs/${props.job?.id}/${action}`,
+        ),
         {
             method: 'POST',
             credentials: 'same-origin',
@@ -208,19 +223,22 @@ async function installAndRetry(): Promise<void> {
     error.value = null;
 
     try {
-        const response = await fetch(`/machines/${props.machineId}/updates`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
+        const response = await fetch(
+            workspacePath(`/machines/${props.machineId}/updates`),
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrf(),
+                },
+                body: JSON.stringify({
+                    security_only: false,
+                    packages: install.packages,
+                }),
             },
-            body: JSON.stringify({
-                security_only: false,
-                packages: install.packages,
-            }),
-        });
+        );
         const body = await response.json().catch(() => ({}));
         if (!response.ok || !body.jobId) {
             error.value = describe(response.status, body);
@@ -231,7 +249,9 @@ async function installAndRetry(): Promise<void> {
         for (let checks = 0; checks < 300; checks++) {
             await new Promise((resolve) => window.setTimeout(resolve, 2000));
             const status = await fetch(
-                `/machines/${props.machineId}/updates/${body.jobId}`,
+                workspacePath(
+                    `/machines/${props.machineId}/updates/${body.jobId}`,
+                ),
                 {
                     credentials: 'same-origin',
                     headers: { Accept: 'application/json' },
@@ -550,7 +570,7 @@ async function stopWaiting(): Promise<void> {
                 </AppButton>
                 <a
                     v-if="failed && canManage && agentsPreview"
-                    :href="`/agents?from=job:${job.id}`"
+                    :href="fixWithAgentUrl(job.id)"
                     :class="appButtonClasses('secondary', 'sm')"
                 >
                     {{ $t('Fix with an agent') }}

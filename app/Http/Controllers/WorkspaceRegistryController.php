@@ -40,7 +40,7 @@ class WorkspaceRegistryController extends Controller
         }
 
         $registry ??= $workspace->containerRegistries()->make(['host' => $data['host']]);
-        $registry->fill(['username' => $data['username'], 'password' => $data['password'], 'user_id' => $request->user()->id])->save();
+        $registry->fill(['username' => $data['username'], 'password' => $data['password'], 'user_id' => $request->user()->id])->forceFill(['integration_id' => null])->save();
         Activity::record($workspace, $registry->wasRecentlyCreated ? 'registry.add' : 'registry.update', $registry->host, meta: ['username' => $registry->username]);
         Inertia::flash('toast', ['type' => 'success', 'message' => "Saved the login for {$registry->label()}. Deploys pull from it with this login."]);
 
@@ -59,7 +59,7 @@ class WorkspaceRegistryController extends Controller
         return back();
     }
 
-    /** @return list<array{id: int, host: string, label: string, username: string, addedAt: string|null}> */
+    /** @return list<array{id: int, host: string, label: string, username: string, addedAt: string|null, integration: int|null}> */
     public static function props(Workspace $workspace): array
     {
         return array_values($workspace->containerRegistries()->orderBy('host')->get()
@@ -69,6 +69,7 @@ class WorkspaceRegistryController extends Controller
                 'label' => $registry->label(),
                 'username' => $registry->username,
                 'addedAt' => $registry->created_at?->toIso8601String(),
+                'integration' => $registry->integration_id,
             ])->all());
     }
 }

@@ -175,7 +175,7 @@ final class McpServer
     {
         $workspace = $context->workspace;
         $upgrade = app(Extensions::class)->upgradeLink();
-        $where = $upgrade === null ? '.' : " in {$upgrade->label}: ".$context->url($upgrade->path($workspace));
+        $where = $upgrade === null ? '.' : " in {$upgrade->label}: ".$upgrade->url($workspace);
         if (! $workspace->isActive() && $workspace->mcp_call_limit_override === null) {
             return "{$workspace->name} has no plan, so AI apps can't use it. An owner can choose one{$where}";
         }

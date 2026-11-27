@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import { ChevronRight } from '@lucide/vue';
 import { SolarRotateCcw as RotateCcw } from '@/lib/solarIcons';
 import CpuBar from '@/components/machines/CpuBar.vue';
@@ -13,8 +14,10 @@ import {
 } from '@/components/machines/serviceFormat';
 import type { Service, ServiceStat } from '@/components/machines/serviceFormat';
 import ServiceLogo from '@/components/machines/ServiceLogo.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
-defineProps<{
+const props = defineProps<{
     selectable?: boolean;
     selected?: boolean;
     service: Service;
@@ -25,11 +28,25 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{ toggle: [] }>();
+const page = usePage<{ workspace: { slug: string } }>();
+
+const href = computed(
+    () =>
+        onWorkspace(
+            machinesRoutes.services.show({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+                service: props.service.app
+                    ? `app:${props.service.app}`
+                    : props.service.key,
+            }),
+        ).url,
+);
 </script>
 
 <template>
     <Link
-        :href="`/machines/${machineId}/services/${service.app ? `app:${service.app}` : service.key}`"
+        :href="href"
         class="w-full px-4 py-2.5 text-left text-[13px]/4 transition-colors hover:bg-(--ds-row-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring)"
         :class="
             machineName === undefined

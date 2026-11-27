@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { ArrowRight, Plus, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
@@ -14,6 +15,8 @@ import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { appButtonClasses } from '@/lib/appButton';
 import { toast } from '@/lib/toast';
 import { describe, networkMessage } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import appsRoutes from '@/routes/workspace/apps';
 
 export type SiteSwitches = {
     maintenance: boolean;
@@ -35,6 +38,7 @@ const props = defineProps<{
 }>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ saved: [] }>();
+const inertia = usePage<{ workspace: { slug: string } }>();
 
 const maintenance = ref(false);
 const ownPage = ref(false);
@@ -128,7 +132,13 @@ async function save(): Promise<void> {
     busy.value = true;
     error.value = null;
     const response = await fetch(
-        `/machines/${props.machineId}/apps/${encodeURIComponent(props.app)}/site`,
+        onWorkspace(
+            appsRoutes.site({
+                workspace: inertia.props.workspace.slug,
+                machine: props.machineId,
+                service: encodeURIComponent(props.app),
+            }),
+        ).url,
         {
             method: 'PUT',
             credentials: 'same-origin',

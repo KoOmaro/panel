@@ -16,6 +16,7 @@ import {
     SolarDatabaseBackup as DatabaseBackup,
     SolarCircleArrowUp as CircleArrowUp,
     SolarSparkles as Sparkles,
+    SolarWorkflow as Workflow,
 } from '@/lib/solarIcons';
 import type { Component } from 'vue';
 
@@ -33,6 +34,7 @@ export type StepKind =
     | 'promote'
     | 'check_monitor'
     | 'http'
+    | 'n8n'
     | 'alert'
     | 'wait'
     | 'branch';
@@ -227,6 +229,19 @@ export const STEPS: Record<StepKind, StepDefinition> = {
         ports: ['out', 'failed'],
         help: trans('Sends a request to any public URL.'),
     },
+    n8n: {
+        kind: 'n8n',
+        label: trans('Run n8n workflow'),
+        accent: '#ff9ab3',
+        ink: '#d6336c',
+        icon: Workflow,
+        title: trans('Run an n8n workflow'),
+        description: trans('Sends what happened to its webhook.'),
+        ports: ['out', 'failed'],
+        help: trans(
+            'Starts an n8n workflow through its Webhook trigger, and can wait for its answer.',
+        ),
+    },
     alert: {
         kind: 'alert',
         label: trans('Send alert'),
@@ -271,14 +286,15 @@ export const STEP_GROUPS: { label: string; kinds: StepKind[] }[] = [
     { label: trans('Data'), kinds: ['backup'] },
     { label: trans('Environments'), kinds: ['copy_data', 'promote'] },
     { label: trans('Checks'), kinds: ['check_monitor', 'http'] },
+    { label: trans('Automations'), kinds: ['n8n'] },
     { label: trans('Tell people'), kinds: ['alert'] },
     { label: trans('Flow control'), kinds: ['wait', 'branch'] },
 ];
 
 export const PORT_LABELS: Partial<Record<PortId, string>> = {
-    true: 'TRUE',
-    false: 'FALSE',
-    failed: 'FAILED',
+    true: trans('yes'),
+    false: trans('no'),
+    failed: trans('failed'),
 };
 
 export type EventId =
@@ -392,6 +408,7 @@ export const CONDITIONS: { id: string; label: string }[] = [
     { id: 'service_running', label: trans('A service is running') },
     { id: 'disk_below', label: trans('A disk is below a level') },
     { id: 'time_between', label: trans('The time is between') },
+    { id: 'n8n_field', label: trans('A field n8n sent back') },
 ];
 
 export const FROM_TRIGGER = '@trigger';
@@ -420,6 +437,9 @@ export type MachineOption = {
         name: string;
         managed: boolean;
         container: boolean;
+        label?: string | null;
+        image?: string | null;
+        icon?: string | null;
     }[];
     deploys: string[];
 };
@@ -432,8 +452,9 @@ export type ProjectOption = {
 
 export type Options = {
     machines: MachineOption[];
-    monitors: { id: number; name: string }[];
+    monitors: { id: number; name: string; target?: string | null }[];
     projects?: ProjectOption[];
+    n8n?: { id: number; label: string; failing: boolean }[];
 };
 
 export type RunStep = {
@@ -454,6 +475,8 @@ export type RunStep = {
     rolledBack?: boolean;
     summary?: string;
     pr?: string | null;
+    response?: unknown;
+    phase?: string | null;
 };
 
 export type RunLog = {

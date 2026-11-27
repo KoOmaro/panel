@@ -73,7 +73,7 @@ function agentTaskWorkspace(): array
 
 function agentsUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/agents'.$path;
+    return $workspace->url().'/agents'.$path;
 }
 
 /** @return array<string, mixed> */
@@ -125,7 +125,7 @@ test('a task starts its agents side by side, each on its own branch, and stays o
         ->toContain('from the Agents page')
         ->not->toContain('What the trigger carried');
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/workflows')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/workflows')
         ->assertInertia(fn (Assert $page) => $page->has('workflows', 0));
 
     $this->actingAs($workspace->owner)->get(agentsUrl($workspace))

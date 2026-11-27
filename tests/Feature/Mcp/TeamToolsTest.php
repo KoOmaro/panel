@@ -101,7 +101,7 @@ test('list_members lists members by role, then invites, as the Members page does
         ->and($data['total'])->toBe(5)
         ->and($data['truncated'])->toBeFalse()
         ->and($data['canManageMembers'])->toBeTrue()
-        ->and($data['url'])->toBe('https://'.$workspace->host().'/settings/members')
+        ->and($data['url'])->toBe($workspace->url().'/settings/members')
         ->and($data['members'][0])->toMatchArray([
             'name' => 'Olive', 'email' => 'olive@example.com', 'role' => 'owner', 'roleLabel' => 'Owner',
             'customRole' => null, 'twoFactor' => true, 'needsTwoFactor' => false, 'isYou' => true,
@@ -623,7 +623,7 @@ test('get_my_notifications shows the person’s own email choices', function () 
     expect($owner)->toMatchArray([
         'alertEmails' => 'all', 'alertEmailsLabel' => 'Everything', 'weeklySummary' => true,
         'getsAlerts' => true, 'workspaceSendsAlertEmails' => true,
-        'url' => 'https://'.$workspace->host().'/settings/profile',
+        'url' => $workspace->url().'/settings/profile',
     ]);
 
     $workspace->members()->updateExistingPivot($viewer->id, ['alert_emails' => 'none', 'weekly_summary' => false]);

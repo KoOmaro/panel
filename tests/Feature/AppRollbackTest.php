@@ -42,7 +42,7 @@ function rollbackSetup(bool $snapshot = true): array
     ] : [], now()->subHour());
     BackupRunner::recordPreDeploy($second);
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 /** @param  list<array<string, mixed>>  $snapshots */

@@ -123,7 +123,7 @@ test('the whole install, on SQLite: code, server, database, address, email skipp
         $this->postJson('/install/address/check', ['url' => 'panel.example.test'])
             ->assertOk()
             ->assertJsonPath('lines.0.text', 'panel.example.test points at 203.0.113.10. Make sure that’s this server.')
-            ->assertJsonPath('lines.1.status', 'warn');
+            ->assertJsonCount(1, 'lines');
         $this->get('/install')->assertInertia(fn (Assert $page) => $page->where('step', 'address')->where('address.editable', true));
         $this->post('/install/address', ['url' => 'https://panel.example.test/some/path'])->assertRedirect('/install');
         expect(File::get($envPath))
@@ -145,7 +145,7 @@ test('the whole install, on SQLite: code, server, database, address, email skipp
         $this->get('/install')->assertInertia(fn (Assert $page) => $page
             ->where('step', 'done')
             ->where('summary.owner.email', 'ada@example.com')
-            ->where('summary.workspace.address', 'acme.serveros.test')
+            ->where('summary.workspace.address', 'serveros.test/acme')
             ->where('summary.mail', null));
 
         $this->post('/install/finish')->assertRedirect(route('dashboard'));

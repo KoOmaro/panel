@@ -4,18 +4,13 @@ import { router, usePage } from '@inertiajs/vue3';
 import { CornerDownLeft, Plus, Search } from '@lucide/vue';
 import {
     SolarPulse as Activity,
-    SolarHistory as History,
     SolarLayoutGrid as LayoutGrid,
     SolarServer as Server,
-    SolarSettings as Settings,
     SolarWorkflow as Workflow,
-    SolarArchive as Archive,
     SolarCreditCard as CreditCard,
-    SolarHouse as House,
     SolarLayers as Layers,
     SolarScrollText as ScrollText,
     SolarUser as User,
-    SolarUsers as Users,
 } from '@/lib/solarIcons';
 import {
     computed,
@@ -32,14 +27,18 @@ import {
     DialogDescription,
     DialogTitle,
 } from '@/components/ui/dialog';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
+import { useWorkspaceNav } from '@/components/workspace/workspaceNav';
 import { useUpgradeLink } from '@/composables/useUpgradeLink';
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch';
 import { workspaceInitial, workspaceTileColor } from '@/lib/workspaceTile';
-import { onWorkspace } from '@/lib/workspaceRoute';
-import { home } from '@/routes/workspace';
-import machinesRoutes from '@/routes/workspace/machines';
-import membersRoutes from '@/routes/workspace/members';
+import { onWorkspace, workspaceAddress } from '@/lib/workspaceRoute';
+import { home, search } from '@/routes/workspace';
+import logsRoutes from '@/routes/workspace/logs';
+import monitorsRoutes from '@/routes/workspace/monitors';
 import settingsRoutes from '@/routes/workspace/settings';
+import workflowsRoutes from '@/routes/workspace/workflows';
 import { index as workspacesIndex } from '@/routes/workspaces';
 import type { Workspace, WorkspaceSummary } from '@/types';
 
@@ -61,6 +60,7 @@ type Command = {
     label: string;
     hint?: string;
     icon?: Component;
+    filledIcon?: FilledIconName;
     workspace?: WorkspaceSummary;
     run: () => void;
 };
@@ -80,6 +80,8 @@ function visit(url: string): void {
     router.visit(url);
 }
 
+const nav = useWorkspaceNav();
+
 const pages = computed<Command[]>(() => {
     const slug = page.props.workspace?.slug;
 
@@ -87,45 +89,50 @@ const pages = computed<Command[]>(() => {
         return [];
     }
 
-    const entries: [string, Component, string][] = [
-        [trans('Home'), House, onWorkspace(home(slug)).url],
-        [
-            trans('Machines'),
-            Server,
-            onWorkspace(machinesRoutes.index(slug)).url,
-        ],
-        [trans('Services'), Layers, '/services'],
-        [trans('Workflows'), Workflow, '/workflows'],
-        [trans('Backups'), Archive, '/backups'],
-        [trans('Monitors'), Activity, '/monitors'],
-        [trans('Logs'), ScrollText, '/logs'],
-        [trans('Activity'), History, '/activity'],
-        ...(upgrade.value
-            ? [
-                  [upgrade.value.label, CreditCard, upgrade.value.href] as [
-                      string,
-                      Component,
-                      string,
-                  ],
-              ]
-            : []),
-        [
-            trans('General settings'),
-            Settings,
-            onWorkspace(settingsRoutes.general(slug)).url,
-        ],
-        [trans('Members'), Users, onWorkspace(membersRoutes.index(slug)).url],
-        [trans('Profile'), User, onWorkspace(settingsRoutes.profile(slug)).url],
-    ];
+    const entries: Command[] = [];
+    const seen = new Set<string>();
+    const add = (
+        label: string,
+        url: string,
+        icon: FilledIconName | Component | undefined,
+        external = false,
+    ): void => {
+        if (seen.has(url)) {
+            return;
+        }
 
-    return entries.map(([label, icon, url]) => ({
-        id: `page:${label}`,
-        group: 'Pages' as const,
-        label,
-        icon,
-        run: () => visit(url),
-    }));
+        seen.add(url);
+        entries.push({
+            id: `page:${label}`,
+            group: 'Pages',
+            label,
+            filledIcon: typeof icon === 'string' ? icon : undefined,
+            icon: typeof icon === 'string' ? undefined : icon,
+            run: () => (external ? openExternal(url) : visit(url)),
+        });
+    };
+
+    for (const item of nav.value) {
+        add(item.label, item.href, item.icon, item.external);
+
+        for (const child of item.children ?? []) {
+            add(child.label, child.href, item.icon);
+        }
+    }
+
+    if (upgrade.value) {
+        add(upgrade.value.label, upgrade.value.href, CreditCard);
+    }
+
+    add(trans('Profile'), onWorkspace(settingsRoutes.profile(slug)).url, User);
+
+    return entries;
 });
+
+function openExternal(url: string): void {
+    open.value = false;
+    window.open(url, '_blank', 'noopener');
+}
 
 const workspaces = computed<Command[]>(() => {
     const current = page.props.workspace;
@@ -134,7 +141,7 @@ const workspaces = computed<Command[]>(() => {
         id: `workspace:${workspace.id}`,
         group: 'Workspaces' as const,
         label: workspace.name,
-        hint: workspace.host,
+        hint: workspaceAddress(workspace.url),
         workspace,
         run: () => {
             open.value = false;
@@ -178,11 +185,12 @@ watch(query, (value) => {
 
         return;
     }
+    const slug = page.props.workspace.slug;
     searchTimer = setTimeout(async () => {
         const seq = ++searchSeq;
         try {
             const response = await fetch(
-                `/search?q=${encodeURIComponent(needle)}`,
+                onWorkspace(search(slug, { query: { q: needle } })).url,
                 {
                     headers: { Accept: 'application/json' },
                     credentials: 'same-origin',
@@ -222,6 +230,7 @@ const foundCommands = computed<Command[]>(() => {
 
 const actions = computed<Command[]>(() => {
     if (!page.props.workspace) return [];
+    const slug = page.props.workspace.slug;
     const needle = query.value.trim();
     const list: Command[] = [];
     if (needle.length >= 2) {
@@ -232,7 +241,12 @@ const actions = computed<Command[]>(() => {
                 needle: String(needle),
             }),
             icon: ScrollText,
-            run: () => visit(`/logs?q=${encodeURIComponent(needle)}`),
+            run: () =>
+                visit(
+                    onWorkspace(
+                        logsRoutes.index(slug, { query: { q: needle } }),
+                    ).url,
+                ),
         });
     }
     list.push(
@@ -241,14 +255,24 @@ const actions = computed<Command[]>(() => {
             group: 'Actions',
             label: trans('New monitor'),
             icon: Plus,
-            run: () => visit('/monitors?new=1'),
+            run: () =>
+                visit(
+                    onWorkspace(
+                        monitorsRoutes.index(slug, { query: { new: 1 } }),
+                    ).url,
+                ),
         },
         {
             id: 'action:workflow',
             group: 'Actions',
             label: trans('New workflow'),
             icon: Plus,
-            run: () => visit('/workflows?new=1'),
+            run: () =>
+                visit(
+                    onWorkspace(
+                        workflowsRoutes.index(slug, { query: { new: 1 } }),
+                    ).url,
+                ),
         },
     );
 
@@ -422,6 +446,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onWindowKeydown));
                                 workspaceInitial(command.workspace.name)
                             }}</template>
                         </span>
+                        <FilledIcon
+                            v-else-if="command.filledIcon"
+                            :name="command.filledIcon"
+                            class="text-(--ds-text-muted)"
+                        />
                         <component
                             :is="command.icon"
                             v-else-if="command.icon"

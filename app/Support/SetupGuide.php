@@ -13,14 +13,53 @@ final class SetupGuide
      */
     public static function for(Workspace $workspace, User $user): ?array
     {
-        $hidden = $workspace->members()
-            ->whereKey($user->id)
-            ->whereNotNull('user_workspace.onboarding_dismissed_at')
-            ->exists();
-        if ($hidden) {
+        if (self::hidden($workspace, $user)) {
             return null;
         }
 
+        $guide = self::build($workspace, $user);
+
+        return self::complete($guide) ? null : $guide;
+    }
+
+    /**
+     * @return array{guide: array{percent: int, groups: list<array{key: string, title: string, locked: string|null, steps: list<array{key: string, title: string, body: string, href: string, done: bool}>}>}|null, left: int}
+     */
+    public static function sidebar(Workspace $workspace, User $user): array
+    {
+        $guide = self::build($workspace, $user);
+        $left = count(array_filter(
+            array_merge(...array_column($guide['groups'], 'steps')),
+            fn (array $step) => ! $step['done'],
+        ));
+
+        return [
+            'guide' => $left === 0 || self::hidden($workspace, $user) ? null : $guide,
+            'left' => $left,
+        ];
+    }
+
+    public static function hidden(Workspace $workspace, User $user): bool
+    {
+        return $workspace->members()
+            ->whereKey($user->id)
+            ->whereNotNull('user_workspace.onboarding_dismissed_at')
+            ->exists();
+    }
+
+    /**
+     * @param  array{percent: int}  $guide
+     */
+    public static function complete(array $guide): bool
+    {
+        return $guide['percent'] === 100;
+    }
+
+    /**
+     * @return array{percent: int, groups: list<array{key: string, title: string, locked: string|null, steps: list<array{key: string, title: string, body: string, href: string, done: bool}>}>}
+     */
+    public static function build(Workspace $workspace, User $user): array
+    {
         $machines = $workspace->machines()
             ->toBase()
             ->selectRaw('count(*) as machines, coalesce(sum(services_count), 0) as services, count(last_backup_at) as backed_up')
@@ -30,29 +69,29 @@ final class SetupGuide
         $groups = [
             [
                 'key' => 'connect',
-                'title' => 'Connect your servers',
+                'title' => self::t('Connect your servers'),
                 'locked' => null,
                 'steps' => [
-                    self::step('machine', 'Connect a machine', 'Bring a VPS from any provider. What’s already running stays put.', '/machines', $hasMachine),
-                    self::step('service', 'Adopt or deploy a service', 'Pick up the apps already on it, or ship a new one.', '/services', self::managesAService($workspace)),
+                    self::step('machine', 'Connect a machine', 'Bring a VPS from any provider. What’s already running stays put.', $workspace->url('machines'), $hasMachine),
+                    self::step('service', 'Adopt or deploy a service', 'Pick up the apps already on it, or ship a new one.', $workspace->url('services'), self::managesAService($workspace)),
                 ],
             ],
             [
                 'key' => 'safe',
-                'title' => 'Keep it running',
+                'title' => self::t('Keep it running'),
                 'locked' => null,
                 'steps' => [
-                    self::step('monitor', 'Add a monitor', 'Hear about it when a site or port stops answering.', '/monitors', $workspace->monitors()->exists()),
-                    self::step('backups', 'Back up a machine', 'So a bad deploy is one click to undo.', '/backups', (int) ($machines->backed_up ?? 0) > 0),
+                    self::step('monitor', 'Add a monitor', 'Hear about it when a site or port stops answering.', $workspace->url('monitors'), $workspace->monitors()->exists()),
+                    self::step('backups', 'Back up a machine', 'So a bad deploy is one click to undo.', $workspace->url('backups'), (int) ($machines->backed_up ?? 0) > 0),
                 ],
             ],
             [
                 'key' => 'team',
-                'title' => 'Bring your team',
+                'title' => self::t('Bring your team'),
                 'locked' => null,
                 'steps' => [
-                    self::step('members', 'Invite a teammate', 'Share the workspace, with a role each.', '/settings/members', $workspace->members()->count() > 1 || $workspace->invitations()->exists()),
-                    self::step('security', 'Turn on two-factor', 'Or add a passkey and sign in with it.', '/settings/security', $user->hasEnabledTwoFactorAuthentication() || $user->passkeys()->exists()),
+                    self::step('members', 'Invite a teammate', 'Share the workspace, with a role each.', $workspace->url('settings/members'), $workspace->members()->count() > 1 || $workspace->invitations()->exists()),
+                    self::step('security', 'Turn on two-factor', 'Or add a passkey and sign in with it.', $workspace->url('settings/security'), $user->hasEnabledTwoFactorAuthentication() || $user->passkeys()->exists()),
                 ],
             ],
         ];
@@ -61,8 +100,8 @@ final class SetupGuide
         if ($upgrade !== null && ! Edition::selfHosted()) {
             $groups[] = [
                 'key' => 'plan',
-                'title' => 'Choose a plan',
-                'locked' => $hasMachine ? null : 'Unlocks once a machine is connected',
+                'title' => self::t('Choose a plan'),
+                'locked' => $hasMachine ? null : self::t('Unlocks once a machine is connected'),
                 'steps' => [
                     self::step('plan', 'Pick a plan', 'Priced by how many machines you connect.', $upgrade->path($workspace), $workspace->plan !== null),
                 ],
@@ -71,9 +110,6 @@ final class SetupGuide
 
         $steps = array_merge(...array_column($groups, 'steps'));
         $done = count(array_filter($steps, fn (array $step) => $step['done']));
-        if ($done === count($steps)) {
-            return null;
-        }
 
         return [
             'percent' => (int) floor($done / count($steps) * 100),
@@ -100,6 +136,11 @@ final class SetupGuide
      */
     private static function step(string $key, string $title, string $body, string $href, bool $done): array
     {
-        return compact('key', 'title', 'body', 'href', 'done');
+        return ['key' => $key, 'title' => self::t($title), 'body' => self::t($body), 'href' => $href, 'done' => $done];
+    }
+
+    private static function t(string $text): string
+    {
+        return is_string($line = __($text)) ? $line : $text;
     }
 }

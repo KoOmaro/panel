@@ -10,8 +10,44 @@ export type UpdatesSummary = {
     total: number;
     unchecked: number;
     rebootRequired: number;
+    held: number;
     checkedAt: string | null;
     newestCheck: string | null;
+};
+
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'unknown';
+
+export type SecurityLevel = {
+    cves: number;
+    exploited: number;
+    packages: string[];
+};
+
+export type SecuritySummary = {
+    updates: number;
+    packages: number;
+    cves: number;
+    exploited: number;
+    levels: Record<'critical' | 'high' | 'medium' | 'low', SecurityLevel>;
+    scannedAt: string | null;
+};
+
+export type PackageCve = {
+    cve: string;
+    title: string | null;
+    severity: Severity;
+    cvss: number | null;
+    epss: number | null;
+    exploited: boolean;
+    url: string;
+};
+
+export type PackageFixes = {
+    severity: Severity;
+    count: number;
+    exploited: number;
+    epss: number | null;
+    cves: PackageCve[];
 };
 
 export type UpdatesMachine = {
@@ -22,6 +58,7 @@ export type UpdatesMachine = {
     os: string | null;
     release: string;
     online: boolean;
+    connection: 'demo' | 'connecting' | 'online' | 'degraded' | 'offline';
     groupId: number | null;
     updates: number;
     security: number;
@@ -47,6 +84,9 @@ export type UpdatesPackage = {
     versions: PackageVersion[];
     installed: string[];
     heldOn: number[];
+    on: { id: number; installed: string | null; candidate: string }[];
+    restartAfterInstall: boolean;
+    fixes: PackageFixes | null;
 };
 
 export type RolloutState =
@@ -153,6 +193,51 @@ export const toneText: Record<Tone, string> = {
     blue: 'text-(--ds-blue)',
     neutral: 'text-(--ds-text-faint)',
 };
+
+export const severityColour: Record<Severity, string> = {
+    critical: 'var(--dash-down)',
+    high: 'var(--dash-pending)',
+    medium: 'var(--dash-stopped)',
+    low: 'var(--dash-stopped)',
+    unknown: 'var(--dash-stopped)',
+};
+
+export const severityDot: Record<Severity, string> = {
+    critical: 'var(--dash-down)',
+    high: 'var(--dash-down)',
+    medium: 'var(--dash-pending)',
+    low: 'var(--dash-stopped)',
+    unknown: 'var(--dash-stopped)',
+};
+
+export function severityLabel(severity: Severity): string {
+    return {
+        critical: trans('Critical'),
+        high: trans('High'),
+        medium: trans('Medium'),
+        low: trans('Low'),
+        unknown: trans('Unrated'),
+    }[severity];
+}
+
+export function shortAgo(iso: string | null | undefined): string {
+    if (!iso) return trans('never');
+    const minutes = Math.max(
+        0,
+        Math.round((Date.now() - new Date(iso).getTime()) / 60000),
+    );
+    if (minutes < 1) return trans('just now');
+    if (minutes < 60)
+        return trans(':count min ago', { count: String(minutes) });
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return trans(':count h ago', { count: String(hours) });
+
+    return trans(':count d ago', { count: String(Math.round(hours / 24)) });
+}
+
+export function machineOnline(machine: UpdatesMachine): boolean {
+    return ['online', 'degraded', 'demo'].includes(machine.connection);
+}
 
 export function rolloutOpen(rollout: Rollout): boolean {
     return ['pending', 'running', 'paused'].includes(rollout.state);

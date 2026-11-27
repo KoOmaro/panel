@@ -8,6 +8,8 @@ import type { SiteTrafficState } from '@/components/machines/SiteTraffic.vue';
 import TrafficFileDialog from '@/components/machines/TrafficFileDialog.vue';
 import { appButtonClasses } from '@/lib/appButton';
 import { fixed } from '@/lib/formatting';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 export type ExistingSiteRow = SiteTrafficState & {
     label: string;
@@ -42,7 +44,7 @@ const props = defineProps<{
     canManage: boolean;
 }>();
 
-const page = usePage();
+const page = usePage<{ workspace: { slug: string } }>();
 const role = computed(() => props.traffic.role ?? 'server');
 const selectedKey = computed(() => {
     const query = page.url.split('?')[1] ?? '';
@@ -151,7 +153,15 @@ function reload(): void {
     router.reload({ only: ['siteTraffic'] });
 }
 
-const settingsUrl = computed(() => `/machines/${props.machineId}/settings`);
+const settingsUrl = computed(
+    () =>
+        onWorkspace(
+            machinesRoutes.settings({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+            }),
+        ).url,
+);
 </script>
 
 <template>

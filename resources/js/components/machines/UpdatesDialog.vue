@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { LoaderCircle } from '@lucide/vue';
 import { SolarPower as Power } from '@/lib/solarIcons';
@@ -22,9 +23,17 @@ import {
 import AppButton from '@/components/workspace/AppButton.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
 import { errorMessage, failIfBad, jobReason } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
+import type { RouteDefinition } from '@/wayfinder';
 
 const props = defineProps<{ machineId: number; machineName: string }>();
 const open = defineModel<boolean>('open', { required: true });
+const page = usePage<{ workspace: { slug: string } }>();
+
+function machineArgs() {
+    return { workspace: page.props.workspace.slug, machine: props.machineId };
+}
 
 type Package = {
     name: string;
@@ -116,8 +125,11 @@ function csrf(): string {
     );
 }
 
-async function post(path: string, body: object = {}): Promise<string | null> {
-    const response = await fetch(`/machines/${props.machineId}/${path}`, {
+async function post(
+    route: RouteDefinition<'post'>,
+    body: object = {},
+): Promise<string | null> {
+    const response = await fetch(onWorkspace(route).url, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
@@ -141,7 +153,12 @@ function follow(
             if (!active) return;
             try {
                 const response = await fetch(
-                    `/machines/${props.machineId}/updates/${jobId}`,
+                    onWorkspace(
+                        machinesRoutes.updates.show({
+                            ...machineArgs(),
+                            job: jobId,
+                        }),
+                    ).url,
                     {
                         credentials: 'same-origin',
                         headers: { Accept: 'application/json' },
@@ -171,11 +188,14 @@ function failure(status: JobStatus): string {
 
 async function snapshot(): Promise<Snapshot | null> {
     try {
-        const response = await fetch(`/machines/${props.machineId}/updates`, {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-            cache: 'no-store',
-        });
+        const response = await fetch(
+            onWorkspace(machinesRoutes.updates.snapshot(machineArgs())).url,
+            {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+                cache: 'no-store',
+            },
+        );
         return response.ok ? ((await response.json()) as Snapshot) : null;
     } catch {
         return null;
@@ -205,7 +225,7 @@ async function check(): Promise<void> {
         step.value = 'checking';
     }
     try {
-        const jobId = await post('updates/check');
+        const jobId = await post(machinesRoutes.updates.check(machineArgs()));
         if (!jobId) throw new Error('Couldn’t start the check.');
         const status = await follow(jobId);
         if (status.state !== 'succeeded' || !status.report) {
@@ -246,7 +266,7 @@ async function install(): Promise<void> {
     log.value = [];
     try {
         const jobId = await post(
-            'updates',
+            machinesRoutes.updates.install(machineArgs()),
             packages
                 ? { security_only: onlySecurity, packages }
                 : { security_only: false },
@@ -270,7 +290,7 @@ async function install(): Promise<void> {
 
 async function reboot(): Promise<void> {
     try {
-        await post('reboot');
+        await post(machinesRoutes.reboot(machineArgs()));
         step.value = 'rebooting';
         toast.success(
             trans('Restarting :machineName. Alerts are held for 10 minutes.', {

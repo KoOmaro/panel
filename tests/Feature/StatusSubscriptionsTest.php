@@ -172,7 +172,7 @@ test('owners see how many people subscribed', function () {
     confirmedSubscriber($page, 'ada@example.com');
     $page->subscribers()->create(['email' => 'pending@example.com', 'token' => Str::random(48)]);
     confirmedSubscriber($fleet, 'grace@example.com');
-    $base = 'https://'.$workspace->host();
+    $base = $workspace->url();
 
     $this->actingAs($workspace->owner)->get("{$base}/machines/{$machine->id}/settings/status")
         ->assertInertia(fn (Assert $p) => $p->where('statusPage.subscribers', 1));

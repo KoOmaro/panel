@@ -23,7 +23,7 @@ function diskMachine(string $version = 'v0.1.1-pre.19'): array
     $machine = Machine::factory()->for($workspace)->create();
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), 'daemon_version' => $version])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 test('the machine page scans the disk and shows what\'s safe to clear', function () {

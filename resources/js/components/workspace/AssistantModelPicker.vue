@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import { ChevronDown } from '@lucide/vue';
 import { computed, onMounted } from 'vue';
 import {
@@ -12,8 +12,15 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAssistant } from '@/composables/useAssistant';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import settingsRoutes from '@/routes/workspace/settings';
 
 const props = defineProps<{ mode: 'button' | 'note' }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
+const mcpHref = computed(
+    () => onWorkspace(settingsRoutes.mcp(page.props.workspace.slug)).url,
+);
 
 const { model, modelOptions, loadModels, streaming } = useAssistant();
 
@@ -106,7 +113,7 @@ const focusRing =
     >
         {{ ' ' + $t('Runs on ServerOS AI.') + ' ' }}
         <Link
-            href="/settings/mcp"
+            :href="mcpHref"
             class="underline decoration-(--ds-text-faint)/50 underline-offset-2 hover:text-(--ds-text)"
             >{{ $t('Use your own key') }}</Link
         >

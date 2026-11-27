@@ -15,9 +15,10 @@ export type Machine = {
     services: number;
     memory: string;
     memoryMb?: number | null;
-    cpu: number;
+    cpu: number | null;
     groupId?: number | null;
     lastBackup: string;
+    lastBackupAt?: string | null;
     installing?: boolean;
     setup?: 'connecting' | 'discovering' | 'securing' | null;
     setupFindings?: number | null;
@@ -42,6 +43,7 @@ export type Machine = {
         cpu_model?: string;
         cpu_cores?: number;
         memory_bytes?: number;
+        boot_ts?: number;
         disks?: {
             mount: string;
             device: string;

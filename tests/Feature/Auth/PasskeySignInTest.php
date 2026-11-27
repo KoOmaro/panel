@@ -17,7 +17,7 @@ function passkeyOnlyMember(): array
     $workspace->members()->attach($sam, ['role' => 'admin']);
     $passkey = Passkey::query()->forceCreate(['user_id' => $sam->id, 'name' => 'Laptop', 'credential_id' => 'abc', 'credential' => []]);
 
-    return [$workspace, $sam, $passkey, 'https://'.$workspace->host().'/machines'];
+    return [$workspace, $sam, $passkey, $workspace->url().'/machines'];
 }
 
 function recallerFor(User $user): string

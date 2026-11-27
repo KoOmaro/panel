@@ -4,6 +4,7 @@ namespace App\Mcp\Tools\Workflow;
 
 use App\Models\Workflow;
 use App\Models\WorkflowRun;
+use App\Support\Integrations\N8n\N8nStep;
 use App\Support\Workflows\AgentSpec;
 use App\Support\Workflows\ReleaseSpec;
 use App\Support\Workflows\WorkflowEngine;
@@ -49,6 +50,7 @@ final class WorkflowReference
         'promote' => ['Deploys an environment’s apps at the code their copies run.', 'Promote to Production', 'Same code, each app’s own settings.'],
         'check_monitor' => ['Waits until a monitor passes, or gives up.', 'Check the site is up', 'Keeps checking for up to 5 minutes.'],
         'http' => ['Sends a request to any public URL.', 'Call a URL', 'Slack, Discord, your own API.'],
+        'n8n' => ['Starts an n8n workflow through its Webhook trigger, with what happened, and can wait for its answer.', 'Run an n8n workflow', 'Sends what happened to its webhook.'],
         'alert' => ['Sends to the workspace’s alert channels.', 'Tell the team', 'To your alert email and webhook.'],
         'wait' => ['Pauses the run for a while.', 'Wait 2 minutes', 'Pauses before the next step.'],
         'branch' => ['Takes one path or the other.', 'Check something', 'Goes left when true, right when false.'],
@@ -60,6 +62,7 @@ final class WorkflowReference
         'service_running' => 'A service is running',
         'disk_below' => 'A disk is below a level',
         'time_between' => 'The time is between',
+        'n8n_field' => 'A field n8n sent back',
     ];
 
     public const PLACEHOLDERS = [
@@ -71,6 +74,7 @@ final class WorkflowReference
         '{{data.<field>}}' => 'Any field the trigger carried, by dot path: {{data.ref}} and {{data.commit}} from a webhook’s JSON, {{data.outcome}} of a deploy, {{data.cause}} of a stop. Unknown fields become empty.',
         '{{agent.summary}}' => 'What the last agent step that finished said it found and did (empty if none has).',
         '{{agent.pr}}' => 'The pull request that agent opened (empty if none).',
+        '{{n8n.<field>}}' => 'A field of what the last n8n step that finished got back from n8n (its answer, or what it sent to the callback URL), by dot path. {{n8n}} is all of it as JSON.',
     ];
 
     public static function label(string $event): string
@@ -323,6 +327,14 @@ final class WorkflowReference
                 'url' => self::rule('string', 'A public http(s) URL, placeholders allowed (URL-encoded). Private and internal addresses are refused when it runs; redirects aren’t followed; it waits 15 seconds.', true),
                 'body' => self::rule('string', 'What to send (not with GET), up to 2000 characters, placeholders allowed: sent as JSON if it is valid JSON, as text otherwise. Empty: {"workflow", "run", "trigger"} as JSON.'),
             ],
+            'n8n' => [
+                'integration' => self::rule('integer', 'The connected n8n account (its id, choices.n8n[].id).', true),
+                'workflow' => self::rule('string', 'The n8n workflow’s id. It must start with a Webhook trigger whose HTTP method takes a body (POST, PUT or PATCH), with a fixed path and no authentication, and it must be on in n8n.', true),
+                'node' => self::rule('string', 'The Webhook node’s name, when the workflow has more than one. Empty: the first one that’s on.'),
+                'wait' => self::rule('string', 'no: go on as soon as n8n takes it. answer: wait up to '.N8nStep::ANSWER_SECONDS.' seconds for its answer (set the webhook to respond when the last node finishes, or with a Respond to Webhook node). callback: send a callback_url and wait until the n8n workflow POSTs JSON to it (an "error" field fails the step).', false, N8nStep::WAITS, 'no'),
+                'minutes' => self::rule('integer', 'With wait “callback”: how long to wait for it.', false, null, 30, 1, N8nStep::MAX_CALLBACK_MINUTES),
+                'body' => self::rule('string', 'Extra input, a JSON object up to 2000 characters, placeholders allowed. Sent as “input”, next to the event, summary, workspace, workflow, trigger data, machine, service and monitor.'),
+            ],
             'alert' => [
                 'subject' => self::rule('string', 'What the alert says, placeholders allowed.', true),
                 'message' => self::rule('string', 'More detail, up to 2000 characters, placeholders allowed.'),
@@ -360,6 +372,10 @@ final class WorkflowReference
                 'machine_id' => $machine,
                 'percent' => self::rule('integer', 'The level. The dashboard offers 50, 70, 80, 85, 90 and 95.', false, null, 85),
             ],
+            'n8n_field' => [
+                'field' => self::rule('string', 'A field of what the last n8n step got back, by dot path (“restart”, “result.ok”).', true),
+                'value' => self::rule('string', 'What it must equal, compared as text exactly.'),
+            ],
             'time_between' => [
                 'from' => self::rule('string', '“HH:MM”, UTC.', false, null, '09:00'),
                 'to' => self::rule('string', '“HH:MM”, UTC. Earlier than from means across midnight.', false, null, '17:00'),
@@ -376,6 +392,7 @@ final class WorkflowReference
             'service_running' => 'The service is running in the machine’s latest scan.',
             'disk_below' => 'The machine’s fullest disk is under percent.',
             'time_between' => 'Now (UTC) is from or later and before to.',
+            'n8n_field' => 'The field n8n sent back equals value.',
             default => '',
         };
     }
@@ -390,6 +407,7 @@ final class WorkflowReference
             'check_monitor' => 'Runs the monitor’s check now, then every 30 seconds until it passes (out) or the time is up (failed). A paused monitor fails it.',
             'copy_data' => 'Waits for every copy that started, up to 70 minutes; leaves by “failed” if one fails or none could start (the machines aren’t on the project’s network yet, say). Databases still waiting are copied when they’re ready.',
             'promote' => 'Waits for every deploy; leaves by “failed” if one fails its health check (the live version keeps running). With nothing to promote it leaves by “out” at once.',
+            'n8n' => 'Leaves by “failed” when the n8n workflow is off or gone, its webhook can’t be used, n8n answers with an error, or it doesn’t answer or call back in time. Later steps can say {{n8n.field}}.',
             'alert' => 'Never fails unless emailing the specific people fails.',
             'wait' => 'The run picks up again within a minute of the time.',
             'branch' => 'Never fails: it leaves by “true” or “false”.',

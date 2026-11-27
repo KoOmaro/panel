@@ -98,7 +98,7 @@ function reloadRoutesWithExtensions(): void
 
 function workspaceUrlForExtensions(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('a package’s workspace routes get the workspace group’s binding and sign-in checks', function () {
@@ -328,7 +328,7 @@ test('what packages add shows on workspace pages whose routes have no name, like
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('upgrade.label', 'Plans')
-            ->where('upgrade.href', '/')
+            ->where('upgrade.href', '/'.$workspace->slug)
             ->where('extensions.nav', fn ($nav) => collect($nav)->contains('key', 'probe')));
 });
 

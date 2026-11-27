@@ -28,12 +28,12 @@ class ActivityController extends Controller
 
     public function index(Request $request, Workspace $workspace): Response
     {
-        $machines = $workspace->machines()->orderBy('name')->get(['id', 'name']);
+        $machines = $workspace->machines()->orderBy('name')->get(['id', 'name', 'provider']);
         $people = self::people($workspace);
         $filters = self::filters($request, $workspace, $people);
 
         $entries = self::query($workspace, $filters, $people)
-            ->with(['user:id,name,email,avatar_path', 'machine:id,name'])
+            ->with(['user:id,name,email,avatar_path', 'machine:id,name,provider'])
             ->when($filters['before'] ?? null, fn (Builder $q, int $id) => $q->where('id', '<', $id))
             ->orderByDesc('id')
             ->limit(self::PAGE + 1)
@@ -44,7 +44,7 @@ class ActivityController extends Controller
 
         return Inertia::render('workspace/Activity', [
             'workspace' => $workspace->toPageProps(),
-            'machines' => $machines->map(fn ($m) => ['id' => $m->id, 'name' => $m->name])->values(),
+            'machines' => $machines->map(fn ($m) => ['id' => $m->id, 'name' => $m->name, 'provider' => $m->provider])->values(),
             'people' => $people->map(fn (array $p) => array_diff_key($p, ['match' => true]))->values(),
             'groups' => ActivityGroups::options(),
             'filters' => [
@@ -55,13 +55,15 @@ class ActivityController extends Controller
                 'when' => $filters['when'] ?? null,
                 'from' => $filters['from'] ?? null,
                 'to' => $filters['to'] ?? null,
+                'q' => $filters['q'] ?? null,
             ],
             'entries' => $entries->take(self::PAGE)->map(fn (Activity $a) => [
                 'id' => $a->id,
                 'at' => $a->created_at->toIso8601String(),
                 'user' => ($actor = ActivityLine::actor($a)) === null ? null : ['name' => $actor['name'], 'avatar' => $actor['avatar'], 'support' => $actor['support']],
-                'machine' => $a->machine ? ['id' => $a->machine->id, 'name' => $a->machine->name] : null,
+                'machine' => $a->machine ? ['id' => $a->machine->id, 'name' => $a->machine->name, 'provider' => $a->machine->provider] : null,
                 'action' => $a->action,
+                'via' => self::via($a),
                 'origin' => $origin ? self::origin($a) : null,
                 ...ActivityLine::describe($a, $details),
             ])->values(),
@@ -127,6 +129,19 @@ class ActivityController extends Controller
         return preg_match('/^[=+\-@\t\r]/', $value) === 1 ? "'".$value : $value;
     }
 
+    /** @return array{source: string|null, client: string|null, workflow: string|null} */
+    public static function via(Activity $a): array
+    {
+        $origin = self::origin($a);
+        $workflow = $a->meta['workflow'] ?? null;
+
+        return [
+            'source' => $a->impersonation_session_id !== null ? 'support' : $origin['source'],
+            'client' => $origin['client'],
+            'workflow' => $origin['source'] === 'workflow' && is_string($workflow) ? $workflow : null,
+        ];
+    }
+
     /** @return array{source: string|null, client: string|null, device: string|null, ip: string|null, userAgent: string|null, requestId: string|null} */
     public static function origin(Activity $a): array
     {
@@ -135,7 +150,11 @@ class ActivityController extends Controller
 
         return [
             'source' => $a->source ?? ($via === 'mcp' ? 'mcp' : null),
-            'client' => in_array($via, ['mcp', 'api', 'scim'], true) && is_string($a->meta['client'] ?? null) ? $a->meta['client'] : null,
+            'client' => match (true) {
+                in_array($via, ['mcp', 'api', 'scim'], true) && is_string($a->meta['client'] ?? null) => $a->meta['client'],
+                in_array($via, AuditContext::CHATS, true) => $via,
+                default => null,
+            },
             'device' => $hidden ? null : Device::label($a->user_agent),
             'ip' => $hidden ? null : $a->ip,
             'userAgent' => $hidden ? null : $a->user_agent,
@@ -189,6 +208,7 @@ class ActivityController extends Controller
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
             'tz' => ['nullable', 'timezone:all'],
+            'q' => ['nullable', 'string', 'max:100'],
             'before' => ['nullable', 'integer', 'min:1'],
         ]), fn ($v) => $v !== null && $v !== '');
     }
@@ -220,6 +240,22 @@ class ActivityController extends Controller
             ->when($filters['group'] ?? null, fn (Builder $q, string $group) => ActivityGroups::scope($q, $group))
             ->when($filters['machine'] ?? null, fn (Builder $q, int|string $id) => $q->where('machine_id', (int) $id))
             ->when($from, fn (Builder $q, CarbonImmutable $at) => $q->where('created_at', '>=', $at->utc()))
-            ->when($to, fn (Builder $q, CarbonImmutable $at) => $q->where('created_at', '<=', $at->utc()));
+            ->when($to, fn (Builder $q, CarbonImmutable $at) => $q->where('created_at', '<=', $at->utc()))
+            ->when($filters['q'] ?? null, fn (Builder $q, string $search) => self::search($q, $search));
+    }
+
+    /** @param  Builder<Activity>  $query */
+    private static function search(Builder $query, string $search): void
+    {
+        foreach (array_slice(preg_split('/\s+/', trim($search)) ?: [], 0, 5) as $term) {
+            $like = '%'.$term.'%';
+            $stem = (string) preg_replace(['/(ed|ing|es|s)$/', '/([b-df-hj-np-tv-z])\1$/'], ['', '$1'], mb_strtolower($term));
+            $query->where(fn (Builder $q) => $q
+                ->whereLike('subject', $like)
+                ->when(mb_strlen($stem) >= 3, fn (Builder $q) => $q->orWhereLike('action', '%'.$stem.'%'))
+                ->orWhereLike('actor_name', $like)
+                ->orWhereHas('machine', fn (Builder $m) => $m->whereLike('name', $like))
+                ->orWhereHas('user', fn (Builder $u) => $u->whereLike('name', $like)));
+        }
     }
 }

@@ -8,7 +8,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function membersUrl(Workspace $workspace, string $suffix = ''): string
 {
-    return 'https://'.$workspace->host().'/settings/members'.$suffix;
+    return $workspace->url().'/settings/members'.$suffix;
 }
 
 function joinAs(Workspace $workspace, string $role, array $attributes = []): User

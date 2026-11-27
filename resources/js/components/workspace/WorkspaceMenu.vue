@@ -16,11 +16,14 @@ import {
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue';
 import { usePinnedWorkspaces } from '@/composables/usePinnedWorkspaces';
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch';
+import { workspaceAddress } from '@/lib/workspaceRoute';
 import { workspaceInitial, workspaceTileColor } from '@/lib/workspaceTile';
 import { index as workspacesIndex } from '@/routes/workspaces';
 import type { Workspace, WorkspaceSummary } from '@/types';
 
-const { variant = 'inline' } = defineProps<{ variant?: 'inline' | 'block' }>();
+const { variant = 'inline' } = defineProps<{
+    variant?: 'inline' | 'block' | 'crumb';
+}>();
 
 const page = usePage<{ workspace: Workspace }>();
 
@@ -39,9 +42,7 @@ const workspaces = computed(() => {
 });
 const lastPinned = computed(() => workspaces.value.filter(isPinned).length - 1);
 
-const domain = computed(() =>
-    current.value.host.slice(current.value.slug.length + 1),
-);
+const domain = computed(() => new URL(page.props.dashboardUrl).host);
 
 const allWorkspacesUrl = computed(
     () => new URL(workspacesIndex.url(), page.props.appUrl).href,
@@ -86,7 +87,38 @@ const icon = 'size-4 shrink-0 text-(--ds-text-muted)';
 <template>
     <div class="min-w-0">
         <DropdownMenu>
-            <DropdownMenuTrigger v-if="variant === 'block'" as-child>
+            <DropdownMenuTrigger v-if="variant === 'crumb'" as-child>
+                <button
+                    type="button"
+                    class="group flex h-7 max-w-full min-w-0 cursor-pointer items-center gap-2 rounded-[6px] text-left font-ui focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
+                    :aria-label="
+                        $t('Switch workspace (current: :name)', {
+                            name: String(shown.name),
+                        })
+                    "
+                >
+                    <span
+                        class="dash-tile size-5 text-[11px]/3.5 font-medium"
+                        aria-hidden="true"
+                    >
+                        <img
+                            v-if="shown.logoUrl"
+                            :src="shown.logoUrl"
+                            alt=""
+                            class="size-full object-cover"
+                        />
+                        <template v-else>{{
+                            workspaceInitial(shown.name)
+                        }}</template>
+                    </span>
+                    <span
+                        class="truncate text-[13px]/5 font-medium tracking-[-0.01em] text-fg-secondary transition-colors group-hover:text-fg-primary group-data-[state=open]:text-fg-primary"
+                    >
+                        {{ switchingTo ? $t('Switching…') : shown.name }}
+                    </span>
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuTrigger v-else-if="variant === 'block'" as-child>
                 <button
                     type="button"
                     class="group flex h-10 w-full min-w-0 cursor-pointer items-center gap-2 rounded-[12px] p-1 text-left transition-colors duration-150 hover:bg-(--ds-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring) data-[state=open]:bg-(--ds-hover)"
@@ -169,6 +201,7 @@ const icon = 'size-4 shrink-0 text-(--ds-text-muted)';
             <DropdownMenuContent
                 class="ds-modal w-56 rounded-[12px] p-1.5 font-ui"
                 :side="variant === 'block' ? 'top' : 'bottom'"
+                :align-offset="variant === 'crumb' ? -4 : 0"
                 align="start"
                 :side-offset="6"
             >
@@ -196,7 +229,7 @@ const icon = 'size-4 shrink-0 text-(--ds-text-muted)';
                             :aria-current="
                                 workspace.id === current.id ? 'page' : undefined
                             "
-                            :title="workspace.host"
+                            :title="workspaceAddress(workspace.url)"
                             @click.prevent="onSelect(workspace)"
                         >
                             <span

@@ -17,6 +17,7 @@ use App\Support\Auth\Turnstile;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
 use App\Support\LastSignIn;
+use App\Support\Workspaces\Dashboard;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
@@ -134,7 +135,7 @@ class FortifyServiceProvider extends ServiceProvider
 
         Fortify::registerView(fn () => Inertia::render('auth/Register', [
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
-            'workspaceDomain' => config('app.domain'),
+            'workspaceDomain' => Dashboard::host(),
             'oauthProviders' => SocialAccount::enabled(),
             'googleClientId' => SocialAccount::googleIdentityClientId(request()->getHost()),
             'turnstileSiteKey' => Turnstile::siteKey(),

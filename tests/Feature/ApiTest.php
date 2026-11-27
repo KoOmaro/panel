@@ -155,7 +155,7 @@ test('the OpenAPI spec describes every route, and needs no key', function () {
 test('settings make and revoke API keys, separately from MCP keys', function () {
     [$workspace] = apiWorkspace();
     $owner = $workspace->owner;
-    $url = fn (string $path = '') => 'https://'.$workspace->host().'/settings/api'.$path;
+    $url = fn (string $path = '') => $workspace->url().'/settings/api'.$path;
 
     $made = $this->actingAs($owner)->postJson($url('/keys'), ['name' => 'Deploy bot', 'access' => 'write'])->assertCreated()->json();
     expect($made['secret'])->toStartWith('sos_')
@@ -166,7 +166,7 @@ test('settings make and revoke API keys, separately from MCP keys', function () 
         ->has('keys', 2)
         ->where('baseUrl', rtrim((string) config('app.url'), '/').'/api/v1'));
 
-    $this->actingAs($owner)->get('https://'.$workspace->host().'/settings/mcp')->assertInertia(fn ($page) => $page->has('connections', 0));
+    $this->actingAs($owner)->get($workspace->url().'/settings/mcp')->assertInertia(fn ($page) => $page->has('connections', 0));
 
     $this->actingAs($owner)->delete($url("/keys/{$made['id']}"))->assertRedirect();
     expect(McpToken::query()->find($made['id'])->revoked_at)->not->toBeNull();
@@ -184,10 +184,10 @@ test('a key that runs commands needs a fresh two-factor code, like the console',
     $provider = Mockery::mock(TwoFactorAuthenticationProvider::class);
     $provider->shouldReceive('verify')->andReturnUsing(fn ($secret, $code) => $code === '123456');
     app()->instance(TwoFactorAuthenticationProvider::class, $provider);
-    $url = 'https://'.$workspace->host().'/settings/api/keys';
+    $url = $workspace->url().'/settings/api/keys';
     $before = McpToken::query()->count();
 
-    $this->actingAs($owner)->get('https://'.$workspace->host().'/settings/api')->assertInertia(fn ($page) => $page->where('consoleUnlocked', false));
+    $this->actingAs($owner)->get($workspace->url().'/settings/api')->assertInertia(fn ($page) => $page->where('consoleUnlocked', false));
     $this->actingAs($owner)->postJson($url, ['name' => 'Shell', 'access' => 'commands'])
         ->assertUnprocessable()->assertJsonValidationErrors('code')->assertJson(['code' => 'console_locked']);
     $this->actingAs($owner)->postJson($url, ['name' => 'Shell', 'access' => 'commands', 'code' => '000000'])

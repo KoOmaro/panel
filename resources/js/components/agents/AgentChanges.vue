@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { ChevronRight, FileDiff, GitPullRequest } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 import type { AgentDetail } from './agentTasks';
 
 type ChangedFile = {
@@ -12,6 +15,8 @@ type ChangedFile = {
 };
 
 const props = defineProps<{ taskId: number; agent: AgentDetail | null }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
 
 const files = ref<ChangedFile[]>([]);
 const loading = ref(false);
@@ -26,7 +31,13 @@ async function load(): Promise<void> {
     loading.value = true;
     try {
         const response = await fetch(
-            `/agents/${props.taskId}/runs/${agent.run}/changes`,
+            onWorkspace(
+                agentsRoutes.runs.changes({
+                    workspace: page.props.workspace.slug,
+                    task: props.taskId,
+                    run: agent.run,
+                }),
+            ).url,
             {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },

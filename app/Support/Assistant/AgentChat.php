@@ -3,20 +3,22 @@
 namespace App\Support\Assistant;
 
 use App\Support\Ai\AiProviders;
+use App\Support\Ai\AiUsageLog;
 use App\Support\Ai\CompatibleEndpoint;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
+/** @phpstan-import-type Ai from AiProviders */
 class AgentChat
 {
     private const GROQ_FALLBACK = 'openai/gpt-oss-20b';
 
-    public function __construct(private readonly CompatibleEndpoint $endpoint) {}
+    public function __construct(private readonly AiProviders $providers) {}
 
     /**
-     * @param  array{provider: string, key: string, model: string, own: bool, url?: string}  $ai
+     * @param  Ai  $ai
      * @param  list<array<string, mixed>>  $messages
      * @param  list<array{name: string, description: string, schema: array<string, mixed>}>  $tools
      * @return array{text: string, calls: list<array{id: string, name: string, arguments: array<string, mixed>}>, model: string, openai_output?: list<array<string, mixed>>}
@@ -25,17 +27,17 @@ class AgentChat
      */
     public function turn(array $ai, string $system, array $messages, array $tools, int $maxTokens = 1600): array
     {
-        if ($ai['key'] === '') {
+        if ($ai['key'] === '' && ! ($ai['own'] && $ai['provider'] === 'ollama')) {
             throw new RuntimeException('The assistant isn’t set up on this ServerOS: there’s no model key.');
         }
-        $who = $ai['own'] ? 'your '.(AiProviders::PROVIDERS[$ai['provider']]['label'] ?? $ai['provider']).' key' : 'the assistant';
+        $who = AiProviders::who($ai, 'the assistant');
 
         try {
             $response = match ($ai['provider']) {
                 'anthropic' => $this->anthropic($ai, $system, $messages, $tools, $maxTokens),
                 'openai' => $this->responses($ai, $system, $messages, $tools, $maxTokens),
-                'custom' => $this->endpoint->request((string) ($ai['url'] ?? ''), $ai['key'], 90)->post(
-                    CompatibleEndpoint::url((string) ($ai['url'] ?? ''), 'chat/completions'),
+                'custom', 'openrouter', 'ollama' => $this->providers->compatible($ai, 90)->post(
+                    CompatibleEndpoint::url((string) ($ai['url'] ?? AiProviders::chatBase($ai['provider'], null)), 'chat/completions'),
                     array_filter(self::chatCompletions($ai['model'], $system, $messages, $tools), fn ($v) => $v !== []) + ['temperature' => 0.2, 'max_completion_tokens' => $maxTokens * 2],
                 ),
                 default => $this->groq($ai, $ai['model'], $system, $messages, $tools, $maxTokens),
@@ -69,6 +71,8 @@ class AgentChat
                 default => ucfirst($who).' couldn’t answer ('.$response->status().')'.($ai['own'] && $why !== '' ? ': '.rtrim(mb_substr($why, 0, 160), '.') : '').'. Try again in a moment.',
             });
         }
+
+        AiUsageLog::record($ai, $response);
 
         return match ($ai['provider']) {
             'anthropic' => $this->readAnthropic($response, $ai['model']),
@@ -104,7 +108,7 @@ class AgentChat
     }
 
     /**
-     * @param  array{provider: string, key: string, model: string, own: bool, url?: string}  $ai
+     * @param  Ai  $ai
      * @param  list<array<string, mixed>>  $messages
      * @param  list<array{name: string, description: string, schema: array<string, mixed>}>  $tools
      */
@@ -153,7 +157,7 @@ class AgentChat
     }
 
     /**
-     * @param  array{provider: string, key: string, model: string, own: bool, url?: string}  $ai
+     * @param  Ai  $ai
      * @param  list<array<string, mixed>>  $messages
      * @param  list<array{name: string, description: string, schema: array<string, mixed>}>  $tools
      */
@@ -233,7 +237,7 @@ class AgentChat
     }
 
     /**
-     * @param  array{provider: string, key: string, model: string, own: bool, url?: string}  $ai
+     * @param  Ai  $ai
      * @param  list<array<string, mixed>>  $messages
      * @param  list<array{name: string, description: string, schema: array<string, mixed>}>  $tools
      */

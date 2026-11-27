@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { onBeforeUnmount, ref, watch } from 'vue';
@@ -13,6 +14,8 @@ import { Label } from '@/components/ui/label';
 import { appButtonClasses } from '@/lib/appButton';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 const props = defineProps<{
     machineId: number;
@@ -21,6 +24,7 @@ const props = defineProps<{
 }>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ added: [] }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const siteName = ref(props.name);
 const path = ref('');
@@ -52,7 +56,13 @@ function follow(jobId: string): Promise<void> {
         const check = async () => {
             try {
                 const response = await fetch(
-                    `/machines/${props.machineId}/traffic/files/${jobId}`,
+                    onWorkspace(
+                        machinesRoutes.traffic.files.show({
+                            workspace: page.props.workspace.slug,
+                            machine: props.machineId,
+                            job: jobId,
+                        }),
+                    ).url,
                     {
                         credentials: 'same-origin',
                         headers: { Accept: 'application/json' },
@@ -109,7 +119,12 @@ async function save(): Promise<void> {
     error.value = null;
     try {
         const response = await fetch(
-            `/machines/${props.machineId}/traffic/files`,
+            onWorkspace(
+                machinesRoutes.traffic.files.store({
+                    workspace: page.props.workspace.slug,
+                    machine: props.machineId,
+                }),
+            ).url,
             {
                 method: 'POST',
                 credentials: 'same-origin',

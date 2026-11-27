@@ -16,6 +16,7 @@ use App\Support\Entitlements\Entitlements;
 use App\Support\Extensions\Billing;
 use App\Support\Extensions\Extensions;
 use App\Support\Extensions\TrialCards;
+use App\Support\Workspaces\Dashboard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Database\Factories\WorkspaceFactory;
@@ -79,6 +80,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $company_contact_email
  * @property array{segment?: string, servers?: string, team?: bool, recommended?: string, plan?: string, interval?: string, control?: bool, skipped_at?: string|null}|null $welcome
  * @property array<string, string|null>|null $dismissed_issues
+ * @property array<string, mixed>|null $code_repository
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Membership $pivot
@@ -119,6 +121,7 @@ class Workspace extends Model
             'alert_telegram_token' => 'encrypted',
             'alert_muted' => 'array',
             'dismissed_issues' => 'array',
+            'code_repository' => 'array',
             'welcome' => 'array',
             'onboarded_at' => 'datetime',
             'trial_plan' => Plan::class,
@@ -298,6 +301,12 @@ class Workspace extends Model
     public function containerRegistries(): HasMany
     {
         return $this->hasMany(ContainerRegistry::class);
+    }
+
+    /** @return HasMany<Integration, $this> */
+    public function integrations(): HasMany
+    {
+        return $this->hasMany(Integration::class);
     }
 
     /**
@@ -560,15 +569,15 @@ class Workspace extends Model
 
     public function host(): string
     {
-        return CustomDomains::dashboardHostFor($this->slug) ?? $this->subdomain();
+        return CustomDomains::dashboardHostFor($this->slug) ?? Dashboard::host();
     }
 
-    public function subdomain(): string
+    public function address(): string
     {
-        return $this->slug.'.'.config('app.domain');
+        return (string) preg_replace('#^https?://#', '', $this->url());
     }
 
-    /** @return array{id: int, name: string, slug: string, host: string, logoUrl: string|null, billing: array<string, mixed>} */
+    /** @return array{id: int, name: string, slug: string, host: string, url: string, logoUrl: string|null, billing: array<string, mixed>} */
     public function toPageProps(): array
     {
         return [
@@ -576,13 +585,16 @@ class Workspace extends Model
             'name' => $this->name,
             'slug' => $this->slug,
             'host' => $this->host(),
+            'url' => $this->url(),
             'logoUrl' => $this->logoUrl(),
             'billing' => $this->billingSummary(),
         ];
     }
 
-    public function url(): string
+    public function url(string $path = ''): string
     {
-        return route('workspace.home', ['workspace' => $this->slug]);
+        $path = ltrim($path, '/');
+
+        return rtrim(route('workspace.home', ['workspace' => $this->slug]), '/').($path === '' ? '' : '/'.$path);
     }
 }

@@ -8,6 +8,7 @@ import {
 import { computed, onBeforeUnmount, ref } from 'vue';
 import AppButton from '@/components/workspace/AppButton.vue';
 import { errorMessage, failIfBad, jobReason } from '@/lib/errors';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const props = defineProps<{
     machineId: number;
@@ -65,7 +66,7 @@ async function start(): Promise<void> {
     problem.value = null;
     try {
         const response = await fetch(
-            `/machines/${props.machineId}/disk-usage`,
+            workspacePath(`/machines/${props.machineId}/disk-usage`),
             {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -86,7 +87,9 @@ function follow(jobId: string): void {
         if (!active) return;
         try {
             const response = await fetch(
-                `/machines/${props.machineId}/disk-usage/${jobId}`,
+                workspacePath(
+                    `/machines/${props.machineId}/disk-usage/${jobId}`,
+                ),
                 {
                     credentials: 'same-origin',
                     headers: { Accept: 'application/json' },

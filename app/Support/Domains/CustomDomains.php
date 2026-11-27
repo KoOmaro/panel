@@ -7,6 +7,7 @@ use App\Models\Workspace;
 use App\Models\WorkspaceDomain;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
+use App\Support\Workspaces\Dashboard;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -16,6 +17,8 @@ use Throwable;
 final class CustomDomains
 {
     private const CACHE_KEY = 'workspace-domains:map:v1';
+
+    private static ?string $pendingRoot = null;
 
     public const RESERVED_PATHS = ['api', 'mcp', 'login', 'logout', 'register', 'settings', 'machines', 'services', 'workflows', 'monitors', 'backups', 'logs', 'members', 'activity', 'billing', 'oauth', 'admin', 'docs', 'build', 'storage', 'images'];
 
@@ -83,7 +86,7 @@ final class CustomDomains
         if (is_string($ours) && $ours !== '' && $host === 'status.'.config('app.domain')) {
             return ['workspace' => 0, 'slug' => '', 'purpose' => WorkspaceDomain::STATUS, 'page' => $ours, 'path' => null];
         }
-        if ($host === '' || str_ends_with($host, '.'.config('app.domain')) || $host === config('app.domain')) {
+        if ($host === '' || $host === Dashboard::host() || str_ends_with($host, '.'.config('app.domain')) || $host === config('app.domain')) {
             return null;
         }
 
@@ -96,17 +99,29 @@ final class CustomDomains
 
     public static function mapRoot(string $root, mixed $route = null): string
     {
-        if ($route instanceof Route && Str::startsWith((string) $route->getName(), ['mcp', 'api.', 'workspace.domains.go', ...app(Extensions::class)->mainDomainRoutes()])) {
+        self::$pendingRoot = null;
+        if (! $route instanceof Route || ! Dashboard::isWorkspaceRoute($route) || Str::startsWith((string) $route->getName(), ['mcp', 'api.', 'workspace.domains.go', ...app(Extensions::class)->mainDomainRoutes()])) {
             return $root;
         }
-        $suffix = '.'.config('app.domain');
-        $host = (string) parse_url($root, PHP_URL_HOST);
-        if (! str_ends_with($host, $suffix)) {
-            return $root;
-        }
-        $custom = self::dashboardHostFor(substr($host, 0, -strlen($suffix)));
+        self::$pendingRoot = $root;
 
-        return $custom === null ? $root : str_replace("//{$host}", "//{$custom}", $root);
+        return '';
+    }
+
+    public static function mapPath(string $path, mixed $route = null): string
+    {
+        $root = self::$pendingRoot;
+        self::$pendingRoot = null;
+        if ($root === null) {
+            return $path;
+        }
+        $slug = explode('/', ltrim($path, '/'), 2)[0];
+        $custom = $slug === '' ? null : self::dashboardHostFor($slug);
+        if ($custom === null) {
+            return $root.$path;
+        }
+
+        return 'https://'.$custom.substr($path, strlen('/'.$slug));
     }
 
     public static function hostnameProblem(string $hostname): ?string

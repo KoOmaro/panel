@@ -12,6 +12,8 @@ final class Present
     public static function machine(Machine $machine, McpContext $context): array
     {
         $facts = $machine->facts ?? [];
+        $now = $machine->isReporting();
+        $readAt = $machine->readingAt();
 
         return [
             'id' => $machine->id,
@@ -21,9 +23,15 @@ final class Present
             'ip' => $machine->ip_address,
             'provider' => $machine->provider,
             'os' => trim(($facts['os_name'] ?? $facts['os'] ?? '').' '.($facts['os_version'] ?? '')) ?: null,
-            'cpuPercent' => $machine->cpu_percent,
-            'memoryUsedMb' => $machine->memory_used_mb,
-            'diskPercent' => $machine->disk_percent,
+            'cpuPercent' => $now ? $machine->cpu_percent : null,
+            'memoryUsedMb' => $now ? $machine->memory_used_mb : null,
+            'diskPercent' => $now ? $machine->fullestDisk() : null,
+            'lastReading' => $now || $readAt === null ? null : [
+                'at' => $readAt->toIso8601String(),
+                'cpuPercent' => $machine->cpu_percent,
+                'memoryUsedMb' => $machine->memory_used_mb,
+                'diskPercent' => $machine->fullestDisk(),
+            ],
             'services' => $context->services($machine)->count(),
             'groupId' => $machine->machine_group_id,
             'maintenance' => $machine->inMaintenance() ? [
@@ -60,7 +68,7 @@ final class Present
             'image' => $service['details']['image'] ?? null,
             'ports' => array_values($service['ports'] ?? []),
             'icon' => $service['icon'] ?? null,
-            'stats' => $machine->service_stats[$key] ?? null,
+            'stats' => $machine->serviceStatsNow()[$key] ?? null,
             'url' => $context->url('/machines/'.$machine->id.'/services/'.rawurlencode(($service['app'] ?? null) ? 'app:'.$service['app'] : $key)),
         ];
     }

@@ -5,6 +5,7 @@ namespace App\Support\Health;
 use App\Enums\MachineEnvironment;
 use App\Models\Activity;
 use App\Models\Machine;
+use App\Support\Integrations\Incidents\IncidentRouter;
 use App\Support\Monitors\MonitorAlerts;
 
 class MachineWatcher
@@ -50,7 +51,7 @@ class MachineWatcher
         $state = $machine->alert_state ?? [];
         $before = $state;
         $sent = 0;
-        $url = 'https://'.$machine->workspace->host().'/machines/'.$machine->id;
+        $url = $machine->workspace->url('/machines/'.$machine->id);
         $quiet = $machine->last_seen_at->lt(now()->subSeconds(self::OFFLINE_ALERT_SECONDS));
         $online = $machine->isOnline();
 
@@ -66,21 +67,26 @@ class MachineWatcher
                 "Nothing from it since {$machine->last_seen_at->diffForHumans()}.",
                 'It may be down or unreachable, or the ServerOS daemon stopped. Check it in your provider’s console; if it’s running, restart the daemon with “systemctl restart serverosd”.',
             ], $url, true, 'Open the machine', ['machine' => ['id' => $machine->id, 'name' => $machine->name]]);
+            app(IncidentRouter::class)->machineOffline($machine);
             $sent++;
         } elseif ($online && isset($state['offline'])) {
             $seconds = now()->getTimestamp() - $state['offline'];
             unset($state['offline']);
             Activity::system($machine->workspace_id, 'machine.online', $machine->name, $machine, ['seconds' => $seconds]);
-            $maintenance || $this->alerts->notify($machine->workspace, 'machine.online', "{$machine->name} is reporting again", [
-                'Back after '.MonitorAlerts::duration($seconds).' without a report.',
-            ], $url, false, 'Open the machine', ['machine' => ['id' => $machine->id, 'name' => $machine->name]]);
+            app(IncidentRouter::class)->machineOnline($machine, $seconds);
+            $subject = "{$machine->name} is reporting again";
+            $lines = ['Back after '.MonitorAlerts::duration($seconds).' without a report.'];
+            $about = ['machine' => ['id' => $machine->id, 'name' => $machine->name]];
+            $maintenance
+                ? $this->alerts->resolvedQuietly($machine->workspace, 'machine.online', $subject, $lines, $url, 'Open the machine', $about)
+                : $this->alerts->notify($machine->workspace, 'machine.online', $subject, $lines, $url, false, 'Open the machine', $about);
             $sent += $maintenance ? 0 : 1;
         }
 
         if ($online && $machine->disk_percent !== null) {
             if ($machine->disk_percent >= self::DISK_ALERT && ! isset($state['disk']) && ! $maintenance) {
                 $state['disk'] = now()->getTimestamp();
-                $disk = $machine->disks[0] ?? null;
+                $disk = $machine->volumes()[0] ?? null;
                 $free = $disk ? WorkspaceHealth::bytes($disk['total'] - $disk['used']) : null;
                 Activity::system($machine->workspace_id, 'machine.disk_full', $machine->name, $machine, ['percent' => $machine->disk_percent, 'mount' => $disk['mount'] ?? null]);
                 $this->alerts->notify($machine->workspace, 'machine.disk', "{$machine->name}’s disk is {$machine->disk_percent}% full", [

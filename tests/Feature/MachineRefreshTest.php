@@ -16,7 +16,7 @@ test('refresh asks the machine to scan now, once, for anyone in the workspace', 
     $workspace = Workspace::factory()->create();
     $machine = Machine::factory()->for($workspace)->create();
     $machine->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), 'inventory' => ['scanned_at' => 1000, 'services' => [], 'listeners' => []]])->save();
-    $url = 'https://'.$workspace->host()."/machines/{$machine->id}/refresh";
+    $url = $workspace->url()."/machines/{$machine->id}/refresh";
 
     $viewer = User::factory()->create();
     $workspace->members()->attach($viewer, ['role' => 'viewer']);

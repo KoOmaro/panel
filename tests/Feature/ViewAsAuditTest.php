@@ -43,7 +43,7 @@ function viewAsSetup(): array
         ]],
     ])->save();
 
-    return [$boss, $workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/services/docker:abc123def456/actions'];
+    return [$boss, $workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/services/docker:abc123def456/actions'];
 }
 
 test('a View as is kept from start to the way back', function () {
@@ -102,16 +102,16 @@ test('a restart while viewing as someone reads as ServerOS Support to them, and 
 
     $this->post(rtrim(config('app.url'), '/').'/admin/return');
 
-    $page = $this->actingAs($sam)->get('https://'.$workspace->host().'/activity');
+    $page = $this->actingAs($sam)->get($workspace->url().'/activity');
     $page->assertInertia(fn (Assert $p) => $p
         ->where('entries.0.user', ['name' => 'ServerOS Support', 'avatar' => null, 'support' => true])
         ->where('entries.0.verb', 'restarted'));
     expect($page->getContent())->not->toContain('Boss')->not->toContain('boss@serveros.com');
 
-    $this->get('https://'.$workspace->host().'/activity?who=people')->assertInertia(fn (Assert $p) => $p->has('entries', 1));
-    $this->get('https://'.$workspace->host().'/activity?who=system')->assertInertia(fn (Assert $p) => $p->has('entries', 0));
+    $this->get($workspace->url().'/activity?who=people')->assertInertia(fn (Assert $p) => $p->has('entries', 1));
+    $this->get($workspace->url().'/activity?who=system')->assertInertia(fn (Assert $p) => $p->has('entries', 0));
 
-    $csv = $this->get('https://'.$workspace->host().'/activity/export')->streamedContent();
+    $csv = $this->get($workspace->url().'/activity/export')->streamedContent();
     expect($csv)->toContain('ServerOS Support')->not->toContain('Boss')->not->toContain('boss@serveros.com');
 });
 
@@ -143,7 +143,7 @@ test('a View as whose admin is deleted ends as revoked, and the end still names 
     $this->actingAs($boss)->post(viewAsUrl($workspace->owner), ['reason' => 'Helping']);
     $boss->delete();
 
-    $this->get('https://'.$workspace->host())->assertRedirect(rtrim((string) config('app.url'), '/').'/login');
+    $this->get($workspace->url())->assertRedirect(rtrim((string) config('app.url'), '/').'/login');
 
     $session = ImpersonationSession::query()->sole();
     $end = AdminAction::query()->where('action', 'user.impersonation_ended')->sole();
@@ -202,10 +202,10 @@ test('pages opened while viewing as someone are noted by route, once a minute ea
     [$boss, $workspace, $machine] = viewAsSetup();
 
     $this->actingAs($boss)->post(viewAsUrl($workspace->owner), ['reason' => 'Checking billing']);
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $url = $workspace->url().'/machines/'.$machine->id;
     $this->get($url)->assertOk();
     $this->get($url)->assertOk();
-    $this->get('https://'.$workspace->host().'/activity')->assertOk();
+    $this->get($workspace->url().'/activity')->assertOk();
     $this->travel(61)->seconds();
     $this->get($url)->assertOk();
 
@@ -226,7 +226,7 @@ test('someone who left is still named in the activity', function () {
     $this->actingAs($ada)->postJson($actions, ['action' => 'restart'])->assertAccepted();
     $ada->delete();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $p) => $p->where('entries.0.user.name', 'Ada')->where('entries.0.leads', false));
 });
 
@@ -249,7 +249,7 @@ test('an entry nobody did keeps the IP and browser of whoever set it off out of 
     $origin = ActivityController::origin($entry->fresh());
     expect($origin['ip'])->toBeNull()->and($origin['device'])->toBeNull()->and($origin['userAgent'])->toBeNull();
 
-    $csv = $this->flushHeaders()->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity/export')->streamedContent();
+    $csv = $this->flushHeaders()->actingAs($workspace->owner)->get($workspace->url().'/activity/export')->streamedContent();
     expect($csv)->not->toContain('203.0.113.9')->not->toContain('Chrome/155.0');
 });
 
@@ -286,7 +286,7 @@ test('an invitation sent while viewing as someone comes from ServerOS Support', 
     Notification::fake();
 
     $this->actingAs($boss)->post(viewAsUrl($workspace->owner), ['reason' => 'Setting up their team']);
-    $this->post('https://'.$workspace->host().'/settings/invitations', ['email' => 'kim@example.com', 'role' => 'admin'])->assertSessionHasNoErrors();
+    $this->post($workspace->url().'/settings/invitations', ['email' => 'kim@example.com', 'role' => 'admin'])->assertSessionHasNoErrors();
 
     $invitation = WorkspaceInvitation::query()->sole();
     expect($invitation->impersonation_session_id)->not->toBeNull()
@@ -335,7 +335,7 @@ test('the admin log reads in English whatever language the admin browses in', fu
     $was = $workspace->name;
 
     $this->actingAs($boss)->withCookie(SetLocale::COOKIE, 'de')->post(viewAsUrl($sam), ['reason' => 'Helping']);
-    $this->withCookie(SetLocale::COOKIE, 'de')->patch('https://'.$workspace->host().'/settings/general', ['name' => 'Acme'])->assertRedirect();
+    $this->withCookie(SetLocale::COOKIE, 'de')->patch($workspace->url().'/settings/general', ['name' => 'Acme'])->assertRedirect();
     Storage::fake('public');
     $this->withCookie(SetLocale::COOKIE, 'de')->post(route('profile.avatar.update'), ['avatar' => UploadedFile::fake()->image('me.png')])->assertRedirect();
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { LoaderCircle } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -11,6 +12,10 @@ import {
 import { appButtonClasses } from '@/lib/appButton';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
+import { show as loggingJob } from '@/routes/workspace/machines/sites/logging';
+import { show as timingJob } from '@/routes/workspace/machines/sites/timing';
 
 type Change = {
     file: string;
@@ -45,6 +50,7 @@ const props = withDefaults(
 );
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ applied: [] }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const plan = ref<Plan | null>(null);
 const step = ref<'loading' | 'ready' | 'applying'>('loading');
@@ -65,10 +71,30 @@ function csrf(): string {
     );
 }
 
+function siteArgs() {
+    return {
+        workspace: page.props.workspace.slug,
+        machine: props.machineId,
+        site: encodeURIComponent(props.site),
+    };
+}
+
 const base = computed(
     () =>
-        `/machines/${props.machineId}/sites/${encodeURIComponent(props.site)}/${props.mode === 'timing' ? 'timing' : 'logging'}`,
+        onWorkspace(
+            props.mode === 'timing'
+                ? machinesRoutes.sites.timing(siteArgs())
+                : machinesRoutes.sites.logging(siteArgs()),
+        ).url,
 );
+
+function jobUrl(jobId: string): string {
+    const args = { ...siteArgs(), job: jobId };
+
+    return onWorkspace(
+        props.mode === 'timing' ? timingJob(args) : loggingJob(args),
+    ).url;
+}
 
 const copy = computed(() => {
     const site = props.label;
@@ -170,7 +196,7 @@ function follow(jobId: string): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
         const check = async () => {
             try {
-                const response = await fetch(`${base.value}/${jobId}`, {
+                const response = await fetch(jobUrl(jobId), {
                     credentials: 'same-origin',
                     headers: { Accept: 'application/json' },
                 });

@@ -1,0 +1,202 @@
+export type Place = {
+    city: string;
+    country: string;
+    lat: number;
+    lon: number;
+};
+
+type Row = [string, string, number, number];
+
+const CITIES: Record<string, Row> = {
+    ashburn: ['Ashburn', 'United States', 39.04, -77.49],
+    amsterdam: ['Amsterdam', 'Netherlands', 52.37, 4.9],
+    atlanta: ['Atlanta', 'United States', 33.75, -84.39],
+    bangalore: ['Bangalore', 'India', 12.97, 77.59],
+    beauharnois: ['Beauharnois', 'Canada', 45.31, -73.87],
+    chicago: ['Chicago', 'United States', 41.88, -87.63],
+    dallas: ['Dallas', 'United States', 32.78, -96.8],
+    delhi: ['Delhi', 'India', 28.61, 77.21],
+    falkenstein: ['Falkenstein', 'Germany', 50.48, 12.37],
+    frankfurt: ['Frankfurt', 'Germany', 50.11, 8.68],
+    fremont: ['Fremont', 'United States', 37.55, -121.99],
+    gravelines: ['Gravelines', 'France', 50.99, 2.13],
+    helsinki: ['Helsinki', 'Finland', 60.17, 24.94],
+    hillsboro: ['Hillsboro', 'United States', 45.52, -122.99],
+    honolulu: ['Honolulu', 'United States', 21.31, -157.86],
+    iowa: ['Council Bluffs', 'United States', 41.26, -95.86],
+    ireland: ['Dublin', 'Ireland', 53.35, -6.26],
+    johannesburg: ['Johannesburg', 'South Africa', -26.2, 28.05],
+    london: ['London', 'United Kingdom', 51.51, -0.13],
+    losangeles: ['Los Angeles', 'United States', 34.05, -118.24],
+    madrid: ['Madrid', 'Spain', 40.42, -3.7],
+    melbourne: ['Melbourne', 'Australia', -37.81, 144.96],
+    mexico: ['Mexico City', 'Mexico', 19.43, -99.13],
+    miami: ['Miami', 'United States', 25.76, -80.19],
+    milan: ['Milan', 'Italy', 45.46, 9.19],
+    montreal: ['Montreal', 'Canada', 45.5, -73.57],
+    mumbai: ['Mumbai', 'India', 19.08, 72.88],
+    newark: ['Newark', 'United States', 40.74, -74.17],
+    newyork: ['New York', 'United States', 40.71, -74.01],
+    nuremberg: ['Nuremberg', 'Germany', 49.45, 11.08],
+    ohio: ['Columbus', 'United States', 39.96, -83.0],
+    oregon: ['The Dalles', 'United States', 45.6, -121.18],
+    osaka: ['Osaka', 'Japan', 34.69, 135.5],
+    paris: ['Paris', 'France', 48.86, 2.35],
+    roubaix: ['Roubaix', 'France', 50.69, 3.18],
+    santiago: ['Santiago', 'Chile', -33.45, -70.67],
+    saopaulo: ['São Paulo', 'Brazil', -23.55, -46.63],
+    seattle: ['Seattle', 'United States', 47.61, -122.33],
+    seoul: ['Seoul', 'South Korea', 37.57, 126.98],
+    sanfrancisco: ['San Francisco', 'United States', 37.77, -122.42],
+    sanjose: ['San Jose', 'United States', 37.34, -121.89],
+    singapore: ['Singapore', 'Singapore', 1.35, 103.82],
+    stockholm: ['Stockholm', 'Sweden', 59.33, 18.07],
+    strasbourg: ['Strasbourg', 'France', 48.57, 7.75],
+    sydney: ['Sydney', 'Australia', -33.87, 151.21],
+    telaviv: ['Tel Aviv', 'Israel', 32.09, 34.78],
+    tokyo: ['Tokyo', 'Japan', 35.68, 139.69],
+    toronto: ['Toronto', 'Canada', 43.65, -79.38],
+    vinthill: ['Vint Hill', 'United States', 38.75, -77.67],
+    virginia: ['Ashburn', 'United States', 39.04, -77.49],
+    warsaw: ['Warsaw', 'Poland', 52.23, 21.01],
+    zurich: ['Zurich', 'Switzerland', 47.38, 8.54],
+};
+
+const CODES: Record<string, keyof typeof CITIES> = {
+    fsn1: 'falkenstein',
+    nbg1: 'nuremberg',
+    hel1: 'helsinki',
+    ash: 'ashburn',
+    hil: 'hillsboro',
+    sin: 'singapore',
+    nyc1: 'newyork',
+    nyc2: 'newyork',
+    nyc3: 'newyork',
+    sfo1: 'sanfrancisco',
+    sfo2: 'sanfrancisco',
+    sfo3: 'sanfrancisco',
+    ams1: 'amsterdam',
+    ams2: 'amsterdam',
+    ams3: 'amsterdam',
+    sgp1: 'singapore',
+    lon1: 'london',
+    fra1: 'frankfurt',
+    tor1: 'toronto',
+    blr1: 'bangalore',
+    syd1: 'sydney',
+    atl1: 'atlanta',
+    ewr: 'newark',
+    ord: 'chicago',
+    dfw: 'dallas',
+    sea: 'seattle',
+    lax: 'losangeles',
+    atl: 'atlanta',
+    ams: 'amsterdam',
+    lhr: 'london',
+    fra: 'frankfurt',
+    sjc: 'sanjose',
+    syd: 'sydney',
+    nrt: 'tokyo',
+    cdg: 'paris',
+    icn: 'seoul',
+    mia: 'miami',
+    sgp: 'singapore',
+    waw: 'warsaw',
+    mad: 'madrid',
+    sto: 'stockholm',
+    bom: 'mumbai',
+    jnb: 'johannesburg',
+    mex: 'mexico',
+    scl: 'santiago',
+    tlv: 'telaviv',
+    blr: 'bangalore',
+    del: 'delhi',
+    itm: 'osaka',
+    mel: 'melbourne',
+    yto: 'toronto',
+    hnl: 'honolulu',
+    sao: 'saopaulo',
+    gra: 'gravelines',
+    sbg: 'strasbourg',
+    rbx: 'roubaix',
+    bhs: 'beauharnois',
+    vin: 'vinthill',
+    lim: 'frankfurt',
+    de1: 'frankfurt',
+    uk1: 'london',
+    gra1: 'gravelines',
+    sbg1: 'strasbourg',
+    bhs1: 'beauharnois',
+    waw1: 'warsaw',
+    'us-east': 'newark',
+    'us-central': 'dallas',
+    'us-west': 'fremont',
+    'us-southeast': 'atlanta',
+    'us-ord': 'chicago',
+    'us-sea': 'seattle',
+    'us-iad': 'ashburn',
+    'us-lax': 'losangeles',
+    'us-mia': 'miami',
+    'ca-central': 'toronto',
+    'eu-west': 'london',
+    'eu-central': 'frankfurt',
+    'ap-south': 'singapore',
+    'ap-northeast': 'tokyo',
+    'ap-west': 'mumbai',
+    'ap-southeast': 'sydney',
+    'us-east-1': 'virginia',
+    'us-east-2': 'ohio',
+    'us-west-1': 'sanfrancisco',
+    'us-west-2': 'oregon',
+    'ca-central-1': 'montreal',
+    'eu-west-1': 'ireland',
+    'eu-west-2': 'london',
+    'eu-west-3': 'paris',
+    'eu-central-1': 'frankfurt',
+    'eu-central-2': 'zurich',
+    'eu-north-1': 'stockholm',
+    'eu-south-1': 'milan',
+    'eu-south-2': 'madrid',
+    'ap-southeast-1': 'singapore',
+    'ap-southeast-2': 'sydney',
+    'ap-northeast-1': 'tokyo',
+    'ap-northeast-2': 'seoul',
+    'ap-northeast-3': 'osaka',
+    'ap-south-1': 'mumbai',
+    'sa-east-1': 'saopaulo',
+    'af-south-1': 'johannesburg',
+    'il-central-1': 'telaviv',
+    'us-central1': 'iowa',
+    'europe-west1': 'amsterdam',
+    'europe-west2': 'london',
+    'europe-west3': 'frankfurt',
+    'europe-west4': 'amsterdam',
+    'europe-north1': 'helsinki',
+    'asia-southeast1': 'singapore',
+    'asia-northeast1': 'tokyo',
+};
+
+function candidates(code: string): string[] {
+    const clean = code.trim().toLowerCase();
+    const parts = [clean, clean.split(/[\s/]/)[0]];
+    const first = clean.split('-dc')[0];
+    parts.push(first, first.replace(/[a-z]$/, ''), first.replace(/\d+$/, ''));
+
+    return [...new Set(parts.filter(Boolean))];
+}
+
+export function placeOf(...codes: (string | null | undefined)[]): Place | null {
+    for (const code of codes) {
+        if (!code) continue;
+        for (const key of candidates(code)) {
+            const city = CODES[key] ?? (key in CITIES ? key : null);
+            if (city) {
+                const [name, country, lat, lon] = CITIES[city];
+
+                return { city: name, country, lat, lon };
+            }
+        }
+    }
+
+    return null;
+}

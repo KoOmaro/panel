@@ -82,6 +82,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configureAccountEmails();
 
         URL::formatHostUsing(fn (string $root, mixed $route = null) => CustomDomains::mapRoot($root, $route));
+        URL::formatPathUsing(fn (string $path, mixed $route = null) => CustomDomains::mapPath($path, $route));
 
         AdminPages::register($this->app->make(Extensions::class));
 

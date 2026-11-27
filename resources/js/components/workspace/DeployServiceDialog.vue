@@ -1,32 +1,100 @@
 <script setup lang="ts">
-import { trans } from 'laravel-vue-i18n';
-import { ArrowLeft, Check, LoaderCircle, Search } from '@lucide/vue';
-import {
-    SolarLockKeyhole as LockKeyhole,
-    SolarCircleAlert as CircleAlert,
-    SolarCircleCheck as CircleCheck,
-    SolarCopy as Copy,
-} from '@/lib/solarIcons';
+import { ArrowLeft, Check, LoaderCircle } from '@lucide/vue';
 import { usePage } from '@inertiajs/vue3';
-import { computed, nextTick, ref, watch } from 'vue';
-import InputError from '@/components/InputError.vue';
+import { trans } from 'laravel-vue-i18n';
 import {
-    Dialog,
     DialogContent,
     DialogDescription,
+    DialogOverlay,
+    DialogPortal,
+    DialogRoot,
     DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+} from 'reka-ui';
+import { computed, nextTick, ref, watch } from 'vue';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashCheckbox from '@/components/dash/DashCheckbox.vue';
+import AddressField from '@/components/deploy/AddressField.vue';
+import { bareDomain } from '@/components/deploy/address';
+import type { AddressMode } from '@/components/deploy/address';
+import BuildFields from '@/components/deploy/BuildFields.vue';
+import {
+    buildPayload,
+    changedCount,
+    defaultHealth,
+    emptyBuild,
+    methodOf,
+} from '@/components/deploy/buildForm';
+import type { BuildForm, HealthForm } from '@/components/deploy/buildForm';
+import CategoryRail from '@/components/deploy/CategoryRail.vue';
+import {
+    OWN_CODE,
+    RAIL,
+    SECTION_ORDER,
+    featuredRank,
+    isSshRepository,
+    looksLikeRepository,
+    repositoryLabel,
+} from '@/components/deploy/catalog';
+import DeployFollow from '@/components/deploy/DeployFollow.vue';
+import type { FollowedJob } from '@/components/deploy/DeployFollow.vue';
+import DockerInstall from '@/components/deploy/DockerInstall.vue';
+import EnvRows from '@/components/deploy/EnvRows.vue';
+import { envPayload, envRow } from '@/components/deploy/envFile';
+import type { EnvRow } from '@/components/deploy/envFile';
+import PickerButton from '@/components/deploy/PickerButton.vue';
+import RepoList from '@/components/deploy/RepoList.vue';
+import type {
+    GitHubRepositories,
+    GitLabRepositories,
+} from '@/components/deploy/RepoList.vue';
+import ScanSummary from '@/components/deploy/ScanSummary.vue';
+import type { ScanDetection } from '@/components/deploy/ScanSummary.vue';
+import {
+    error,
+    field,
+    hint,
+    iconButton,
+    label,
+    linkButton,
+    sectionTitle,
+    select,
+} from '@/components/deploy/styles';
+import TemplateCatalogue from '@/components/deploy/TemplateCatalogue.vue';
+import type { CatalogueGroup } from '@/components/deploy/TemplateCatalogue.vue';
+import TemplateLogo from '@/components/deploy/TemplateLogo.vue';
+import {
+    PackError,
+    archiveName,
+    fromDrop,
+    fromInput,
+    isZip,
+    pack,
+} from '@/components/deploy/zip';
+import type { PickedFile } from '@/components/deploy/zip';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { SelectMenu } from '@/components/ui/select';
-import type { SelectMenuOption } from '@/components/ui/select';
-import AppButton from '@/components/workspace/AppButton.vue';
-import SubmitButton from '@/components/workspace/SubmitButton.vue';
-import TemplateIcon from '@/components/workspace/TemplateIcon.vue';
-import TickBox from '@/components/workspace/TickBox.vue';
-import { useStepFrame } from '@/composables/useStepFrame';
+import type { SelectMenuGroup, SelectMenuOption } from '@/components/ui/select';
 import { useZipUpload } from '@/composables/useZipUpload';
-import { toast } from '@/lib/toast';
 import { describe, errorMessage } from '@/lib/errors';
+import {
+    SolarCircleAlert as CircleAlert,
+    SolarCopy as Copy,
+    SolarLockKeyhole as LockKeyhole,
+} from '@/lib/solarIcons';
+import { toast } from '@/lib/toast';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import githubRoutes from '@/routes/workspace/github';
+import gitlabRoutes from '@/routes/workspace/gitlab';
+import machinesRoutes from '@/routes/workspace/machines';
+import servicesRoutes from '@/routes/workspace/services';
+import settingsRoutes from '@/routes/workspace/settings';
 
 export type TemplateField = {
     key: string;
@@ -45,7 +113,11 @@ export type ServiceTemplate = {
     category: string;
     description: string;
     icon: string;
-    kind: 'compose' | 'app';
+    kind: 'compose' | 'app' | 'image';
+    /** How it builds: null for ready-made stacks. */
+    build?: 'railpack' | 'dockerfile' | 'template' | 'compose' | 'image' | null;
+    /** The page's machine is too old for it. */
+    needsUpdate?: boolean;
     port: number;
     web: boolean;
     portEditable: boolean;
@@ -63,10 +135,23 @@ type DeployResult = {
     url: string | null;
     localUrl: string | null;
     tunnel: string | null;
-    port: number;
+    port: number | null;
     notes: string | null;
+    domain?: string | null;
     commit?: string | null;
+    appUrl?: string | null;
+    machineId?: number;
 };
+
+type DeployMachine = {
+    id: number;
+    name: string;
+    provider: string | null;
+    online: boolean;
+    canDeployBuild?: boolean;
+};
+
+type Detection = ScanDetection & { healthPath?: string | null };
 
 const props = defineProps<{
     templates: ServiceTemplate[];
@@ -79,23 +164,79 @@ const props = defineProps<{
 
 const emit = defineEmits<{ deployed: [result: DeployResult] }>();
 
-const page = usePage<{ githubApp: boolean }>();
+const page = usePage<{ githubApp: boolean; workspace: { slug: string } }>();
 
 const open = defineModel<boolean>('open', { default: false });
 
-const step = ref<'pick' | 'configure' | 'done'>('pick');
-const { height, freeze, unfreeze } = useStepFrame('stepInner');
+function csrf(): string {
+    return (
+        document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
+            ?.content ?? ''
+    );
+}
 
+function request(url: string, body?: unknown): Promise<Response> {
+    return fetch(url, {
+        method: body === undefined ? 'GET' : 'POST',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            ...(body === undefined
+                ? {}
+                : {
+                      'Content-Type': 'application/json',
+                      'X-CSRF-TOKEN': csrf(),
+                  }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+}
+
+const sleep = (ms: number) =>
+    new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const step = ref<'pick' | 'configure' | 'follow' | 'done'>('pick');
+
+// The machine it deploys to, and what its daemon can do.
+const target = ref(props.machineId);
+watch(
+    () => props.machineId,
+    (id) => (target.value = id),
+);
+const machines = ref<DeployMachine[]>([]);
+const machine = computed(
+    () => machines.value.find((entry) => entry.id === target.value) ?? null,
+);
+const machineName = computed(() => machine.value?.name ?? '');
+
+type Capabilities = {
+    canDeployBuild: boolean;
+    canInspect: boolean;
+    docker: { installed: boolean | null; canInstall: boolean };
+    domains: { domain: string; app: string }[];
+};
+const capabilities = ref<Capabilities | null>(null);
+// Until the machine has answered, it's taken to be up to date.
+const canDeployBuild = computed(
+    () => capabilities.value?.canDeployBuild ?? true,
+);
+
+const taken = ref<{ services: string[]; ports: number[] }>({
+    services: [],
+    ports: [],
+});
+const machineProxy = ref<string | null>(null);
+const canChooseProxy = ref(false);
+const canChooseHttps = ref(false);
+// Like 203-0-113-5.sslip.io: names under it resolve to the machine's public address.
+const freeAddress = ref<string | null>(null);
+
+// The catalogue.
 const query = ref('');
-const category = ref('All');
-const activeIndex = ref(0);
+const category = ref(OWN_CODE);
+const picked = ref<string | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
-
-const categories = computed(() => [
-    'All',
-    ...new Set(props.templates.map((template) => template.category)),
-    'Custom',
-]);
+const isOwnCode = computed(() => category.value === OWN_CODE);
 
 const counts = computed(() => {
     const totals: Record<string, number> = { All: props.templates.length };
@@ -106,26 +247,161 @@ const counts = computed(() => {
     return totals;
 });
 
-type Detection = {
-    detected: boolean;
-    template: string | null;
-    framework: string | null;
-    type: string | null;
-    repo: string;
-    branch: string;
-    commit: string;
-    baseDir?: string | null;
-    reasons: string[];
-    composeFile?: string | null;
-    composePort?: number | null;
-    upload?: { filename: string; files: number; expiresAt: string };
-};
+const ranked = computed(() =>
+    [...props.templates].sort(
+        (a, b) => featuredRank(a.slug) - featuredRank(b.slug),
+    ),
+);
 
-const isCustom = computed(() => category.value === 'Custom');
-const detecting = ref(false);
-const detection = ref<Detection | null>(null);
-const detectError = ref<string | null>(null);
-const customSlug = ref('');
+const groups = computed<CatalogueGroup[]>(() => {
+    const words = query.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const browsing = category.value === 'All' && words.length === 0;
+    const matches = ranked.value.filter((template) => {
+        if (category.value !== 'All' && template.category !== category.value) {
+            return false;
+        }
+        const haystack =
+            `${template.name} ${template.slug} ${template.description} ${template.category}`.toLowerCase();
+
+        return words.every((word) => haystack.includes(word));
+    });
+    const order =
+        category.value === 'All'
+            ? [
+                  ...SECTION_ORDER,
+                  ...Object.keys(counts.value).filter(
+                      (name) => name !== 'All' && !SECTION_ORDER.includes(name),
+                  ),
+              ]
+            : [category.value];
+
+    return order
+        .map((name) => {
+            const items = matches.filter(
+                (template) => template.category === name,
+            );
+
+            return {
+                category: name,
+                count: browsing ? (counts.value[name] ?? 0) : items.length,
+                items: browsing ? items.slice(0, 6) : items,
+                more: browsing && items.length > 6,
+            };
+        })
+        .filter((group) => group.items.length > 0);
+});
+
+const visible = computed(() => groups.value.flatMap((group) => group.items));
+
+const pickedTemplate = computed(
+    () =>
+        props.templates.find((template) => template.slug === picked.value) ??
+        null,
+);
+
+watch(query, () => (picked.value = visible.value[0]?.slug ?? null));
+watch(
+    visible,
+    (list) => {
+        if (!list.some((template) => template.slug === picked.value)) {
+            picked.value = list[0]?.slug ?? null;
+        }
+    },
+    { immediate: true },
+);
+
+const showUploadStrip = computed(
+    () => category.value === 'All' && query.value.trim() === '',
+);
+
+const railOptions = computed(() => [
+    OWN_CODE,
+    ...RAIL.map((option) => option.value),
+]);
+
+function railLabel(value: string): string {
+    if (value === 'All') return trans('All services');
+    if (value === OWN_CODE) return trans('Your own code');
+
+    return trans(value);
+}
+
+function seeAll(name: string): void {
+    category.value = name;
+}
+
+function columns(): number {
+    if (window.matchMedia('(min-width: 640px)').matches) return 3;
+
+    return window.matchMedia('(min-width: 560px)').matches ? 2 : 1;
+}
+
+function movePick(by: number): void {
+    const list = visible.value;
+    if (!list.length) return;
+    const at = list.findIndex((template) => template.slug === picked.value);
+    const next = Math.min(list.length - 1, Math.max(0, (at < 0 ? 0 : at) + by));
+    picked.value = list[next].slug;
+    nextTick(() =>
+        document
+            .getElementById(`template-${picked.value}`)
+            ?.scrollIntoView({ block: 'nearest' }),
+    );
+}
+
+function onSearchKeydown(event: KeyboardEvent): void {
+    const text = query.value.trim();
+
+    if (event.key === 'Enter' && looksLikeRepository(text)) {
+        event.preventDefault();
+        query.value = '';
+        importRepository(text);
+
+        return;
+    }
+
+    if (isOwnCode.value) return;
+
+    const by = columns();
+    const moves: Record<string, number> = {
+        ArrowDown: by,
+        ArrowUp: -by,
+        ArrowRight: 1,
+        ArrowLeft: -1,
+    };
+    const move = moves[event.key];
+    const caretKey =
+        (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+        query.value !== '';
+
+    if (move !== undefined && !caretKey) {
+        event.preventDefault();
+        movePick(move);
+    } else if (event.key === 'Enter' && pickedTemplate.value) {
+        event.preventDefault();
+        choose(pickedTemplate.value);
+    }
+}
+
+function onSearchPaste(event: ClipboardEvent): void {
+    const text = event.clipboardData?.getData('text')?.trim() ?? '';
+    if (looksLikeRepository(text) && query.value.trim() === '') {
+        event.preventDefault();
+        importRepository(text);
+    }
+}
+
+watch(query, (text) => {
+    if (text.trim() && isOwnCode.value && !looksLikeRepository(text)) {
+        category.value = 'All';
+    }
+});
+
+function templateBySlug(
+    slug: string | null | undefined,
+): ServiceTemplate | null {
+    return props.templates.find((template) => template.slug === slug) ?? null;
+}
 
 const appTemplates = computed(() =>
     props.templates.filter((template) => template.kind === 'app'),
@@ -138,40 +414,65 @@ const appTemplateOptions = computed<SelectMenuOption<string>[]>(() =>
     })),
 );
 
-const customTemplate = computed(
-    () =>
-        props.templates.find(
-            (template) => template.slug === customSlug.value,
-        ) ?? null,
-);
+// What code can be built with: Railpack, its own Dockerfile or Compose file,
+// a prebuilt image instead, or ServerOS's setup for a framework.
+const GENERIC = [
+    'auto-build',
+    'custom-dockerfile',
+    'compose-file',
+    'docker-image',
+];
+const setupOptions = computed<
+    (SelectMenuOption<string> | SelectMenuGroup<string>)[]
+>(() => {
+    const labels: Record<string, string> = {
+        'auto-build': trans('Railpack'),
+        'custom-dockerfile': trans('Its Dockerfile'),
+        'compose-file': trans('Its Compose file'),
+        'docker-image': trans('A prebuilt image'),
+    };
+    const hints: Record<string, string> = {
+        'auto-build': trans('works it out from the code'),
+        'docker-image': trans('nothing is built'),
+    };
+    const generic = GENERIC.map((slug) => templateBySlug(slug))
+        .filter((template): template is ServiceTemplate => template !== null)
+        .map((template) => ({
+            value: template.slug,
+            label: labels[template.slug],
+            hint: template.needsUpdate
+                ? trans('needs a newer daemon')
+                : hints[template.slug],
+            disabled: Boolean(template.needsUpdate),
+        }));
+    const frameworks = appTemplates.value
+        .filter((template) => !GENERIC.includes(template.slug))
+        .map((template) => ({ value: template.slug, label: template.name }));
 
-type Repository = {
-    name: string;
-    url: string;
-    private: boolean;
-    branch: string;
-};
-
-// The connected GitHub accounts' repositories, offered under Your own code.
-const github = ref<{
-    connected: boolean;
-    repositories: Repository[];
-} | null>(null);
-// Kept with the repository they belong to, so the menu never offers another
-// repository's branches (after Try another, an upload, or a slow answer).
-const branches = ref<{ repo: string; names: string[] } | null>(null);
-
-const repositoryMatches = computed(() => {
-    const term = query.value.trim().toLowerCase();
-
-    if (!github.value || term.includes('://')) {
-        return [];
-    }
-
-    return github.value.repositories
-        .filter((repository) => repository.name.toLowerCase().includes(term))
-        .slice(0, 8);
+    return [
+        { label: trans('From your code'), options: generic },
+        {
+            label: trans('ServerOS’s setup for a framework'),
+            options: frameworks,
+        },
+    ];
 });
+
+// Your own code: a repository, a folder or .zip, or a prebuilt image.
+const repoInput = ref('');
+const repoField = ref<HTMLInputElement | null>(null);
+const detection = ref<Detection | null>(null);
+const detectError = ref<string | null>(null);
+const scanning = ref<{ label: string; viaMachine: boolean } | null>(null);
+// The configure step shows what the scan found, rather than a repository field.
+const fromScan = ref(false);
+// A setup chosen before the scan (from the library), kept over what it finds.
+const preferredSetup = ref<string | null>(null);
+let scanToken = 0;
+
+const github = ref<GitHubRepositories | null>(null);
+const gitlab = ref<GitLabRepositories | null>(null);
+const branches = ref<{ repo: string; names: string[] } | null>(null);
 
 const branchOptions = computed<SelectMenuOption<string>[]>(() => {
     const found = detection.value;
@@ -189,45 +490,72 @@ const branchOptions = computed<SelectMenuOption<string>[]>(() => {
 });
 
 async function loadRepositories(): Promise<void> {
+    await Promise.all([loadGitHub(), loadGitLab()]);
+}
+
+async function loadGitLab(): Promise<void> {
+    if (gitlab.value) {
+        return;
+    }
+
+    try {
+        const response = await request(
+            onWorkspace(gitlabRoutes.repositories(page.props.workspace.slug))
+                .url,
+        );
+
+        gitlab.value = response.ok
+            ? await response.json()
+            : { connected: false, accounts: [], repositories: [] };
+    } catch {
+        gitlab.value = { connected: false, accounts: [], repositories: [] };
+    }
+}
+
+async function loadGitHub(): Promise<void> {
     if (github.value || !page.props.githubApp) {
         return;
     }
 
     try {
-        const response = await fetch('/github/repositories', {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-        });
+        const response = await request(
+            onWorkspace(githubRoutes.repositories(page.props.workspace.slug))
+                .url,
+        );
 
-        if (response.ok) {
-            github.value = await response.json();
-        }
-    } catch {}
-}
-
-function pickRepository(repository: Repository): void {
-    query.value = repository.url;
-    void detect();
+        github.value = response.ok
+            ? await response.json()
+            : { connected: false, accounts: [], repositories: [] };
+    } catch {
+        github.value = { connected: false, accounts: [], repositories: [] };
+    }
 }
 
 async function loadBranches(found: Detection): Promise<void> {
     const match = found.upload
         ? null
         : found.repo.match(/^https:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
+    const fromGitLab =
+        !found.upload && !match && found.repo.startsWith('https://');
 
-    if (!match) {
+    if (!match && !fromGitLab) {
         return;
     }
 
     try {
-        const response = await fetch(
-            `/github/repositories/${match[1]}/${match[2]}/branches`,
-            {
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json' },
-            },
+        const response = await request(
+            onWorkspace(
+                match
+                    ? githubRoutes.branches({
+                          workspace: page.props.workspace.slug,
+                          owner: match[1],
+                          repo: match[2],
+                      })
+                    : gitlabRoutes.branches(page.props.workspace.slug, {
+                          query: { repo: found.repo },
+                      }),
+            ).url,
         );
-
         const names = response.ok ? (await response.json()).branches : null;
 
         // An answer for a repository that's no longer shown is dropped.
@@ -237,83 +565,8 @@ async function loadBranches(found: Detection): Promise<void> {
     } catch {}
 }
 
-function switchBranch(branch: string): void {
-    if (!detection.value || branch === detection.value.branch) {
-        return;
-    }
-
-    const folder = detection.value.baseDir;
-    query.value = `${detection.value.repo.replace(/\.git$/, '')}/tree/${branch}${folder ? `/${folder}` : ''}`;
-    void detect();
-}
-
-// The app's folder in a monorepo: detection runs again for that folder.
-const folderInput = ref('');
-watch(
-    () => detection.value?.baseDir,
-    (folder) => (folderInput.value = folder ?? ''),
-);
-
-function switchFolder(): void {
-    if (!detection.value || detection.value.upload) return;
-    const folder = folderInput.value.trim().replace(/^\/+|\/+$/g, '');
-    if (folder === (detection.value.baseDir ?? '')) return;
-    query.value = `${detection.value.repo.replace(/\.git$/, '')}/tree/${detection.value.branch}${folder ? `/${folder}` : ''}`;
-    void detect();
-}
-
-async function detect(): Promise<void> {
-    const repository = query.value.trim();
-
-    if (!repository || detecting.value) {
-        return;
-    }
-    if (SSH_REPO.test(repository)) {
-        startSsh(repository);
-        return;
-    }
-    ssh.value = null;
-
-    detecting.value = true;
-    detectError.value = null;
-    detection.value = null;
-
-    try {
-        const response = await fetch('/services/detect', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN':
-                    document.querySelector<HTMLMetaElement>(
-                        'meta[name="csrf-token"]',
-                    )?.content ?? '',
-            },
-            body: JSON.stringify({ repository }),
-        });
-        const body = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            detectError.value = describe(response.status, body);
-
-            return;
-        }
-
-        detection.value = body as Detection;
-        customSlug.value = body.template ?? '';
-        void loadBranches(body as Detection);
-    } catch (cause) {
-        detectError.value = errorMessage(cause);
-    } finally {
-        detecting.value = false;
-    }
-}
-
-// A private repository on another git host, over SSH: the machine makes a
-// deploy key for the app, the person adds it to the repository, and the
-// machine looks up the branch's commit with it, so the deploy is pinned.
-const SSH_REPO = /^(?:[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:|ssh:\/\/)/;
+// A private repository over SSH: the machine makes a deploy key for the app,
+// the person adds it to the repository, and the machine reads it with it.
 type SshSource = {
     repo: string;
     service: string;
@@ -321,7 +574,7 @@ type SshSource = {
     branch: string;
     commit: string | null;
     ref: string | null;
-    busy: 'key' | 'resolve' | null;
+    busy: 'key' | 'resolve' | 'inspect' | null;
     error: string | null;
 };
 const ssh = ref<SshSource | null>(null);
@@ -329,10 +582,247 @@ const sshSetup = ref('');
 // The deploy key belongs to the app's name, so it can't change after.
 const lockedService = ref(false);
 
-function startSsh(repo: string): void {
+const zip = useZipUpload();
+const packing = ref(false);
+const packProgress = ref(0);
+const uploadName = ref('');
+const fileInput = ref<HTMLInputElement | null>(null);
+const folderPicker = ref<HTMLInputElement | null>(null);
+const dragging = ref(0);
+
+const busy = computed(
+    () => packing.value || zip.uploading.value || scanning.value !== null,
+);
+
+function resetOwnCode(): void {
+    scanToken++;
+    scanning.value = null;
     detection.value = null;
     detectError.value = null;
+    ssh.value = null;
     sshSetup.value = '';
+    fromScan.value = false;
+    preferredSetup.value = null;
+}
+
+function importRepository(text: string): void {
+    const repository = text.trim();
+    if (!repository || busy.value) return;
+
+    category.value = OWN_CODE;
+    repoInput.value = repository;
+
+    if (isSshRepository(repository)) {
+        startSsh(repository);
+
+        return;
+    }
+
+    void scan({ repository });
+}
+
+function submitRepo(): void {
+    const text = repoInput.value.trim();
+    if (!text) {
+        repoField.value?.focus();
+
+        return;
+    }
+    if (!looksLikeRepository(text) && !/^[\w.-]+\/[\w.-]+$/.test(text)) {
+        detectError.value = trans(
+            'Paste the repository’s address, like https://github.com/you/app or git@gitlab.com:you/app.git.',
+        );
+
+        return;
+    }
+    importRepository(text);
+}
+
+type ScanInput = {
+    repository: string;
+    ref?: string | null;
+    baseDir?: string | null;
+    service?: string | null;
+};
+
+/**
+ * Works out what a repository is: GitHub's API for a github.com one, the
+ * machine for any other host (it fetches the repository, with the app's
+ * deploy key for an SSH address). Opens the setup with what it found.
+ */
+async function scan(input: ScanInput, keep = false): Promise<void> {
+    const token = ++scanToken;
+    const overSsh = isSshRepository(input.repository);
+    scanning.value = {
+        label: repositoryLabel(input.repository).split('/tree/')[0],
+        viaMachine: overSsh,
+    };
+    detectError.value = null;
+
+    try {
+        let found: Detection | null = null;
+        let inspect = overSsh;
+
+        if (!overSsh) {
+            const repository =
+                input.ref || input.baseDir
+                    ? `${input.repository.replace(/\.git$/, '').split('/tree/')[0]}/tree/${input.ref ?? detection.value?.branch ?? 'HEAD'}${input.baseDir ? `/${input.baseDir}` : ''}`
+                    : input.repository;
+            const response = await request(
+                onWorkspace(servicesRoutes.detect(page.props.workspace.slug))
+                    .url,
+                { repository, machine: target.value },
+            );
+            const body = await response.json().catch(() => ({}));
+            if (token !== scanToken) return;
+
+            if (response.ok) {
+                found = body as Detection;
+            } else if (response.status === 422 && body.inspect === true) {
+                inspect = true;
+            } else {
+                detectError.value = describe(response.status, body);
+
+                return;
+            }
+        }
+
+        if (inspect) {
+            scanning.value = { ...scanning.value, viaMachine: true };
+            found = await inspectRepository(input, token);
+        }
+        if (token !== scanToken || !found) return;
+
+        continueFromScan(found, { keep, service: input.service ?? null });
+    } catch (cause) {
+        if (token === scanToken) detectError.value = errorMessage(cause);
+    } finally {
+        if (token === scanToken) scanning.value = null;
+    }
+}
+
+type MachineAnswer = {
+    jobId?: string;
+    state?: string;
+    publicKey?: string;
+    commit?: string;
+    ref?: string | null;
+    detection?: Detection;
+    error?: string;
+    nextStep?: string;
+};
+
+/** Runs a short job on the machine and waits for its answer, asking every 2 s. */
+async function machineJob(
+    url: string,
+    body: Record<string, unknown>,
+    token: () => boolean,
+    seconds: number,
+): Promise<{ answer: MachineAnswer | null; error: string | null }> {
+    const machineId = target.value;
+    const response = await request(url, body).catch(() => null);
+    if (!response) {
+        return {
+            answer: null,
+            error: trans('Couldn’t reach ServerOS. Try again.'),
+        };
+    }
+    let answer = (await response.json().catch(() => ({}))) as MachineAnswer;
+    if (!response.ok) {
+        return { answer: null, error: describe(response.status, answer) };
+    }
+
+    const deadline = Date.now() + seconds * 1000;
+    while (
+        (answer.state === 'queued' || answer.state === 'running') &&
+        answer.jobId &&
+        Date.now() < deadline
+    ) {
+        await sleep(2000);
+        if (!token()) return { answer: null, error: null };
+        const next = await request(
+            onWorkspace(
+                machinesRoutes.deploy.job({
+                    workspace: page.props.workspace.slug,
+                    machine: machineId,
+                    job: answer.jobId,
+                }),
+            ).url,
+        ).catch(() => null);
+        if (next?.ok) answer = (await next.json()) as MachineAnswer;
+    }
+    if (answer.state === 'queued' || answer.state === 'running') {
+        return {
+            answer: null,
+            error: trans(
+                'The machine hasn’t answered yet. Check it’s online, then try again.',
+            ),
+        };
+    }
+    if (answer.error) {
+        return {
+            answer: null,
+            error: [answer.error, answer.nextStep]
+                .filter(Boolean)
+                .map((part) => part!.replace(/\.?$/, '.'))
+                .join(' '),
+        };
+    }
+
+    return { answer, error: null };
+}
+
+async function inspectRepository(
+    input: ScanInput,
+    token: number,
+): Promise<Detection | null> {
+    const { answer, error: problem } = await machineJob(
+        onWorkspace(
+            machinesRoutes.deploy.inspect({
+                workspace: page.props.workspace.slug,
+                machine: target.value,
+            }),
+        ).url,
+        {
+            repository: input.repository,
+            ref: input.ref ?? null,
+            base_dir: input.baseDir ?? null,
+            service: input.service ?? null,
+        },
+        () => token === scanToken && open.value,
+        200,
+    );
+    if (token !== scanToken) return null;
+    if (problem) detectError.value = problem;
+
+    return answer?.detection ?? null;
+}
+
+function cancelScan(): void {
+    scanToken++;
+    scanning.value = null;
+}
+
+/** Another branch or folder of the same code: looks again, keeping what's been filled in. */
+function rescan(change: { branch?: string; folder?: string }): void {
+    const found = detection.value;
+    if (!found || found.upload || busy.value) return;
+    void scan(
+        {
+            repository: found.repo,
+            ref: change.branch ?? found.branch,
+            baseDir:
+                change.folder !== undefined
+                    ? change.folder || null
+                    : (found.baseDir ?? null),
+            service: lockedService.value ? form.value.service : null,
+        },
+        true,
+    );
+}
+
+function startSsh(repo: string): void {
+    resetOwnCode();
     ssh.value = {
         repo,
         service: freeName(repoServiceName(repo) || 'app'),
@@ -345,307 +835,201 @@ function startSsh(repo: string): void {
     };
 }
 
-type KeyAnswer = {
-    jobId?: string;
-    state?: string;
-    publicKey?: string;
-    commit?: string;
-    ref?: string | null;
-    error?: string;
-    nextStep?: string;
-};
-
-async function runKeyJob(
-    path: 'key' | 'resolve',
-    body: Record<string, string>,
-): Promise<KeyAnswer | null> {
-    const source = ssh.value;
-    if (!source) return null;
-    source.error = null;
-    const response = await fetch(
-        `/machines/${props.machineId}/deploy/${path}`,
-        {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN':
-                    document.querySelector<HTMLMetaElement>(
-                        'meta[name="csrf-token"]',
-                    )?.content ?? '',
-            },
-            body: JSON.stringify(body),
-        },
-    ).catch(() => null);
-    if (!response) {
-        source.error = trans('Couldn’t reach ServerOS. Try again.');
-        return null;
-    }
-    let answer = (await response.json().catch(() => ({}))) as KeyAnswer;
-    if (!response.ok) {
-        source.error = describe(response.status, answer);
-        return null;
-    }
-
-    const deadline = Date.now() + 60_000;
-    while (
-        (answer.state === 'queued' || answer.state === 'running') &&
-        answer.jobId &&
-        Date.now() < deadline
-    ) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        const next = await fetch(
-            `/machines/${props.machineId}/deploy/jobs/${answer.jobId}`,
-            {
-                credentials: 'same-origin',
-                headers: { Accept: 'application/json' },
-            },
-        ).catch(() => null);
-        if (next?.ok) answer = (await next.json()) as KeyAnswer;
-    }
-    if (answer.state === 'queued' || answer.state === 'running') {
-        source.error = trans(
-            'The machine hasn’t answered yet. Check it’s online, then try again.',
-        );
-        return null;
-    }
-    if (answer.error) {
-        source.error = [answer.error, answer.nextStep]
-            .filter(Boolean)
-            .join('. ');
-        return null;
-    }
-
-    return answer;
-}
-
 async function makeKey(): Promise<void> {
-    const source = ssh.value;
-    if (!source || source.busy) return;
-    source.busy = 'key';
-    const answer = await runKeyJob('key', { service: source.service });
-    source.busy = null;
-    if (answer?.publicKey) source.publicKey = answer.publicKey;
+    const current = ssh.value;
+    if (!current || current.busy) return;
+    current.busy = 'key';
+    current.error = null;
+    const { answer, error: problem } = await machineJob(
+        onWorkspace(
+            machinesRoutes.deploy.key({
+                workspace: page.props.workspace.slug,
+                machine: target.value,
+            }),
+        ).url,
+        { service: current.service },
+        () => ssh.value === current && open.value,
+        60,
+    );
+    current.busy = null;
+    current.error = problem;
+    if (answer?.publicKey) current.publicKey = answer.publicKey;
 }
 
+// Newer daemons read the repository with the key and work out what it is.
+async function inspectSsh(): Promise<void> {
+    const current = ssh.value;
+    if (!current || current.busy) return;
+    current.busy = 'inspect';
+    current.error = null;
+    await scan({
+        repository: current.repo,
+        ref: current.branch || null,
+        service: current.service,
+    });
+    if (ssh.value === current) current.busy = null;
+}
+
+// Older daemons only look up the branch's commit; the setup is chosen by hand.
 async function lookUpBranch(): Promise<void> {
-    const source = ssh.value;
-    if (!source || source.busy) return;
-    source.busy = 'resolve';
+    const current = ssh.value;
+    if (!current || current.busy) return;
+    current.busy = 'resolve';
+    current.error = null;
     const body: Record<string, string> = {
-        service: source.service,
-        repo: source.repo,
+        service: current.service,
+        repo: current.repo,
     };
-    if (source.branch) body.ref = source.branch;
-    const answer = await runKeyJob('resolve', body);
-    source.busy = null;
+    if (current.branch) body.ref = current.branch;
+    const { answer, error: problem } = await machineJob(
+        onWorkspace(
+            machinesRoutes.deploy.resolve({
+                workspace: page.props.workspace.slug,
+                machine: target.value,
+            }),
+        ).url,
+        body,
+        () => ssh.value === current && open.value,
+        60,
+    );
+    current.busy = null;
+    current.error = problem;
     if (answer?.commit) {
-        source.commit = answer.commit;
-        source.ref = answer.ref ?? null;
+        current.commit = answer.commit;
+        current.ref = answer.ref ?? null;
     }
 }
 
 function continueSsh(): void {
-    const source = ssh.value;
-    const template = appTemplates.value.find(
-        (candidate) => candidate.slug === sshSetup.value,
-    );
-    if (!source?.commit || !template) return;
-    choose(template, { repo: source.repo, commit: source.commit });
-    form.value.service = source.service;
-    suggested.value = { service: source.service, port: form.value.port };
+    const current = ssh.value;
+    const template = templateBySlug(sshSetup.value);
+    if (!current?.commit || !template) return;
+    choose(template, { repo: current.repo, commit: current.commit });
+    form.value.service = current.service;
+    suggested.value = { service: current.service, port: form.value.port };
     lockedService.value = true;
 }
 
-const zip = useZipUpload();
-const uploading = zip.uploading;
-const uploadProgress = zip.progress;
-const dragging = ref(false);
-const fileInput = ref<HTMLInputElement | null>(null);
+const canInspectSsh = computed(() => capabilities.value?.canInspect ?? true);
 
-async function uploadZip(file: File | undefined): Promise<void> {
-    detectError.value = null;
-    detection.value = null;
-    const found = await zip.upload(props.machineId, file);
-    if (fileInput.value) fileInput.value.value = '';
-    if (!found) {
-        detectError.value = zip.error.value;
-        return;
-    }
-    detection.value = found as Detection;
-    customSlug.value = found.template ?? '';
+function uploadLabel(files: PickedFile[]): string {
+    if (files.length === 1) return files[0].file.name;
+    const name = archiveName(files);
+
+    return name === 'app.zip'
+        ? trans(':count files', { count: String(files.length) })
+        : name.replace(/\.zip$/, '');
 }
 
-function onDrop(event: DragEvent): void {
-    dragging.value = false;
-    void uploadZip(event.dataTransfer?.files?.[0]);
+async function takeFiles(files: PickedFile[]): Promise<void> {
+    if (busy.value) return;
+    category.value = OWN_CODE;
+    resetOwnCode();
+
+    if (files.length === 0) {
+        detectError.value = trans(
+            'Nothing to upload once dependencies and build folders are left out.',
+        );
+
+        return;
+    }
+
+    uploadName.value = uploadLabel(files);
+    let file = files[0].file;
+
+    if (!(files.length === 1 && isZip(file))) {
+        packing.value = true;
+        packProgress.value = 0;
+        try {
+            file = await pack(files, (done) => (packProgress.value = done));
+        } catch (cause) {
+            detectError.value =
+                cause instanceof PackError
+                    ? cause.message
+                    : errorMessage(cause);
+
+            return;
+        } finally {
+            packing.value = false;
+        }
+    }
+
+    const found = await zip.upload(target.value, file);
+    if (fileInput.value) fileInput.value.value = '';
+    if (folderPicker.value) folderPicker.value.value = '';
+    if (!found) {
+        detectError.value = zip.error.value;
+
+        return;
+    }
+    continueFromScan(found as Detection);
+}
+
+async function onDrop(transfer: DataTransfer | null): Promise<void> {
+    dragging.value = 0;
+    void takeFiles(await fromDrop(transfer));
 }
 
 function onPick(event: Event): void {
-    void uploadZip((event.target as HTMLInputElement).files?.[0]);
+    void takeFiles(fromInput((event.target as HTMLInputElement).files));
 }
 
-function sourceLabel(found: Detection): string {
-    if (found.upload) {
-        return `${found.upload.filename} · ${found.upload.files} files`;
-    }
-    return `${found.repo
-        .replace('https://github.com/', '')
-        .replace(
-            /\.git$/,
-            '',
-        )}${found.baseDir ? `/${found.baseDir}` : ''} · ${found.branch} @ ${found.commit.slice(0, 7)}`;
-}
-
-function continueCustom(): void {
-    if (!detection.value || !customTemplate.value) {
-        return;
-    }
-
-    choose(customTemplate.value, {
-        repo: detection.value.repo,
-        commit: detection.value.commit,
-        // A Compose file is named by its path from the root instead.
-        baseDir: customTemplate.value.compose
-            ? null
-            : (detection.value.baseDir ?? null),
-    });
-
-    if (customTemplate.value.compose) {
-        form.value.compose_file =
-            detection.value.composeFile ?? customTemplate.value.compose;
-        form.value.port = detection.value.composePort ?? form.value.port;
-        suggested.value = {
-            service: form.value.service,
-            port: form.value.port,
+const uploadPhase = computed(() => {
+    if (packing.value) {
+        return {
+            text: trans('Packing :name…', { name: uploadName.value }),
+            progress: packProgress.value,
         };
     }
-
-    const upload = detection.value.upload;
-    if (upload) {
-        const name = repoServiceName(upload.filename.replace(/\.zip$/i, ''));
-        if (name) form.value.service = name;
+    if (zip.uploading.value) {
+        return zip.progress.value < 1
+            ? {
+                  text: trans('Uploading :name…', { name: uploadName.value }),
+                  progress: zip.progress.value,
+              }
+            : { text: trans('Looking inside…'), progress: null };
     }
-}
 
-const results = computed(() => {
-    const words = query.value.toLowerCase().split(/\s+/).filter(Boolean);
-
-    return props.templates.filter((template) => {
-        if (category.value !== 'All' && template.category !== category.value) {
-            return false;
-        }
-
-        const haystack =
-            `${template.name} ${template.slug} ${template.description} ${template.category}`.toLowerCase();
-
-        return words.every((word) => haystack.includes(word));
-    });
+    return null;
 });
 
-const grouped = computed(() => {
-    const groups: {
-        category: string;
-        items: { template: ServiceTemplate; index: number }[];
-    }[] = [];
-
-    results.value.forEach((template, index) => {
-        let group = groups.find((g) => g.category === template.category);
-
-        if (!group) {
-            group = { category: template.category, items: [] };
-            groups.push(group);
-        }
-
-        group.items.push({ template, index });
-    });
-
-    return groups;
-});
-
-watch([query, category], () => (activeIndex.value = 0));
-
-watch(category, (next, previous) => {
-    if (next === 'Custom') {
+watch(category, (next) => {
+    if (next === OWN_CODE) {
         void loadRepositories();
     }
-
-    if (next === 'Custom' || previous === 'Custom') {
-        query.value = '';
-        detection.value = null;
-        ssh.value = null;
-        detectError.value = null;
-        nextTick(() => searchInput.value?.focus());
-    }
 });
 
-function onSearchKeydown(event: KeyboardEvent): void {
-    if (isCustom.value) {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            detect();
-        }
-
-        return;
-    }
-
-    const count = results.value.length;
-    const step = window.matchMedia('(min-width: 1024px)').matches
-        ? 3
-        : window.matchMedia('(min-width: 640px)').matches
-          ? 2
-          : 1;
-    const moves: Record<string, number> = {
-        ArrowDown: step,
-        ArrowUp: -step,
-        ArrowRight: 1,
-        ArrowLeft: -1,
-    };
-    const move = moves[event.key];
-    const caretKey =
-        (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
-        query.value !== '';
-
-    if (move !== undefined && count && !caretKey) {
-        event.preventDefault();
-        activeIndex.value = Math.min(
-            count - 1,
-            Math.max(0, activeIndex.value + move),
-        );
-        scrollActiveIntoView();
-    } else if (event.key === 'Enter' && count) {
-        event.preventDefault();
-        choose(results.value[activeIndex.value]);
-    }
-}
-
-function scrollActiveIntoView(): void {
-    nextTick(() =>
-        document
-            .getElementById(`template-${activeIndex.value}`)
-            ?.scrollIntoView({ block: 'nearest' }),
-    );
-}
-
+// The setup being configured.
 const selected = ref<ServiceTemplate | null>(null);
 const form = ref({
     service: '',
     port: '' as string | number,
     repo: '',
     commit: '',
+    branch: null as string | null,
     base_dir: '',
-    health_path: '',
     compose_file: '',
+    php: '',
     domain: '',
     wildcard: false,
     proxy: '',
     https: true,
     env: {} as Record<string, string | boolean>,
-    extra_env: '',
 });
-const showExtraEnv = ref(false);
+const healthDefaults = ref<HealthForm>(
+    defaultHealth({ kind: 'app', web: true, health: '/' }, null, true),
+);
+const build = ref<BuildForm>(emptyBuild(healthDefaults.value));
+const envRows = ref<EnvRow[]>([]);
+const importExample = ref(false);
+const addressMode = ref<AddressMode>('free');
+const advancedOpen = ref(false);
+// A template's settings that have defaults, shown when someone asks.
+const fieldsOpen = ref(false);
+// What the deploy said when it was turned down for Docker missing.
+const dockerMessage = ref<string | null>(null);
 const errors = ref<Record<string, string>>({});
+const submitting = ref(false);
 
 watch(
     () => errors.value.form,
@@ -655,61 +1039,47 @@ watch(
         }
     },
 );
-const submitting = ref(false);
 
-const taken = ref<{ services: string[]; ports: number[] }>({
-    services: [],
-    ports: [],
-});
-
-type Proxy = 'caddy' | 'nginx' | 'apache' | 'traefik';
-
-const proxyNames: Record<Proxy, string> = {
-    caddy: 'Caddy',
-    nginx: 'nginx',
-    apache: 'Apache',
-    traefik: 'Traefik',
-};
-const machineProxy = ref<string | null>(null);
-const canChooseProxy = ref(false);
-const canChooseHttps = ref(false);
-// Like 203-0-113-5.sslip.io: names under it resolve to the machine's public address.
-const freeAddress = ref<string | null>(null);
-const deployedProxy = ref<Proxy>('caddy');
-
-const currentProxy = computed<Proxy>(() =>
-    machineProxy.value && machineProxy.value in proxyNames
-        ? (machineProxy.value as Proxy)
-        : 'caddy',
+const method = computed(() =>
+    selected.value ? methodOf(selected.value) : 'dockerfile',
 );
-const chosenProxy = computed<Proxy>(() =>
-    form.value.proxy in proxyNames
-        ? (form.value.proxy as Proxy)
-        : currentProxy.value,
+const isAppLike = computed(
+    () => selected.value?.kind === 'app' || selected.value?.kind === 'image',
 );
-const proxyOptions = computed<SelectMenuOption<Proxy>[]>(() => [
-    {
-        value: 'caddy',
-        label: 'Caddy',
-        hint: trans('HTTPS on its own, wildcard subdomains too'),
-    },
-    {
-        value: 'nginx',
-        label: 'nginx',
-        hint: trans('HTTPS from Let’s Encrypt, through certbot'),
-    },
-    {
-        value: 'apache',
-        label: 'Apache',
-        hint: trans('HTTPS from Let’s Encrypt, through certbot'),
-    },
-    {
-        value: 'traefik',
-        label: 'Traefik',
-        hint: trans('HTTPS on its own'),
-    },
-]);
+const uploadSource = computed(() =>
+    detection.value?.upload && form.value.repo === detection.value.repo
+        ? detection.value.upload
+        : null,
+);
+// Each setting can be kept to the build or the running app where the build reads them.
+const showFlags = computed(
+    () =>
+        canDeployBuild.value &&
+        ['railpack', 'dockerfile', 'template'].includes(method.value),
+);
+const offersFree = computed(
+    () =>
+        Boolean(selected.value?.web) &&
+        isAppLike.value &&
+        canDeployBuild.value &&
+        freeAddress.value !== null,
+);
+const buildOptions = computed(() => ({
+    canDeployBuild: canDeployBuild.value,
+    upload: uploadSource.value !== null,
+    web: Boolean(selected.value?.web),
+}));
+const advancedChanged = computed(() =>
+    changedCount(
+        build.value,
+        method.value,
+        healthDefaults.value,
+        buildOptions.value,
+    ),
+);
+
 const suggested = ref<{ service: string; port: string | number } | null>(null);
+const nameBase = ref('');
 
 function freeName(base: string): string {
     if (!taken.value.services.includes(base)) {
@@ -737,15 +1107,19 @@ function freePort(port: number): number {
 }
 
 async function loadTaken(): Promise<void> {
-    const machineId = props.machineId;
+    const machineId = target.value;
 
     try {
-        const response = await fetch(`/machines/${machineId}/deploy/taken`, {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-        });
+        const response = await request(
+            onWorkspace(
+                machinesRoutes.deploy.taken({
+                    workspace: page.props.workspace.slug,
+                    machine: machineId,
+                }),
+            ).url,
+        );
 
-        if (!response.ok || machineId !== props.machineId) {
+        if (!response.ok || machineId !== target.value) {
             return;
         }
 
@@ -755,13 +1129,25 @@ async function loadTaken(): Promise<void> {
             proxy?: string | null;
             canChooseProxy?: boolean;
             canChooseHttps?: boolean;
+            canDeployBuild?: boolean;
+            canInspect?: boolean;
+            docker?: { installed: boolean | null; canInstall: boolean };
+            domains?: { domain: string; app: string }[];
             freeAddress?: string | null;
+            machines?: DeployMachine[];
         };
         taken.value = { services: body.services, ports: body.ports };
         freeAddress.value = body.freeAddress ?? null;
         machineProxy.value = body.proxy ?? null;
         canChooseProxy.value = Boolean(body.canChooseProxy);
         canChooseHttps.value = Boolean(body.canChooseHttps);
+        capabilities.value = {
+            canDeployBuild: body.canDeployBuild ?? false,
+            canInspect: body.canInspect ?? false,
+            docker: body.docker ?? { installed: null, canInstall: false },
+            domains: body.domains ?? [],
+        };
+        if (body.machines?.length) machines.value = body.machines;
     } catch {
         return;
     }
@@ -773,11 +1159,14 @@ async function loadTaken(): Promise<void> {
         template &&
         suggested.value &&
         form.value.service === suggested.value.service &&
-        form.value.port === suggested.value.port
+        form.value.port === suggested.value.port &&
+        !lockedService.value
     ) {
-        form.value.service = freeName(suggested.value.service);
+        form.value.service = freeName(
+            nameBase.value || suggested.value.service,
+        );
 
-        if (template.portEditable && template.kind !== 'app') {
+        if (template.portEditable && template.kind === 'compose') {
             form.value.port = freePort(template.port);
         }
 
@@ -788,6 +1177,14 @@ async function loadTaken(): Promise<void> {
     }
 }
 
+watch(target, () => {
+    if (open.value) void loadTaken();
+});
+
+const canSwitchMachine = computed(
+    () => !props.backCloses && machines.value.length > 1,
+);
+
 const replacesExisting = computed(
     () =>
         step.value === 'configure' &&
@@ -797,7 +1194,7 @@ const replacesExisting = computed(
 const portTaken = computed(
     () =>
         Boolean(selected.value?.portEditable) &&
-        selected.value?.kind !== 'app' &&
+        selected.value?.kind === 'compose' &&
         !replacesExisting.value &&
         taken.value.ports.includes(Number(form.value.port)),
 );
@@ -805,7 +1202,8 @@ const portTaken = computed(
 function repoServiceName(repo: string): string {
     const name = repo
         .replace(/\.git$/, '')
-        .split('/')
+        .replace(/\/tree\/.*$/, '')
+        .split(/[/:]/)
         .pop()
         ?.toLowerCase()
         .replace(/[^a-z0-9-]+/g, '-')
@@ -816,59 +1214,271 @@ function repoServiceName(repo: string): string {
 
 function serviceNameFor(template: ServiceTemplate): string {
     const name =
-        template.slug === 'custom-dockerfile' || template.compose
+        template.slug === 'custom-dockerfile' ||
+        template.slug === 'auto-build' ||
+        template.slug === 'docker-image' ||
+        template.compose
             ? 'app'
             : template.slug;
 
     return name.replace(/[^a-z0-9-]/g, '-').slice(0, 63);
 }
 
+/** The port a setup starts with: what the scan found, or its own. */
+function defaultPort(
+    template: ServiceTemplate,
+    found: Detection | null,
+): number | '' {
+    if (template.kind === 'compose') {
+        return template.portEditable ? freePort(template.port) : template.port;
+    }
+    if (!template.portEditable) return template.port;
+    const how = methodOf(template);
+    // A newer daemon reads the port itself (EXPOSE, or what Compose publishes).
+    if (how === 'compose') {
+        return (
+            found?.composePort ?? (canDeployBuild.value ? '' : template.port)
+        );
+    }
+    if (how === 'image') return canDeployBuild.value ? '' : template.port;
+    if (how === 'dockerfile') {
+        return found?.port ?? (canDeployBuild.value ? '' : template.port);
+    }
+
+    return template.port;
+}
+
+function templateEnv(
+    template: ServiceTemplate,
+): Record<string, string | boolean> {
+    return Object.fromEntries(
+        template.env.map((entry) => [
+            entry.key,
+            entry.accept ? false : entry.default,
+        ]),
+    );
+}
+
+/**
+ * Switches the setup, keeping what isn't about how it's built: the name,
+ * the address and the settings.
+ */
+function applyTemplate(template: ServiceTemplate): void {
+    const found = fromScan.value ? detection.value : null;
+    const same = selected.value?.slug === template.slug;
+    selected.value = template;
+    form.value.port = defaultPort(template, found);
+    form.value.compose_file = template.compose
+        ? (found?.composeFile ?? template.compose)
+        : '';
+    // A Compose file is named by its path from the root instead.
+    form.value.base_dir = template.compose ? '' : (found?.baseDir ?? '');
+    form.value.php =
+        found?.php && found.template === template.slug ? found.php : '';
+    // Looking at another branch or folder keeps what was typed in.
+    if (!same) form.value.env = templateEnv(template);
+    const path =
+        found?.healthPath && found.template === template.slug
+            ? found.healthPath
+            : null;
+    healthDefaults.value = defaultHealth(template, path, canDeployBuild.value);
+    build.value = {
+        ...build.value,
+        health: { ...healthDefaults.value },
+        image: template.kind === 'image' ? build.value.image : '',
+    };
+    if (offersFreeFor(template)) {
+        addressMode.value =
+            methodOf(template) === 'compose' && form.value.port === ''
+                ? 'none'
+                : 'free';
+    }
+    errors.value = {};
+}
+
+function offersFreeFor(template: ServiceTemplate): boolean {
+    return (
+        template.web &&
+        (template.kind === 'app' || template.kind === 'image') &&
+        canDeployBuild.value &&
+        freeAddress.value !== null
+    );
+}
+
+/** A fresh setup of a template: from the library, or for code just scanned. */
 function choose(
-    template: ServiceTemplate | undefined,
-    source: {
+    template: ServiceTemplate | null | undefined,
+    from: {
         repo: string;
         commit: string;
+        branch?: string | null;
         baseDir?: string | null;
+        name?: string;
     } | null = null,
 ): void {
     if (!template) {
         return;
     }
 
-    selected.value = template;
+    if (!from) {
+        fromScan.value = false;
+        detection.value = null;
+    }
     lockedService.value = false;
+    nameBase.value = from
+        ? from.name || repoServiceName(from.repo) || serviceNameFor(template)
+        : serviceNameFor(template);
     form.value = {
-        service: freeName(
-            source
-                ? repoServiceName(source.repo) || serviceNameFor(template)
-                : serviceNameFor(template),
-        ),
-        port:
-            template.portEditable && template.kind !== 'app'
-                ? freePort(template.port)
-                : template.port,
-        repo: source?.repo ?? '',
-        commit: source?.commit ?? '',
-        base_dir: source?.baseDir ?? '',
-        health_path: template.health ?? '/',
-        compose_file: template.compose ?? '',
+        service: freeName(nameBase.value),
+        port: '',
+        repo: from?.repo ?? '',
+        commit: from?.commit ?? '',
+        branch: from?.branch ?? null,
+        base_dir: from?.baseDir ?? '',
+        compose_file: '',
+        php: '',
         domain: '',
         wildcard: false,
         proxy: '',
         https: true,
-        env: Object.fromEntries(
-            template.env.map((field) => [
-                field.key,
-                field.accept ? false : field.default,
-            ]),
-        ),
-        extra_env: '',
+        env: {},
     };
+    build.value = emptyBuild(healthDefaults.value);
+    envRows.value = [];
+    importExample.value = false;
+    addressMode.value = 'free';
+    advancedOpen.value = false;
+    fieldsOpen.value = false;
+    dockerMessage.value = null;
+    selected.value = null;
+    applyTemplate(template);
     suggested.value = { service: form.value.service, port: form.value.port };
-    showExtraEnv.value = false;
-    errors.value = {};
     step.value = 'configure';
 }
+
+/** Opens the setup for what a scan or an upload found. */
+function continueFromScan(
+    found: Detection,
+    options: { keep?: boolean; service?: string | null } = {},
+): void {
+    const keep = options.keep && step.value === 'configure';
+    detection.value = found;
+    fromScan.value = true;
+    const slug =
+        preferredSetup.value ??
+        found.template ??
+        // An upload isn't matched against Railpack: build what it can't name with it.
+        (canDeployBuild.value ? 'auto-build' : 'custom-dockerfile');
+    const template =
+        templateBySlug(slug) ?? templateBySlug('custom-dockerfile');
+    if (!template) return;
+
+    if (keep) {
+        form.value.repo = found.repo;
+        form.value.commit = found.commit ?? '';
+        form.value.branch = found.branch;
+        applyTemplate(template);
+    } else {
+        // An app in a folder of a monorepo is named after the folder.
+        const name = found.upload
+            ? repoServiceName(found.upload.filename.replace(/\.zip$/i, ''))
+            : repoServiceName(found.baseDir || found.repo);
+        choose(template, {
+            repo: found.repo,
+            commit: found.commit ?? '',
+            branch: found.upload ? null : found.branch,
+            baseDir: found.baseDir ?? null,
+            name: name || 'app',
+        });
+        if (options.service) {
+            form.value.service = options.service;
+            suggested.value = {
+                service: options.service,
+                port: form.value.port,
+            };
+            lockedService.value = true;
+        }
+    }
+    void loadBranches(found);
+}
+
+function changeSetup(slug: string): void {
+    const template = templateBySlug(slug);
+    if (template && template.slug !== selected.value?.slug) {
+        applyTemplate(template);
+    }
+}
+
+function openAdvanced(): void {
+    advancedOpen.value = true;
+    void nextTick(() =>
+        document
+            .getElementById('deploy-advanced')
+            ?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+    );
+}
+
+// The settings a .env.example suggests, minus the ones the setup fills in itself.
+const OWN_SETTINGS = ['PORT', 'HOST', 'DOCKER_BRIDGE'];
+const exampleVariables = computed(() => {
+    const own = new Set([
+        ...OWN_SETTINGS,
+        ...(selected.value?.env.map((entry) => entry.key) ?? []),
+    ]);
+
+    return (detection.value?.envExample?.variables ?? []).filter(
+        (variable) => !own.has(variable.name),
+    );
+});
+
+watch(importExample, (on) => {
+    const examples = exampleVariables.value;
+    if (on) {
+        const have = new Set(envRows.value.map((row) => row.name));
+        envRows.value = [
+            ...examples
+                .filter((variable) => !have.has(variable.name))
+                .map((variable) => envRow(variable.name, variable.value)),
+            ...envRows.value,
+        ];
+    } else {
+        // Takes back the ones still as the example had them.
+        envRows.value = envRows.value.filter(
+            (row) =>
+                !examples.some(
+                    (variable) =>
+                        variable.name === row.name &&
+                        variable.value === row.value,
+                ),
+        );
+    }
+});
+
+// An image's name makes a good app name, until someone types their own.
+watch(
+    () => build.value.image,
+    (image) => {
+        if (
+            selected.value?.kind !== 'image' ||
+            lockedService.value ||
+            !suggested.value ||
+            form.value.service !== suggested.value.service
+        ) {
+            return;
+        }
+        const name = image
+            .replace(/@.*$/, '')
+            .replace(/:[^/]*$/, '')
+            .split('/')
+            .pop()
+            ?.toLowerCase()
+            .replace(/[^a-z0-9-]+/g, '-')
+            .replace(/^[^a-z]+|-+$/g, '')
+            .slice(0, 63);
+        form.value.service = freeName(name || 'app');
+        suggested.value = { ...suggested.value, service: form.value.service };
+    },
+);
 
 function back(): void {
     if (props.backCloses) {
@@ -876,105 +1486,71 @@ function back(): void {
 
         return;
     }
+    if (fromScan.value || selected.value?.kind === 'image') {
+        category.value = OWN_CODE;
+    }
     step.value = 'pick';
-    nextTick(() => searchInput.value?.focus());
+    nextTick(() =>
+        (isOwnCode.value ? repoField.value : searchInput.value)?.focus(),
+    );
 }
 
 function errorFor(key: string): string | undefined {
     return errors.value[key];
 }
 
+// An app's template settings that have a default are filled in quietly;
+// only the ones that need an answer show until someone opens them.
+function needsInput(entry: TemplateField): boolean {
+    return entry.accept || (entry.required && entry.default === '');
+}
+
+const shownFields = computed(() => {
+    const fields = selected.value?.env ?? [];
+
+    return isAppLike.value && !fieldsOpen.value
+        ? fields.filter(needsInput)
+        : fields;
+});
+const filledFields = computed(() =>
+    isAppLike.value && !fieldsOpen.value
+        ? (selected.value?.env ?? []).filter((entry) => !needsInput(entry))
+        : [],
+);
+const filledNames = computed(() => {
+    const names = filledFields.value.map((entry) => entry.key);
+
+    return names.length > 4
+        ? trans(':names and :count more', {
+              names: names.slice(0, 3).join(', '),
+              count: String(names.length - 3),
+          })
+        : names.join(', ');
+});
+
 const missingAcceptance = computed(
     () =>
         selected.value?.env.some(
-            (field) => field.accept && form.value.env[field.key] !== true,
+            (entry) => entry.accept && form.value.env[entry.key] !== true,
         ) ?? false,
 );
 
-type DomainCheck = {
-    domain: string;
-    status: 'ready' | 'missing' | 'elsewhere' | 'proxied';
-    expected: string | null;
-    found: string[];
-    record: { type: string; name: string; value: string } | null;
-    wildcard?: Omit<DomainCheck, 'wildcard'>;
-};
-
-const DOMAIN_PATTERN =
-    /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
-
-const dns = ref<DomainCheck | null>(null);
-const dnsChecking = ref(false);
-let dnsTimer: ReturnType<typeof setTimeout> | undefined;
-let dnsRequest = 0;
-
-function bareDomain(value: string): string {
-    return value
-        .trim()
-        .toLowerCase()
-        .replace(/^[a-z]+:\/\//, '')
-        .replace(/[/?#].*$/, '')
-        .replace(/:\d+$/, '');
-}
-
-async function checkDomain(): Promise<void> {
-    const domain = bareDomain(form.value.domain);
-    const request = ++dnsRequest;
-
-    if (!DOMAIN_PATTERN.test(domain)) {
-        dns.value = null;
-        dnsChecking.value = false;
-
-        return;
-    }
-
-    dnsChecking.value = true;
-
-    try {
-        const response = await fetch(
-            `/machines/${props.machineId}/domain-check`,
-            {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    Accept: 'application/json',
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN':
-                        document.querySelector<HTMLMetaElement>(
-                            'meta[name="csrf-token"]',
-                        )?.content ?? '',
-                },
-                body: JSON.stringify({
-                    domain,
-                    wildcard: form.value.wildcard,
-                }),
-            },
-        );
-
-        if (request === dnsRequest) {
-            dns.value = response.ok
-                ? ((await response.json()) as DomainCheck)
-                : null;
-        }
-    } catch {
-        if (request === dnsRequest) {
-            dns.value = null;
-        }
-    } finally {
-        if (request === dnsRequest) {
-            dnsChecking.value = false;
-        }
-    }
-}
-
-watch(
-    () => [form.value.domain, form.value.wildcard],
-    () => {
-        clearTimeout(dnsTimer);
-        dns.value = null;
-        dnsTimer = setTimeout(checkDomain, 500);
-    },
+// Docker missing on the machine: install it from here (newer daemons).
+const showDocker = computed(
+    () =>
+        dockerMessage.value !== null ||
+        (capabilities.value?.docker.installed === false &&
+            capabilities.value.docker.canInstall),
 );
+
+function dockerInstalled(): void {
+    errors.value = Object.fromEntries(
+        Object.entries(errors.value).filter(([key]) => key !== 'docker'),
+    );
+    void loadTaken();
+}
+
+const ADVANCED_KEYS = /^(port|health_path|dockerfile|template|build\.)/;
 
 async function deploy(): Promise<void> {
     const template = selected.value;
@@ -983,11 +1559,35 @@ async function deploy(): Promise<void> {
         return;
     }
 
+    const code = template.kind === 'app';
+    const image = template.kind === 'image';
+
+    // An SSH repository deploys a commit its machine looked up with the app's deploy key.
+    if (
+        code &&
+        !uploadSource.value &&
+        isSshRepository(form.value.repo) &&
+        !/^[0-9a-f]{40}$/i.test(form.value.commit)
+    ) {
+        preferredSetup.value = template.slug;
+        const keep = preferredSetup.value;
+        category.value = OWN_CODE;
+        const service = form.value.service;
+        startSsh(form.value.repo);
+        preferredSetup.value = keep;
+        sshSetup.value = keep;
+        if (ssh.value) {
+            ssh.value.branch = form.value.commit;
+            ssh.value.service = service || ssh.value.service;
+        }
+        step.value = 'pick';
+
+        return;
+    }
+
     submitting.value = true;
     errors.value = {};
-    deployedProxy.value = canChooseProxy.value
-        ? chosenProxy.value
-        : currentProxy.value;
+    const machineId = target.value;
 
     const env = Object.fromEntries(
         Object.entries(form.value.env).map(([key, value]) => [
@@ -995,56 +1595,76 @@ async function deploy(): Promise<void> {
             typeof value === 'boolean' ? (value ? 'true' : '') : value,
         ]),
     );
+    const settings = envPayload(envRows.value);
+    const wantsDomain = offersFree.value
+        ? addressMode.value === 'domain'
+        : true;
+    const domain =
+        template.web && wantsDomain && form.value.domain
+            ? bareDomain(form.value.domain)
+            : null;
+    const port =
+        form.value.port === '' || form.value.port === null
+            ? null
+            : Number(form.value.port);
 
     try {
-        const response = await fetch(`/machines/${props.machineId}/deploy`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN':
-                    document.querySelector<HTMLMetaElement>(
-                        'meta[name="csrf-token"]',
-                    )?.content ?? '',
-            },
-            body: JSON.stringify({
+        const response = await request(
+            onWorkspace(
+                machinesRoutes.deploy({
+                    workspace: page.props.workspace.slug,
+                    machine: machineId,
+                }),
+            ).url,
+            {
                 template: template.slug,
                 service: form.value.service,
-                port: template.portEditable ? form.value.port : null,
-                repo: template.kind === 'app' ? form.value.repo : null,
-                commit: template.kind === 'app' ? form.value.commit : null,
+                port: template.portEditable ? port : null,
+                repo: code ? form.value.repo : null,
+                commit: code ? form.value.commit || null : null,
+                branch: code && form.value.branch ? form.value.branch : null,
                 health_path:
-                    template.kind === 'app' ? form.value.health_path : null,
+                    code || image ? build.value.health.path || '/' : null,
                 compose_file: template.compose
                     ? form.value.compose_file || null
                     : null,
                 base_dir:
-                    template.kind === 'app' && !template.compose
+                    code && !template.compose
                         ? form.value.base_dir || null
                         : null,
-                domain:
-                    template.web && form.value.domain
-                        ? bareDomain(form.value.domain)
-                        : null,
-                wildcard: Boolean(
-                    template.web && form.value.domain && form.value.wildcard,
-                ),
+                php: code && form.value.php ? form.value.php : null,
+                domain,
+                wildcard: Boolean(domain && form.value.wildcard),
                 proxy:
-                    template.web &&
-                    form.value.domain &&
+                    domain &&
                     canChooseProxy.value &&
-                    chosenProxy.value !== currentProxy.value
-                        ? chosenProxy.value
+                    form.value.proxy &&
+                    form.value.proxy !== (machineProxy.value ?? 'caddy')
+                        ? form.value.proxy
                         : null,
-                https:
-                    template.web && form.value.domain && canChooseHttps.value
-                        ? form.value.https
-                        : null,
+                https: domain && canChooseHttps.value ? form.value.https : null,
                 env,
-                extra_env: form.value.extra_env || null,
-            }),
-        });
+                extra_env: isAppLike.value ? settings.text || null : null,
+                ...(isAppLike.value &&
+                showFlags.value &&
+                Object.keys(settings.flags).length
+                    ? { env_flags: settings.flags }
+                    : {}),
+                ...(offersFree.value
+                    ? { free_address: addressMode.value !== 'none' }
+                    : {}),
+                ...(isAppLike.value
+                    ? {
+                          build: buildPayload(
+                              build.value,
+                              method.value,
+                              healthDefaults.value,
+                              buildOptions.value,
+                          ),
+                      }
+                    : {}),
+            },
+        );
         const body = await response.json().catch(() => ({}));
 
         if (response.status === 422 && body.errors) {
@@ -1052,6 +1672,24 @@ async function deploy(): Promise<void> {
                 Object.entries(body.errors as Record<string, string[]>).map(
                     ([key, messages]) => [key, messages[0]],
                 ),
+            );
+            if (errors.value.docker) dockerMessage.value = errors.value.docker;
+            if (
+                Object.keys(errors.value).some((key) => key.startsWith('env.'))
+            ) {
+                fieldsOpen.value = true;
+            }
+            if (
+                Object.keys(errors.value).some((key) => ADVANCED_KEYS.test(key))
+            ) {
+                advancedOpen.value = true;
+            }
+            void nextTick(() =>
+                document
+                    .querySelector(
+                        '#deploy-configure [role="alert"], #deploy-configure .text-status-down',
+                    )
+                    ?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
             );
 
             return;
@@ -1063,8 +1701,10 @@ async function deploy(): Promise<void> {
             return;
         }
 
-        result.value = body as DeployResult;
-        step.value = 'done';
+        result.value = { ...(body as DeployResult), machineId };
+        followJob.value = result.value.appUrl ? result.value.jobId : null;
+        followed.value = null;
+        step.value = followJob.value ? 'follow' : 'done';
         emit('deployed', result.value);
     } catch (cause) {
         errors.value = { form: errorMessage(cause) };
@@ -1074,7 +1714,19 @@ async function deploy(): Promise<void> {
 }
 
 const result = ref<DeployResult | null>(null);
+const followJob = ref<string | null>(null);
+const followed = ref<FollowedJob | null>(null);
 const copied = ref<string | null>(null);
+
+const followState = computed(() => {
+    const state = followed.value?.state;
+    if (state === 'succeeded') return 'live';
+    if (['failed', 'timed_out', 'cancelled', 'refused'].includes(state ?? '')) {
+        return 'failed';
+    }
+
+    return 'running';
+});
 
 async function copy(key: string, value: string): Promise<void> {
     try {
@@ -1088,26 +1740,59 @@ async function copy(key: string, value: string): Promise<void> {
     } catch {}
 }
 
+// Another machine, or the first answer from this one: what its daemon can
+// do changes the defaults a new app gets, unless they've been changed.
+watch(canDeployBuild, (now) => {
+    const template = selected.value;
+    if (step.value !== 'configure' || !template) return;
+    const before = healthDefaults.value;
+    healthDefaults.value = defaultHealth(template, before.path, now);
+    const health = build.value.health;
+    if (
+        health.enabled === before.enabled &&
+        health.any === before.any &&
+        health.startPeriod === before.startPeriod
+    ) {
+        build.value.health = { ...healthDefaults.value, path: health.path };
+    }
+    if (form.value.port === '' && !now) form.value.port = template.port;
+});
+
+function onDragEnter(): void {
+    if (isOwnCode.value && !busy.value && !ssh.value) dragging.value++;
+}
+
+function focusFirst(): void {
+    if (step.value !== 'pick') return;
+    (isOwnCode.value ? repoField.value : searchInput.value)?.focus();
+}
+
 watch(
     open,
     (isOpen) => {
         if (isOpen) {
             step.value = 'pick';
+            target.value = props.machineId;
             query.value = '';
-            category.value = 'All';
+            category.value = OWN_CODE;
             selected.value = null;
-            detection.value = null;
-            detectError.value = null;
+            repoInput.value = '';
+            resetOwnCode();
+            lockedService.value = false;
             result.value = null;
+            followJob.value = null;
+            followed.value = null;
             errors.value = {};
-            dns.value = null;
+            dockerMessage.value = null;
             void loadTaken();
+            void loadRepositories();
+        } else {
+            // Stops any scan still waiting on the machine.
+            scanToken++;
         }
     },
     { immediate: true },
 );
-
-const labelClass = 'text-[13px]/5 font-medium text-(--ds-text-muted)';
 
 // Opened from a link that names a template: go straight to setting it up.
 watch(
@@ -1122,1882 +1807,375 @@ watch(
 </script>
 
 <template>
-    <Dialog v-model:open="open">
-        <DialogContent
-            class="workspace-panel ds-form ds-modal top-[8%] translate-y-0 gap-0 overflow-hidden p-0 font-ui text-(--ds-text)"
-            :class="step === 'pick' ? 'sm:max-w-5xl' : 'sm:max-w-xl'"
-            :show-close-button="false"
-            @open-auto-focus.prevent="searchInput?.focus()"
-        >
-            <DialogTitle class="sr-only">{{
-                $t('Deploy a service')
-            }}</DialogTitle>
-            <DialogDescription class="sr-only">
-                {{
-                    ' ' +
-                    $t(
-                        'Search the service library, then configure and deploy one to this machine.',
-                    ) +
-                    ' '
-                }}
-            </DialogDescription>
+    <DialogRoot v-model:open="open">
+        <DialogPortal>
+            <DialogOverlay
+                class="fixed inset-0 z-50 bg-black/[0.62] backdrop-blur-[3px] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0"
+            />
+            <DialogContent
+                class="workspace-panel fixed top-1/2 left-1/2 z-50 flex h-[min(680px,calc(100dvh-2rem))] w-[min(920px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-clip rounded-[12px] border-[0.5px] border-[#e2e2e2] bg-white font-ui text-fg-primary shadow-[0_24px_48px_-12px_rgb(0_0_0/0.25),0_1px_2px_rgb(0_0_0/0.1)] outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.98] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.98] dark:border-[#2c2c2c] dark:bg-[#161616] dark:shadow-[0_24px_48px_-12px_rgb(0_0_0/0.55),0_1px_2px_rgb(0_0_0/0.5)]"
+                @open-auto-focus.prevent="focusFirst"
+            >
+                <input
+                    ref="fileInput"
+                    type="file"
+                    multiple
+                    class="sr-only"
+                    tabindex="-1"
+                    aria-hidden="true"
+                    @change="onPick"
+                />
+                <input
+                    ref="folderPicker"
+                    type="file"
+                    webkitdirectory
+                    class="sr-only"
+                    tabindex="-1"
+                    aria-hidden="true"
+                    @change="onPick"
+                />
 
-            <div class="ds-step-frame" :style="{ height }">
-                <div ref="stepInner">
-                    <Transition
-                        name="ds-step"
-                        mode="out-in"
-                        @before-leave="freeze"
-                        @enter="unfreeze"
+                <!-- Header -->
+                <header
+                    class="flex shrink-0 flex-wrap items-center gap-x-3.5 gap-y-3 border-b-[0.5px] border-[#e8e8e8] py-[18px] pr-[18px] pl-5 dark:border-[#262626]"
+                >
+                    <button
+                        v-if="step === 'configure'"
+                        type="button"
+                        :class="iconButton"
+                        :aria-label="
+                            backCloses ? $t('Back') : $t('Back to the library')
+                        "
+                        @click="back"
                     >
-                        <div v-if="step === 'pick'" key="pick">
-                            <label
-                                class="flex h-12 items-center gap-2.5 border-b border-(--ds-border) px-4"
-                            >
-                                <Search
-                                    class="size-4 shrink-0 text-(--ds-text-muted)"
-                                    :stroke-width="1.5"
-                                />
-                                <span class="sr-only">{{
-                                    $t('Search services')
-                                }}</span>
-                                <input
-                                    ref="searchInput"
-                                    v-model="query"
-                                    type="text"
-                                    role="combobox"
-                                    aria-expanded="true"
-                                    aria-controls="template-results"
-                                    :aria-activedescendant="
-                                        results.length
-                                            ? `template-${activeIndex}`
-                                            : undefined
-                                    "
-                                    autocomplete="off"
-                                    spellcheck="false"
-                                    :placeholder="
-                                        isCustom
-                                            ? $t(
-                                                  'Paste a GitHub link, like https://github.com/you/app',
-                                              )
-                                            : $t(
-                                                  'Search :templatesCount services…',
-                                                  {
-                                                      templatesCount: String(
-                                                          templates.length,
-                                                      ),
-                                                  },
-                                              )
-                                    "
-                                    class="h-full min-w-0 grow bg-transparent text-sm text-(--ds-text) outline-none placeholder:text-(--ds-text-faint)"
-                                    @keydown="onSearchKeydown"
-                                />
-                                <kbd
-                                    class="rounded-[5px] border border-(--ds-border-hover) px-1.25 py-px text-[11px]/3.5 text-(--ds-text-muted)"
-                                    aria-hidden="true"
-                                >
-                                    Esc
-                                </kbd>
-                            </label>
-
-                            <div
-                                class="overflow-x-auto border-b border-(--ds-border) px-3 py-2 sm:hidden"
-                            >
-                                <div
-                                    class="ds-segments ds-segments--sm"
-                                    role="group"
-                                    :aria-label="$t('Category')"
-                                >
-                                    <button
-                                        v-for="option in categories"
-                                        :key="option"
-                                        type="button"
-                                        class="cursor-pointer"
-                                        :aria-pressed="category === option"
-                                        @click="category = option"
-                                    >
-                                        {{ option }}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="flex h-[min(36rem,68vh)]">
-                                <nav
-                                    class="hidden w-52 shrink-0 overflow-y-auto border-r border-(--ds-border) p-2 sm:block"
-                                    :aria-label="$t('Category')"
-                                >
-                                    <button
-                                        v-for="option in categories"
-                                        :key="option"
-                                        type="button"
-                                        class="flex h-8 w-full cursor-pointer items-center justify-between gap-3 rounded-[7px] px-2.5 text-left text-[13px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring)"
-                                        :class="[
-                                            category === option
-                                                ? 'bg-(--ds-hover) font-medium text-(--ds-text)'
-                                                : 'text-(--ds-text-secondary) hover:bg-(--ds-hover)/60 hover:text-(--ds-text)',
-                                            option === 'Custom' &&
-                                                'mt-2 border-t border-(--ds-border) pt-px',
-                                        ]"
-                                        :aria-pressed="category === option"
-                                        @click="category = option"
-                                    >
-                                        <span class="truncate">{{
-                                            option === 'All'
-                                                ? $t('All services')
-                                                : option === 'Custom'
-                                                  ? $t('Your own code')
-                                                  : option
-                                        }}</span>
-                                        <span
-                                            v-if="option !== 'Custom'"
-                                            class="text-xs text-(--ds-text-faint) tabular-nums"
-                                            >{{ counts[option] ?? 0 }}</span
-                                        >
-                                    </button>
-                                </nav>
-                                <div class="min-w-0 grow overflow-y-auto">
-                                    <div
-                                        v-if="isCustom"
-                                        class="flex min-h-56 flex-col gap-4 p-4"
-                                    >
-                                        <template v-if="detection">
-                                            <div
-                                                v-if="
-                                                    detection.detected &&
-                                                    customTemplate
-                                                "
-                                                class="flex items-start gap-3 rounded-[10px] border border-(--ds-border) bg-(--ds-field)/50 p-3.5"
-                                            >
-                                                <span
-                                                    class="flex size-9 shrink-0 items-center justify-center rounded-lg border border-(--ds-border-strong) bg-(--ds-field) text-(--ds-text-secondary)"
-                                                >
-                                                    <TemplateIcon
-                                                        colored
-                                                        :icon="
-                                                            customTemplate.icon
-                                                        "
-                                                    />
-                                                </span>
-                                                <div
-                                                    class="flex min-w-0 grow flex-col gap-1"
-                                                >
-                                                    <p
-                                                        class="flex flex-wrap items-center gap-2 text-sm font-medium"
-                                                    >
-                                                        {{
-                                                            detection.framework
-                                                        }}
-                                                        <span
-                                                            class="rounded-full border border-(--ds-border-strong) px-2 py-px text-[11px]/4 font-medium text-(--ds-text-secondary)"
-                                                        >
-                                                            {{ detection.type }}
-                                                        </span>
-                                                    </p>
-                                                    <p
-                                                        class="truncate font-ui-mono text-xs/4 text-(--ds-text-muted)"
-                                                    >
-                                                        {{
-                                                            sourceLabel(
-                                                                detection,
-                                                            )
-                                                        }}
-                                                    </p>
-                                                    <p
-                                                        v-for="reason in detection.reasons"
-                                                        :key="reason"
-                                                        class="text-xs/4 text-(--ds-text-faint)"
-                                                    >
-                                                        {{ reason }}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <p
-                                                v-else
-                                                class="rounded-[10px] border border-(--ds-border) bg-(--ds-field)/50 p-3.5 text-[13px]/5 text-(--ds-text-secondary)"
-                                            >
-                                                {{
-                                                    ' ' +
-                                                    $t(
-                                                        'Couldn’t tell what :value is. Pick the setup that fits below, or add a Dockerfile to the project.',
-                                                        {
-                                                            value:
-                                                                detection.upload
-                                                                    ?.filename ??
-                                                                sourceLabel(
-                                                                    detection,
-                                                                ),
-                                                        },
-                                                    ) +
-                                                    ' '
-                                                }}
-                                            </p>
-
-                                            <div
-                                                v-if="branchOptions.length > 1"
-                                                class="flex flex-col gap-1.5"
-                                            >
-                                                <label
-                                                    for="custom-branch"
-                                                    :class="labelClass"
-                                                >
-                                                    {{ $t('Branch') }}
-                                                </label>
-                                                <SelectMenu
-                                                    id="custom-branch"
-                                                    :model-value="
-                                                        detection.branch
-                                                    "
-                                                    :options="branchOptions"
-                                                    class="h-8 rounded-md border border-input bg-transparent pr-2.5 pl-3 text-[13px]/4 text-(--ds-text) shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-                                                    @update:model-value="
-                                                        switchBranch
-                                                    "
-                                                />
-                                            </div>
-
-                                            <div
-                                                v-if="!detection.upload"
-                                                class="flex flex-col gap-1.5"
-                                            >
-                                                <label
-                                                    for="custom-folder"
-                                                    :class="labelClass"
-                                                >
-                                                    {{ ' ' + $t('Folder') }}
-                                                    <span
-                                                        class="font-normal text-(--ds-text-faint)"
-                                                    >
-                                                        {{
-                                                            ' ' +
-                                                            $t(
-                                                                '(for an app in a monorepo)',
-                                                            ) +
-                                                            ' '
-                                                        }}
-                                                    </span>
-                                                </label>
-                                                <Input
-                                                    id="custom-folder"
-                                                    v-model="folderInput"
-                                                    class="h-8 font-mono text-xs"
-                                                    :placeholder="
-                                                        $t('apps/web')
-                                                    "
-                                                    autocomplete="off"
-                                                    spellcheck="false"
-                                                    :disabled="detecting"
-                                                    @keydown.enter.prevent="
-                                                        switchFolder
-                                                    "
-                                                    @blur="switchFolder"
-                                                />
-                                            </div>
-
-                                            <div class="flex flex-col gap-1.5">
-                                                <label
-                                                    for="custom-setup"
-                                                    :class="labelClass"
-                                                >
-                                                    {{
-                                                        detection.detected
-                                                            ? $t(
-                                                                  'Not right? Use a different setup',
-                                                              )
-                                                            : $t('Setup')
-                                                    }}
-                                                </label>
-                                                <SelectMenu
-                                                    id="custom-setup"
-                                                    v-model="customSlug"
-                                                    :options="
-                                                        appTemplateOptions
-                                                    "
-                                                    :placeholder="
-                                                        $t('Choose a setup')
-                                                    "
-                                                    class="h-8 rounded-md border border-input bg-transparent pr-2.5 pl-3 text-[13px]/4 text-(--ds-text) shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-                                                />
-                                            </div>
-
-                                            <div
-                                                class="mt-auto flex justify-end gap-2"
-                                            >
-                                                <AppButton
-                                                    size="sm"
-                                                    variant="quiet"
-                                                    @click="
-                                                        detection = null;
-                                                        query = '';
-                                                        searchInput?.focus();
-                                                    "
-                                                >
-                                                    {{
-                                                        ' ' +
-                                                        $t('Try another') +
-                                                        ' '
-                                                    }}
-                                                </AppButton>
-                                                <AppButton
-                                                    size="sm"
-                                                    variant="primary"
-                                                    :disabled="!customTemplate"
-                                                    @click="continueCustom"
-                                                >
-                                                    {{
-                                                        ' ' +
-                                                        $t('Continue') +
-                                                        ' '
-                                                    }}
-                                                </AppButton>
-                                            </div>
-                                        </template>
-
-                                        <template v-else-if="ssh">
-                                            <div
-                                                class="flex flex-col gap-3 rounded-[10px] border border-(--ds-border) bg-(--ds-field)/50 p-3.5 text-[13px]/5"
-                                            >
-                                                <p
-                                                    class="break-all text-(--ds-text-secondary)"
-                                                >
-                                                    {{
-                                                        $t(
-                                                            'Deploying :repo over SSH. The machine makes a deploy key for the app, you add it to the repository, and the machine fetches the code with it.',
-                                                            { repo: ssh.repo },
-                                                        )
-                                                    }}
-                                                </p>
-                                                <div
-                                                    class="flex flex-col gap-1.5"
-                                                >
-                                                    <label
-                                                        for="ssh-service"
-                                                        :class="labelClass"
-                                                    >
-                                                        {{ $t('App name') }}
-                                                    </label>
-                                                    <Input
-                                                        id="ssh-service"
-                                                        v-model.trim="
-                                                            ssh.service
-                                                        "
-                                                        maxlength="63"
-                                                        pattern="[a-z][a-z0-9-]*"
-                                                        class="h-8 font-ui-mono"
-                                                        :disabled="
-                                                            !!ssh.publicKey ||
-                                                            ssh.busy !== null
-                                                        "
-                                                    />
-                                                </div>
-                                                <div
-                                                    v-if="!ssh.publicKey"
-                                                    class="flex justify-end"
-                                                >
-                                                    <AppButton
-                                                        size="sm"
-                                                        variant="primary"
-                                                        :disabled="
-                                                            ssh.busy !== null ||
-                                                            !ssh.service
-                                                        "
-                                                        @click="makeKey"
-                                                    >
-                                                        {{
-                                                            ssh.busy === 'key'
-                                                                ? $t(
-                                                                      'Making the key…',
-                                                                  )
-                                                                : $t(
-                                                                      'Make a deploy key',
-                                                                  )
-                                                        }}
-                                                    </AppButton>
-                                                </div>
-                                                <template v-else>
-                                                    <div
-                                                        class="flex flex-col gap-1.5"
-                                                    >
-                                                        <span
-                                                            :class="labelClass"
-                                                            >{{
-                                                                $t('Deploy key')
-                                                            }}</span
-                                                        >
-                                                        <div
-                                                            class="flex items-start gap-2"
-                                                        >
-                                                            <code
-                                                                class="min-w-0 grow rounded-md bg-(--ds-field) p-2 font-mono text-xs break-all"
-                                                                >{{
-                                                                    ssh.publicKey
-                                                                }}</code
-                                                            >
-                                                            <AppButton
-                                                                size="xs"
-                                                                variant="quiet"
-                                                                :aria-label="
-                                                                    $t(
-                                                                        'Copy the deploy key',
-                                                                    )
-                                                                "
-                                                                @click="
-                                                                    copy(
-                                                                        'ssh-key',
-                                                                        ssh.publicKey,
-                                                                    )
-                                                                "
-                                                            >
-                                                                <Check
-                                                                    v-if="
-                                                                        copied ===
-                                                                        'ssh-key'
-                                                                    "
-                                                                    class="mi-pop size-3.5 text-(--ds-green)"
-                                                                    :stroke-width="
-                                                                        2.25
-                                                                    "
-                                                                />
-                                                                <Copy
-                                                                    v-else
-                                                                    class="mi-copy size-3.5"
-                                                                    :stroke-width="
-                                                                        1.75
-                                                                    "
-                                                                />
-                                                            </AppButton>
-                                                        </div>
-                                                        <p
-                                                            class="text-xs text-(--ds-text-faint)"
-                                                        >
-                                                            {{
-                                                                $t(
-                                                                    'Add it to the repository as a read-only deploy key: Settings → Deploy keys on GitHub and Gitea, Settings → Repository → Deploy keys on GitLab, Repository settings → Access keys on Bitbucket.',
-                                                                )
-                                                            }}
-                                                        </p>
-                                                    </div>
-                                                    <div
-                                                        class="flex flex-col gap-1.5"
-                                                    >
-                                                        <label
-                                                            for="ssh-branch"
-                                                            :class="labelClass"
-                                                        >
-                                                            {{ $t('Branch') }}
-                                                            <span
-                                                                class="font-normal text-(--ds-text-faint)"
-                                                            >
-                                                                {{
-                                                                    ' ' +
-                                                                    $t(
-                                                                        '(empty for the default one)',
-                                                                    )
-                                                                }}
-                                                            </span>
-                                                        </label>
-                                                        <div class="flex gap-2">
-                                                            <Input
-                                                                id="ssh-branch"
-                                                                v-model.trim="
-                                                                    ssh.branch
-                                                                "
-                                                                class="h-8 font-mono text-xs"
-                                                                :placeholder="
-                                                                    $t('main')
-                                                                "
-                                                                autocomplete="off"
-                                                                spellcheck="false"
-                                                                @keydown.enter.prevent="
-                                                                    lookUpBranch
-                                                                "
-                                                            />
-                                                            <AppButton
-                                                                size="sm"
-                                                                :variant="
-                                                                    ssh.commit
-                                                                        ? 'quiet'
-                                                                        : 'primary'
-                                                                "
-                                                                :disabled="
-                                                                    ssh.busy !==
-                                                                    null
-                                                                "
-                                                                class="shrink-0"
-                                                                @click="
-                                                                    lookUpBranch
-                                                                "
-                                                            >
-                                                                {{
-                                                                    ssh.busy ===
-                                                                    'resolve'
-                                                                        ? $t(
-                                                                              'Checking…',
-                                                                          )
-                                                                        : ssh.commit
-                                                                          ? $t(
-                                                                                'Check again',
-                                                                            )
-                                                                          : $t(
-                                                                                'Key added, check',
-                                                                            )
-                                                                }}
-                                                            </AppButton>
-                                                        </div>
-                                                    </div>
-                                                    <template v-if="ssh.commit">
-                                                        <p
-                                                            class="text-(--ds-text-secondary)"
-                                                        >
-                                                            {{
-                                                                $t(
-                                                                    'Found :ref at :commit.',
-                                                                    {
-                                                                        ref: (
-                                                                            ssh.ref ??
-                                                                            ''
-                                                                        ).replace(
-                                                                            /^refs\/(heads|tags)\//,
-                                                                            '',
-                                                                        ),
-                                                                        commit: ssh.commit.slice(
-                                                                            0,
-                                                                            7,
-                                                                        ),
-                                                                    },
-                                                                )
-                                                            }}
-                                                        </p>
-                                                        <div
-                                                            class="flex flex-col gap-1.5"
-                                                        >
-                                                            <label
-                                                                for="ssh-setup"
-                                                                :class="
-                                                                    labelClass
-                                                                "
-                                                            >
-                                                                {{
-                                                                    $t('Setup')
-                                                                }}
-                                                            </label>
-                                                            <SelectMenu
-                                                                id="ssh-setup"
-                                                                v-model="
-                                                                    sshSetup
-                                                                "
-                                                                :options="
-                                                                    appTemplateOptions
-                                                                "
-                                                                :placeholder="
-                                                                    $t(
-                                                                        'Choose a setup',
-                                                                    )
-                                                                "
-                                                                class="h-8 rounded-md border border-input bg-transparent pr-2.5 pl-3 text-[13px]/4 text-(--ds-text) shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-                                                            />
-                                                        </div>
-                                                    </template>
-                                                </template>
-                                                <InputError
-                                                    :message="
-                                                        ssh.error ?? undefined
-                                                    "
-                                                />
-                                                <div
-                                                    class="flex justify-end gap-2"
-                                                >
-                                                    <AppButton
-                                                        size="sm"
-                                                        variant="quiet"
-                                                        @click="
-                                                            ssh = null;
-                                                            query = '';
-                                                            searchInput?.focus();
-                                                        "
-                                                    >
-                                                        {{ $t('Try another') }}
-                                                    </AppButton>
-                                                    <AppButton
-                                                        v-if="ssh.commit"
-                                                        size="sm"
-                                                        variant="primary"
-                                                        :disabled="!sshSetup"
-                                                        @click="continueSsh"
-                                                    >
-                                                        {{ $t('Continue') }}
-                                                    </AppButton>
-                                                </div>
-                                            </div>
-                                        </template>
-
-                                        <template v-else>
-                                            <p
-                                                class="text-[13px]/5 text-(--ds-text-muted)"
-                                            >
-                                                {{
-                                                    ' ' +
-                                                    $t(
-                                                        'Paste a GitHub repository above',
-                                                    )
-                                                }}<template
-                                                    v-if="
-                                                        page.props.githubApp &&
-                                                        github?.connected !==
-                                                            false
-                                                    "
-                                                >
-                                                    {{
-                                                        ' ' +
-                                                        $t(
-                                                            '(for a private one, connect GitHub in Settings → General first)',
-                                                        )
-                                                    }}</template
-                                                >{{
-                                                    $t(
-                                                        '. ServerOS checks its latest commit, works out what it is (web app, API, static site…) and sets up Docker for it. If the repository has its own Dockerfile, that gets used instead.',
-                                                    ) + ' '
-                                                }}
-                                            </p>
-                                            <p
-                                                class="text-xs/4 text-(--ds-text-faint)"
-                                            >
-                                                {{
-                                                    $t(
-                                                        'On GitLab, Gitea, Bitbucket or your own git server? Paste its SSH address, like git@gitlab.com:you/app.git, to deploy it with a deploy key.',
-                                                    )
-                                                }}
-                                            </p>
-                                            <div
-                                                v-if="detecting"
-                                                class="shimmer h-16 rounded-[10px]"
-                                                :aria-label="
-                                                    $t(
-                                                        'Checking the repository',
-                                                    )
-                                                "
-                                            />
-                                            <div
-                                                v-else-if="
-                                                    repositoryMatches.length
-                                                "
-                                                class="flex flex-col gap-0.5"
-                                            >
-                                                <p :class="labelClass">
-                                                    {{
-                                                        $t('Your repositories')
-                                                    }}
-                                                </p>
-                                                <button
-                                                    v-for="repository in repositoryMatches"
-                                                    :key="repository.name"
-                                                    type="button"
-                                                    class="flex h-8 cursor-pointer items-center justify-between gap-3 rounded-[7px] px-2.5 text-left text-[13px] text-(--ds-text) hover:bg-(--ds-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring)"
-                                                    @click="
-                                                        pickRepository(
-                                                            repository,
-                                                        )
-                                                    "
-                                                >
-                                                    <span
-                                                        class="truncate font-ui-mono"
-                                                        >{{
-                                                            repository.name
-                                                        }}</span
-                                                    >
-                                                    <span
-                                                        v-if="
-                                                            repository.private
-                                                        "
-                                                        class="shrink-0 rounded-full border border-(--ds-border-strong) px-2 py-px text-[11px]/4 font-medium text-(--ds-text-secondary)"
-                                                        >{{
-                                                            $t('Private')
-                                                        }}</span
-                                                    >
-                                                </button>
-                                            </div>
-                                            <a
-                                                v-else-if="
-                                                    github && !github.connected
-                                                "
-                                                href="/settings/github/connect"
-                                                class="text-[13px]/5 font-medium text-[#3B7BFF] hover:underline"
-                                                >{{
-                                                    $t(
-                                                        'Connect GitHub to pick from your repositories, private ones too',
-                                                    )
-                                                }}</a
-                                            >
-
-                                            <label
-                                                class="flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border border-dashed px-4 py-5 text-center transition-colors"
-                                                :class="
-                                                    dragging
-                                                        ? 'border-[#3B7BFF] bg-[#3B7BFF]/6'
-                                                        : 'border-(--ds-border-hover) hover:bg-(--ds-hover)/50'
-                                                "
-                                                @dragover.prevent="
-                                                    dragging = true
-                                                "
-                                                @dragleave.prevent="
-                                                    dragging = false
-                                                "
-                                                @drop.prevent="onDrop"
-                                            >
-                                                <input
-                                                    ref="fileInput"
-                                                    type="file"
-                                                    accept=".zip,application/zip"
-                                                    class="sr-only"
-                                                    :disabled="uploading"
-                                                    @change="onPick"
-                                                />
-                                                <template v-if="uploading">
-                                                    <span
-                                                        class="text-[13px]/5 font-medium"
-                                                        >{{
-                                                            uploadProgress < 1
-                                                                ? $t(
-                                                                      'Uploading… :round%',
-                                                                      {
-                                                                          round: String(
-                                                                              Math.round(
-                                                                                  uploadProgress *
-                                                                                      100,
-                                                                              ),
-                                                                          ),
-                                                                      },
-                                                                  )
-                                                                : $t(
-                                                                      'Unpacking and checking…',
-                                                                  )
-                                                        }}</span
-                                                    >
-                                                    <span
-                                                        class="h-1 w-full max-w-64 overflow-hidden rounded-full bg-(--ds-border-strong)"
-                                                    >
-                                                        <span
-                                                            class="block h-full origin-left rounded-full bg-[#3B7BFF] transition-transform duration-200"
-                                                            :style="{
-                                                                transform: `scaleX(${uploadProgress})`,
-                                                            }"
-                                                        />
-                                                    </span>
-                                                </template>
-                                                <template v-else>
-                                                    <span
-                                                        class="text-[13px]/5 font-medium"
-                                                        >{{
-                                                            $t(
-                                                                'Or upload your project as a .zip',
-                                                            )
-                                                        }}</span
-                                                    >
-                                                    <span
-                                                        class="text-xs/4 text-(--ds-text-muted)"
-                                                        >{{
-                                                            $t(
-                                                                'Drop it here or click to choose. Up to 1 GB; node_modules, build folders and .env files are left out.',
-                                                            )
-                                                        }}</span
-                                                    >
-                                                </template>
-                                            </label>
-                                            <InputError
-                                                :message="
-                                                    detectError ?? undefined
-                                                "
-                                            />
-                                            <div
-                                                class="mt-auto flex justify-end"
-                                            >
-                                                <AppButton
-                                                    size="sm"
-                                                    variant="primary"
-                                                    :disabled="
-                                                        !query.trim() ||
-                                                        detecting
-                                                    "
-                                                    @click="detect"
-                                                >
-                                                    {{
-                                                        detecting
-                                                            ? $t('Checking…')
-                                                            : $t('Detect')
-                                                    }}
-                                                </AppButton>
-                                            </div>
-                                        </template>
-                                    </div>
-
-                                    <div
-                                        v-else
-                                        id="template-results"
-                                        role="listbox"
-                                        :aria-label="$t('Services')"
-                                        class="p-3"
-                                    >
-                                        <p
-                                            v-if="results.length === 0"
-                                            class="px-3 py-10 text-center text-[13px]/5 text-(--ds-text-muted)"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'Nothing matches “:query”.',
-                                                    {
-                                                        query,
-                                                    },
-                                                ) +
-                                                ' '
-                                            }}
-                                        </p>
-
-                                        <div
-                                            v-for="group in grouped"
-                                            :key="group.category"
-                                            class="mb-3 last:mb-0"
-                                        >
-                                            <p
-                                                class="px-1 pt-1 pb-2 text-xs/4 font-medium text-(--ds-text-muted)"
-                                                aria-hidden="true"
-                                            >
-                                                {{ group.category }}
-                                            </p>
-                                            <div
-                                                class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
-                                            >
-                                                <div
-                                                    v-for="{
-                                                        template,
-                                                        index,
-                                                    } in group.items"
-                                                    :id="`template-${index}`"
-                                                    :key="template.slug"
-                                                    role="option"
-                                                    :aria-selected="
-                                                        index === activeIndex
-                                                    "
-                                                    class="flex cursor-pointer flex-col gap-3 rounded-[10px] border p-3.5 transition-colors duration-100"
-                                                    :class="
-                                                        index === activeIndex
-                                                            ? 'border-(--ds-border-hover) bg-(--ds-hover)'
-                                                            : 'border-(--ds-border) bg-(--ds-field)/40'
-                                                    "
-                                                    @mousemove="
-                                                        activeIndex = index
-                                                    "
-                                                    @click="choose(template)"
-                                                >
-                                                    <span
-                                                        class="flex items-center gap-3"
-                                                    >
-                                                        <span
-                                                            class="flex size-9 shrink-0 items-center justify-center rounded-[9px] border border-(--ds-border-strong) bg-(--ds-field) text-(--ds-text-secondary)"
-                                                        >
-                                                            <TemplateIcon
-                                                                colored
-                                                                :icon="
-                                                                    template.icon
-                                                                "
-                                                                class="size-[18px]"
-                                                            />
-                                                        </span>
-                                                        <span
-                                                            class="flex min-w-0 grow flex-col"
-                                                        >
-                                                            <span
-                                                                class="truncate text-[13px]/5 font-medium"
-                                                            >
-                                                                {{
-                                                                    template.name
-                                                                }}
-                                                            </span>
-                                                            <span
-                                                                class="truncate text-xs/4 text-(--ds-text-faint)"
-                                                            >
-                                                                {{
-                                                                    template.category
-                                                                }}
-                                                            </span>
-                                                        </span>
-                                                        <span
-                                                            v-if="
-                                                                template.kind ===
-                                                                'app'
-                                                            "
-                                                            class="shrink-0 self-start rounded-[4px] bg-(--ds-hover) px-1.5 text-[10px]/4 font-medium text-(--ds-text-muted)"
-                                                        >
-                                                            {{
-                                                                ' ' +
-                                                                $t(
-                                                                    'Your repo',
-                                                                ) +
-                                                                ' '
-                                                            }}
-                                                        </span>
-                                                    </span>
-                                                    <span
-                                                        class="line-clamp-2 text-xs/[18px] text-(--ds-text-muted)"
-                                                    >
-                                                        {{
-                                                            template.description
-                                                        }}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <form
-                            v-else-if="step === 'configure' && selected"
-                            key="configure"
-                            @submit.prevent="deploy"
+                        <ArrowLeft class="size-4" :stroke-width="1.75" />
+                    </button>
+                    <span
+                        class="flex size-[38px] shrink-0 items-center justify-center rounded-[7px] shadow-[0_1px_2px_rgb(0_0_0/0.08),0_0_0_0.5px_rgb(0_0_0/0.08)] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.06),0_3px_6px_-2px_rgb(0_0_0/0.35),0_1px_1.5px_rgb(0_0_0/0.55)]"
+                        :class="
+                            step === 'done' ||
+                            (step === 'follow' && followState === 'live')
+                                ? 'bg-[#3ec46d]/15 text-[#3ec46d]'
+                                : step === 'follow' && followState === 'failed'
+                                  ? 'bg-status-down/12 text-status-down'
+                                  : 'bg-[#f2f2f2] text-fg-tertiary dark:bg-[#222]'
+                        "
+                        aria-hidden="true"
+                    >
+                        <svg
+                            v-if="
+                                step === 'done' ||
+                                (step === 'follow' && followState === 'live')
+                            "
+                            viewBox="0 0 24 24"
+                            class="size-[18px]"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.4"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
                         >
-                            <div
-                                class="flex h-12 items-center gap-2.5 border-b border-(--ds-border) px-2.5"
+                            <path
+                                class="mi-draw"
+                                pathLength="1"
+                                d="M5 12.5 10 17.5 19 7"
+                            />
+                        </svg>
+                        <CircleAlert
+                            v-else-if="
+                                step === 'follow' && followState === 'failed'
+                            "
+                            class="size-[18px]"
+                            :stroke-width="2"
+                        />
+                        <LoaderCircle
+                            v-else-if="step === 'follow'"
+                            class="size-[18px] animate-spin"
+                            :stroke-width="2"
+                        />
+                        <TemplateLogo
+                            v-else-if="step === 'configure' && selected"
+                            :icon="selected.icon"
+                        />
+                        <FilledIcon
+                            v-else-if="isOwnCode"
+                            name="code-fill"
+                            :size="18"
+                        />
+                        <FilledIcon v-else name="package-fill" :size="18" />
+                    </span>
+                    <div class="flex min-w-0 flex-1 basis-56 flex-col gap-px">
+                        <DialogTitle
+                            class="truncate text-[15px]/[22px] font-medium tracking-[-0.01em] text-fg-primary"
+                        >
+                            <template v-if="step === 'configure' && selected">
+                                {{
+                                    fromScan && detection
+                                        ? $t('Deploy :name', {
+                                              name: detection.upload
+                                                  ? detection.upload.filename
+                                                  : repositoryLabel(
+                                                        detection.repo,
+                                                    ),
+                                          })
+                                        : selected.kind === 'image'
+                                          ? $t('Run a Docker image')
+                                          : $t('Set up :name', {
+                                                name: selected.name,
+                                            })
+                                }}
+                            </template>
+                            <template v-else-if="step === 'follow'">
+                                {{
+                                    followState === 'live'
+                                        ? $t(':service is live', {
+                                              service: form.service,
+                                          })
+                                        : followState === 'failed'
+                                          ? $t(':service didn’t deploy', {
+                                                service: form.service,
+                                            })
+                                          : $t('Deploying :service', {
+                                                service: form.service,
+                                            })
+                                }}
+                            </template>
+                            <template v-else-if="step === 'done' && result">
+                                {{
+                                    result.commit
+                                        ? $t('Deploying :service at :commit', {
+                                              service: form.service,
+                                              commit: result.commit.slice(0, 7),
+                                          })
+                                        : $t('Deploying :service', {
+                                              service: form.service,
+                                          })
+                                }}
+                            </template>
+                            <template v-else-if="isOwnCode">{{
+                                $t('Deploy your code')
+                            }}</template>
+                            <template v-else>{{
+                                $t('Deploy a service')
+                            }}</template>
+                        </DialogTitle>
+                        <DialogDescription
+                            class="truncate text-[13px]/[18px] tracking-[-0.005em] text-fg-tertiary"
+                        >
+                            <template v-if="step === 'configure' && selected">
+                                {{
+                                    fromScan
+                                        ? $t(
+                                              'Check what ServerOS found, then deploy. Everything can be changed after.',
+                                          )
+                                        : selected.description
+                                }}
+                            </template>
+                            <template v-else-if="step === 'follow'">
+                                {{
+                                    followState === 'running'
+                                        ? $t(
+                                              'On :machine. Closing this doesn’t stop it.',
+                                              { machine: machineName },
+                                          )
+                                        : $t('On :machine.', {
+                                              machine: machineName,
+                                          })
+                                }}
+                            </template>
+                            <template v-else-if="step === 'done'">
+                                {{
+                                    $t(
+                                        'Follow it in the Deployments tab. The first deploy pulls images, so give it a minute.',
+                                    )
+                                }}
+                            </template>
+                            <template v-else-if="isOwnCode">
+                                {{
+                                    $t(
+                                        'Paste a repository and ServerOS works out how to build and run it.',
+                                    )
+                                }}
+                            </template>
+                            <template v-else-if="machineName">
+                                {{
+                                    $t(
+                                        'Runs on :machine. Pick a service, or bring your own code.',
+                                        { machine: machineName },
+                                    )
+                                }}
+                            </template>
+                            <template v-else>
+                                {{
+                                    $t(
+                                        'Pick a service, or bring your own code.',
+                                    )
+                                }}
+                            </template>
+                        </DialogDescription>
+                    </div>
+                    <label
+                        v-if="step === 'pick'"
+                        class="order-last flex h-[34px] w-full items-center gap-2 rounded-[6px] border-[0.5px] border-[#dcdcdc] bg-[#f5f5f5] px-2.5 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus-within:border-[#a3a3a3] sm:order-none sm:w-[272px] dark:border-[#2a2a2a] dark:bg-[#101010] dark:shadow-[inset_0_1px_2px_rgb(0_0_0/0.5)] dark:focus-within:border-[#4a4a4a]"
+                    >
+                        <FilledIcon
+                            name="search-fill"
+                            :size="15"
+                            class="shrink-0 text-fg-tertiary"
+                        />
+                        <span class="sr-only">{{ $t('Search services') }}</span>
+                        <input
+                            ref="searchInput"
+                            v-model="query"
+                            type="text"
+                            role="combobox"
+                            aria-expanded="true"
+                            aria-controls="deploy-catalogue"
+                            :aria-activedescendant="
+                                picked && !isOwnCode
+                                    ? `template-${picked}`
+                                    : undefined
+                            "
+                            autocomplete="off"
+                            spellcheck="false"
+                            :placeholder="$t('Search services')"
+                            class="h-full min-w-0 flex-1 bg-transparent text-[13px]/5 tracking-[-0.005em] text-fg-primary outline-none placeholder:text-fg-faint"
+                            @keydown="onSearchKeydown"
+                            @paste="onSearchPaste"
+                        />
+                    </label>
+                    <kbd
+                        class="hidden shrink-0 rounded-[5px] border-[0.5px] border-[#dcdcdc] bg-[#f7f7f7] px-[7px] py-0.5 font-ui-mono text-[11px]/4 text-fg-tertiary shadow-[0_1px_1.5px_rgb(0_0_0/0.08)] sm:block dark:border-[#333] dark:bg-[#1f1f1f] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_1px_1.5px_rgb(0_0_0/0.5)]"
+                        aria-hidden="true"
+                        >Esc</kbd
+                    >
+                </header>
+
+                <!-- Pick: rail + your own code or the catalogue -->
+                <div
+                    v-if="step === 'pick'"
+                    class="flex min-h-0 flex-1 flex-col sm:flex-row"
+                >
+                    <div
+                        class="flex shrink-0 gap-1 overflow-x-auto border-b-[0.5px] border-[#e8e8e8] px-3 py-2 sm:hidden dark:border-[#262626]"
+                        role="group"
+                        :aria-label="$t('Category')"
+                    >
+                        <button
+                            v-for="option in railOptions"
+                            :key="option"
+                            type="button"
+                            class="h-7 shrink-0 cursor-pointer rounded-[6px] px-2.5 text-[12.5px]/4 font-medium whitespace-nowrap text-fg-tertiary aria-pressed:bg-[#f2f2f2] aria-pressed:text-fg-primary dark:aria-pressed:bg-[#212121]"
+                            :aria-pressed="category === option"
+                            @click="category = option"
+                        >
+                            {{ railLabel(option) }}
+                        </button>
+                    </div>
+                    <CategoryRail v-model="category" :counts="counts" />
+
+                    <div
+                        id="deploy-catalogue"
+                        class="min-h-0 min-w-0 flex-1 overflow-y-auto"
+                    >
+                        <div
+                            v-if="!isOwnCode && looksLikeRepository(query)"
+                            class="flex flex-col items-center gap-1 px-5 py-16 text-center"
+                        >
+                            <p
+                                class="text-[13px]/5 font-medium text-fg-primary"
                             >
-                                <button
-                                    type="button"
-                                    class="flex size-7 cursor-pointer items-center justify-center rounded-md text-(--ds-text-muted) hover:bg-(--ds-hover) hover:text-(--ds-text) focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
-                                    :aria-label="
-                                        backCloses
-                                            ? $t('Back')
-                                            : $t('Back to the library')
-                                    "
-                                    @click="back"
-                                >
-                                    <ArrowLeft
-                                        class="size-4"
-                                        :stroke-width="1.75"
-                                    />
-                                </button>
-                                <span
-                                    class="flex size-7 items-center justify-center rounded-md border border-(--ds-border-strong) bg-(--ds-field) text-(--ds-text-secondary)"
-                                >
-                                    <TemplateIcon
-                                        :icon="selected.icon"
-                                        colored
-                                    />
-                                </span>
-                                <span class="text-sm font-medium">
-                                    {{ selected.name }}
-                                </span>
-                                <span
-                                    class="truncate text-xs text-(--ds-text-faint)"
-                                >
-                                    {{ selected.category }}
-                                </span>
-                            </div>
+                                {{ $t('Deploy this repository?') }}
+                            </p>
+                            <p class="text-[12.5px]/4 text-fg-muted">
+                                {{
+                                    $t(
+                                        'Press Enter and ServerOS looks inside it, then sets it up.',
+                                    )
+                                }}
+                            </p>
+                        </div>
+                        <TemplateCatalogue
+                            v-else-if="!isOwnCode"
+                            :groups="groups"
+                            :picked="picked"
+                            :show-upload="showUploadStrip"
+                            :query="query"
+                            @pick="(template) => (picked = template.slug)"
+                            @choose="choose"
+                            @see-all="seeAll"
+                            @drop="onDrop"
+                            @choose-files="fileInput?.click()"
+                        />
 
+                        <!-- Your own code -->
+                        <div
+                            v-else
+                            class="relative flex min-h-full flex-col gap-4 px-5 pt-5 pb-5"
+                            @dragenter.prevent="onDragEnter"
+                            @dragover.prevent
+                            @dragleave.prevent="
+                                dragging = Math.max(0, dragging - 1)
+                            "
+                            @drop.prevent="onDrop($event.dataTransfer)"
+                        >
+                            <!-- SSH: a deploy key for a private repository -->
                             <div
-                                class="flex max-h-[min(30rem,60vh)] flex-col gap-4 overflow-y-auto p-4"
+                                v-if="ssh"
+                                class="flex flex-col gap-3 rounded-[10px] border-[0.5px] border-[#e2e2e2] bg-[#fafafa] p-4 text-[13px]/5 dark:border-[#2a2a2a] dark:bg-[#1a1a1a]"
                             >
-                                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                                    {{ selected.description }}
-                                </p>
-                                <p
-                                    v-if="selected.notes"
-                                    class="-mt-2 text-xs/4 text-(--ds-text-faint)"
-                                >
-                                    {{ selected.notes }}
-                                </p>
-
-                                <div class="grid gap-4 sm:grid-cols-2">
-                                    <div class="flex flex-col gap-1.5">
-                                        <label
-                                            for="deploy-service"
-                                            :class="labelClass"
-                                        >
-                                            {{ ' ' + $t('Service name') + ' ' }}
-                                        </label>
-                                        <Input
-                                            id="deploy-service"
-                                            v-model.trim="form.service"
-                                            :readonly="lockedService"
-                                            :title="
-                                                lockedService
-                                                    ? $t(
-                                                          'The deploy key belongs to this name.',
-                                                      )
-                                                    : undefined
-                                            "
-                                            required
-                                            maxlength="63"
-                                            pattern="[a-z][a-z0-9-]*"
-                                            class="font-ui-mono"
-                                        />
-                                        <InputError
-                                            :message="errorFor('service')"
-                                        />
-                                        <p
-                                            v-if="
-                                                replacesExisting &&
-                                                !errorFor('service')
-                                            "
-                                            class="text-xs/4 text-(--ds-text-faint)"
-                                        >
-                                            {{
-                                                $t(
-                                                    ':service is already on this machine. Deploying with this name replaces it and keeps its data. Pick another name to add a second one.',
-                                                    { service: form.service },
-                                                )
-                                            }}
-                                        </p>
-                                    </div>
-                                    <div
-                                        v-if="selected.portEditable"
-                                        class="flex flex-col gap-1.5"
-                                    >
-                                        <label
-                                            for="deploy-port"
-                                            :class="labelClass"
-                                        >
-                                            {{
-                                                selected.compose
-                                                    ? $t(
-                                                          'Port it publishes on this machine',
-                                                      )
-                                                    : selected.kind === 'app'
-                                                      ? $t(
-                                                            'Port your app listens on',
-                                                        )
-                                                      : $t(
-                                                            'Port on this machine',
-                                                        )
-                                            }}
-                                        </label>
-                                        <Input
-                                            id="deploy-port"
-                                            v-model.number="form.port"
-                                            type="number"
-                                            min="1"
-                                            max="65535"
-                                            class="tabular-nums"
-                                        />
-                                        <InputError
-                                            :message="errorFor('port')"
-                                        />
-                                        <p
-                                            v-if="
-                                                portTaken && !errorFor('port')
-                                            "
-                                            class="text-xs/4 text-(--ds-text-faint)"
-                                        >
-                                            {{
-                                                $t(
-                                                    'Something on this machine already uses port :port.',
-                                                    { port: String(form.port) },
-                                                )
-                                            }}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <template v-if="selected.kind === 'app'">
-                                    <div class="flex flex-col gap-1.5">
-                                        <label
-                                            for="deploy-repo"
-                                            :class="labelClass"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'Git repository (public HTTPS)',
-                                                ) +
-                                                ' '
-                                            }}
-                                        </label>
-                                        <Input
-                                            id="deploy-repo"
-                                            v-model.trim="form.repo"
-                                            type="url"
-                                            required
-                                            :placeholder="
-                                                $t(
-                                                    'https://github.com/you/app.git',
-                                                )
-                                            "
-                                        />
-                                        <InputError
-                                            :message="errorFor('repo')"
-                                        />
-                                    </div>
-                                    <div
-                                        v-if="selected.compose"
-                                        class="flex flex-col gap-1.5"
-                                    >
-                                        <label
-                                            for="deploy-compose-file"
-                                            :class="labelClass"
-                                        >
-                                            {{ ' ' + $t('Compose file') + ' ' }}
-                                        </label>
-                                        <Input
-                                            id="deploy-compose-file"
-                                            v-model.trim="form.compose_file"
-                                            :placeholder="selected.compose"
-                                            class="font-ui-mono"
-                                        />
-                                        <InputError
-                                            :message="errorFor('compose_file')"
-                                        />
-                                        <p
-                                            class="text-xs/4 text-(--ds-text-faint)"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'Its path in the repository. Every service in it runs as one stack.',
-                                                ) +
-                                                ' '
-                                            }}
-                                        </p>
-                                    </div>
-                                    <div
-                                        class="grid gap-4"
-                                        :class="
-                                            selected.web &&
-                                            'sm:grid-cols-[2fr_1fr]'
-                                        "
-                                    >
-                                        <div class="flex flex-col gap-1.5">
-                                            <label
-                                                for="deploy-commit"
-                                                :class="labelClass"
-                                            >
-                                                {{
-                                                    ' ' +
-                                                    $t(
-                                                        'Branch, tag or commit',
-                                                    ) +
-                                                    ' '
-                                                }}
-                                            </label>
-                                            <Input
-                                                id="deploy-commit"
-                                                v-model.trim="form.commit"
-                                                maxlength="255"
-                                                :placeholder="
-                                                    $t(
-                                                        'Latest commit on the default branch',
-                                                    )
-                                                "
-                                                class="font-ui-mono"
-                                            />
-                                            <InputError
-                                                :message="errorFor('commit')"
-                                            />
-                                        </div>
-                                        <div
-                                            v-if="selected.web"
-                                            class="flex flex-col gap-1.5"
-                                        >
-                                            <label
-                                                for="deploy-health"
-                                                :class="labelClass"
-                                            >
-                                                {{
-                                                    ' ' +
-                                                    $t('Health path') +
-                                                    ' '
-                                                }}
-                                            </label>
-                                            <Input
-                                                id="deploy-health"
-                                                v-model.trim="form.health_path"
-                                                class="font-ui-mono"
-                                            />
-                                            <InputError
-                                                :message="
-                                                    errorFor('health_path')
-                                                "
-                                            />
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <div
-                                    v-if="selected.web"
-                                    class="flex flex-col gap-1.5"
-                                >
-                                    <label
-                                        for="deploy-domain"
-                                        :class="labelClass"
-                                    >
-                                        {{ ' ' + $t('Domain') }}
-                                        <span
-                                            class="font-normal text-(--ds-text-faint)"
-                                        >
-                                            {{ ' ' + $t('(optional)') + ' ' }}
-                                        </span>
-                                    </label>
-                                    <Input
-                                        id="deploy-domain"
-                                        v-model.trim="form.domain"
-                                        :placeholder="$t('app.example.com')"
-                                        autocomplete="off"
-                                        spellcheck="false"
-                                    />
-                                    <InputError :message="errorFor('domain')" />
-                                    <p
-                                        v-if="!form.domain"
-                                        class="flex items-start gap-1.5 text-xs/4 text-(--ds-text-faint)"
-                                    >
-                                        <LockKeyhole
-                                            class="mt-px size-3.5 shrink-0"
-                                            :stroke-width="1.75"
-                                            aria-hidden="true"
-                                        />
-                                        <span>
-                                            {{
-                                                $t(
-                                                    'Point a domain at this machine and it gets HTTPS automatically, with a certificate that renews itself.',
-                                                ) + ' '
-                                            }}
-                                            <button
-                                                v-if="
-                                                    freeAddress && form.service
-                                                "
-                                                type="button"
-                                                class="text-(--ds-text-secondary) underline decoration-(--ds-divider) underline-offset-2 hover:text-(--ds-text)"
-                                                @click="
-                                                    form.domain = `${form.service}.${freeAddress}`
-                                                "
-                                            >
-                                                {{
-                                                    $t(
-                                                        'No domain yet? Use :address',
-                                                        {
-                                                            address: `${form.service}.${freeAddress}`,
-                                                        },
-                                                    )
-                                                }}
-                                            </button>
-                                        </span>
-                                    </p>
-                                    <p
-                                        v-else-if="dnsChecking && !dns"
-                                        class="flex items-center gap-1.5 text-xs/4 text-(--ds-text-faint)"
-                                        aria-live="polite"
-                                    >
-                                        <LoaderCircle
-                                            class="size-3.5 animate-spin"
-                                            :stroke-width="1.75"
-                                            aria-hidden="true"
-                                        />
-                                        {{ $t('Checking DNS…') + ' ' }}
-                                    </p>
-                                    <div
-                                        v-else-if="dns"
-                                        class="flex flex-col gap-2.5 rounded-[10px] border px-3.5 py-3 text-xs/4"
-                                        :class="
-                                            dns.status === 'ready'
-                                                ? 'border-(--ds-green-border) bg-(--ds-green-bg)'
-                                                : 'border-(--ds-amber-border) bg-(--ds-amber-bg)'
-                                        "
-                                        aria-live="polite"
-                                    >
-                                        <p
-                                            class="flex items-start gap-1.5 text-(--ds-text-secondary)"
-                                        >
-                                            <CircleCheck
-                                                v-if="dns.status === 'ready'"
-                                                class="mt-px size-3.5 shrink-0 text-(--ds-green-strong)"
-                                                :stroke-width="2"
-                                                aria-hidden="true"
-                                            />
-                                            <CircleAlert
-                                                v-else
-                                                class="mt-px size-3.5 shrink-0 text-(--ds-amber-strong)"
-                                                :stroke-width="2"
-                                                aria-hidden="true"
-                                            />
-                                            <span v-if="dns.status === 'ready'">
-                                                <span class="font-ui-mono">{{
-                                                    dns.domain
-                                                }}</span>
-                                                {{
-                                                    $t(
-                                                        'points to this machine. HTTPS is set up as it deploys.',
-                                                    ) + ' '
-                                                }}
-                                            </span>
-                                            <span
-                                                v-else-if="
-                                                    dns.status === 'missing'
-                                                "
-                                            >
-                                                {{
-                                                    ' ' +
-                                                    $t('No DNS record for')
-                                                }}
-                                                <span class="font-ui-mono">{{
-                                                    dns.domain
-                                                }}</span>
-                                                {{
-                                                    $t(
-                                                        'yet. Add this one where you manage the domain:',
-                                                    ) + ' '
-                                                }}
-                                            </span>
-                                            <span
-                                                v-else-if="
-                                                    dns.status === 'proxied'
-                                                "
-                                            >
-                                                {{
-                                                    ' ' +
-                                                    $t(
-                                                        'It’s behind Cloudflare’s proxy, which blocks the certificate. Set the record to DNS only (grey cloud):',
-                                                    ) +
-                                                    ' '
-                                                }}
-                                            </span>
-                                            <span v-else>
-                                                {{
-                                                    ' ' +
-                                                    $t(
-                                                        'It points to :value, not this machine. Change the record to:',
-                                                        {
-                                                            value: dns.found.join(
-                                                                ', ',
-                                                            ),
-                                                        },
-                                                    ) +
-                                                    ' '
-                                                }}
-                                            </span>
-                                        </p>
-                                        <template
-                                            v-if="
-                                                dns.status !== 'ready' &&
-                                                dns.record
-                                            "
-                                        >
-                                            <dl
-                                                class="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 rounded-md border border-(--ds-border) bg-(--ds-card) px-3 py-2 font-ui-mono text-[12px]/5"
-                                            >
-                                                <dt
-                                                    class="text-(--ds-text-faint)"
-                                                >
-                                                    {{ ' ' + $t('Type') + ' ' }}
-                                                </dt>
-                                                <dd class="col-span-2">
-                                                    {{ dns.record.type }}
-                                                </dd>
-                                                <dt
-                                                    class="text-(--ds-text-faint)"
-                                                >
-                                                    {{ ' ' + $t('Name') + ' ' }}
-                                                </dt>
-                                                <dd class="col-span-2 truncate">
-                                                    {{ dns.record.name }}
-                                                </dd>
-                                                <dt
-                                                    class="text-(--ds-text-faint)"
-                                                >
-                                                    {{
-                                                        ' ' + $t('Value') + ' '
-                                                    }}
-                                                </dt>
-                                                <dd class="truncate">
-                                                    {{ dns.record.value }}
-                                                </dd>
-                                                <AppButton
-                                                    size="xs"
-                                                    variant="quiet"
-                                                    :aria-label="
-                                                        $t(
-                                                            'Copy the IP address',
-                                                        )
-                                                    "
-                                                    @click="
-                                                        copy(
-                                                            'dns',
-                                                            dns.record.value,
-                                                        )
-                                                    "
-                                                >
-                                                    <Check
-                                                        v-if="copied === 'dns'"
-                                                        class="mi-pop size-3.5 text-(--ds-green)"
-                                                        :stroke-width="2.25"
-                                                    />
-                                                    <Copy
-                                                        v-else
-                                                        class="mi-copy size-3.5"
-                                                        :stroke-width="1.75"
-                                                    />
-                                                </AppButton>
-                                            </dl>
-                                            <div
-                                                class="flex items-center justify-between gap-3"
-                                            >
-                                                <span
-                                                    class="text-(--ds-text-muted)"
-                                                >
-                                                    {{
-                                                        ' ' +
-                                                        $t(
-                                                            'You can deploy now. HTTPS starts once the record points here, which can take a few minutes.',
-                                                        ) +
-                                                        ' '
-                                                    }}
-                                                </span>
-                                                <AppButton
-                                                    size="xs"
-                                                    variant="quiet"
-                                                    :disabled="dnsChecking"
-                                                    @click="checkDomain"
-                                                >
-                                                    {{
-                                                        dnsChecking
-                                                            ? $t('Checking…')
-                                                            : $t('Check again')
-                                                    }}
-                                                </AppButton>
-                                            </div>
-                                        </template>
-                                    </div>
-                                    <div
-                                        v-if="form.domain && canChooseProxy"
-                                        class="mt-1 flex flex-col gap-1.5"
-                                    >
-                                        <label
-                                            for="deploy-proxy"
-                                            :class="labelClass"
-                                        >
-                                            {{ $t('Reverse proxy') }}
-                                        </label>
-                                        <SelectMenu
-                                            id="deploy-proxy"
-                                            :model-value="chosenProxy"
-                                            :options="proxyOptions"
-                                            class="h-8 rounded-md border border-input bg-transparent pr-2.5 pl-3 text-[13px]/4 text-(--ds-text) shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-                                            @update:model-value="
-                                                (value) => (form.proxy = value)
-                                            "
-                                        />
-                                        <p
-                                            v-if="chosenProxy !== currentProxy"
-                                            class="text-xs/4 text-(--ds-text-faint)"
-                                        >
-                                            {{
-                                                $t(
-                                                    'This machine uses :from now. Deploying moves every site on it to :to and stops :from, since only one of them can use ports 80 and 443.',
-                                                    {
-                                                        from: proxyNames[
-                                                            currentProxy
-                                                        ],
-                                                        to: proxyNames[
-                                                            chosenProxy
-                                                        ],
-                                                    },
-                                                )
-                                            }}
-                                        </p>
-                                        <InputError
-                                            :message="errorFor('proxy')"
-                                        />
-                                    </div>
-                                    <label
-                                        v-if="form.domain && canChooseHttps"
-                                        class="mt-1 flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                                    >
-                                        <TickBox
-                                            v-model="form.https"
-                                            class="mt-0.5"
-                                        />
-                                        <span class="flex flex-col gap-0.5">
-                                            <span class="text-(--ds-text)">{{
-                                                $t('Serve over HTTPS')
-                                            }}</span>
-                                            <span
-                                                class="text-xs/4 text-(--ds-text-faint)"
-                                                >{{
-                                                    form.https
-                                                        ? $t(
-                                                              ':proxy gets a certificate and sends HTTP to HTTPS, as soon as the domain points here.',
-                                                              {
-                                                                  proxy: proxyNames[
-                                                                      chosenProxy
-                                                                  ],
-                                                              },
-                                                          )
-                                                        : $t(
-                                                              'Plain HTTP, no certificate. For when a CDN or proxy in front does HTTPS.',
-                                                          )
-                                                }}</span
-                                            >
-                                        </span>
-                                    </label>
-                                    <InputError :message="errorFor('https')" />
-                                    <label
-                                        v-if="form.domain"
-                                        class="mt-1 flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                                    >
-                                        <TickBox
-                                            v-model="form.wildcard"
-                                            class="mt-0.5"
-                                        />
-                                        <span class="flex flex-col gap-0.5">
-                                            <span class="text-(--ds-text)">{{
-                                                $t('Allow wildcard subdomains')
-                                            }}</span>
-                                            <span
-                                                class="text-xs/4 text-(--ds-text-faint)"
-                                                >{{
-                                                    $t(
-                                                        chosenProxy ===
-                                                            'caddy' &&
-                                                            form.https
-                                                            ? 'Every subdomain, like tenant.:domain, is served by this app and gets its own certificate the first time it’s visited. No DNS provider needed.'
-                                                            : 'Every subdomain, like tenant.:domain, is served by this app over plain HTTP: a certificate for every subdomain needs Caddy.',
-                                                        {
-                                                            domain:
-                                                                bareDomain(
-                                                                    form.domain,
-                                                                ) ||
-                                                                'example.com',
-                                                        },
-                                                    )
-                                                }}</span
-                                            >
-                                        </span>
-                                    </label>
-                                    <InputError
-                                        :message="errorFor('wildcard')"
-                                    />
-                                    <p
-                                        v-if="
-                                            form.wildcard &&
-                                            dns?.wildcard &&
-                                            dns.wildcard.status !== 'ready' &&
-                                            dns.wildcard.record
-                                        "
-                                        class="text-xs/4 text-(--ds-text-muted)"
-                                        aria-live="polite"
-                                    >
-                                        {{
-                                            dns.wildcard.status === 'proxied'
-                                                ? $t(
-                                                      'Subdomains are behind Cloudflare’s proxy, which blocks their certificates. Set it to DNS only:',
-                                                  )
-                                                : $t(
-                                                      'Subdomains need a record too:',
-                                                  )
-                                        }}
-                                        <span
-                                            class="font-ui-mono text-(--ds-text)"
-                                            >{{ dns.wildcard.record.type }}
-                                            {{ dns.wildcard.record.name }} →
-                                            {{
-                                                dns.wildcard.record.value
-                                            }}</span
-                                        >
-                                    </p>
-                                </div>
-
-                                <section
-                                    v-if="selected.env.length"
-                                    class="flex flex-col gap-3"
-                                    aria-labelledby="deploy-settings"
-                                >
-                                    <h3
-                                        id="deploy-settings"
-                                        class="text-xs/4 font-medium text-(--ds-text-faint)"
-                                    >
-                                        {{ ' ' + $t('Settings') + ' ' }}
-                                    </h3>
-                                    <template
-                                        v-for="field in selected.env"
-                                        :key="field.key"
-                                    >
-                                        <label
-                                            v-if="field.accept"
-                                            class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                                        >
-                                            <TickBox
-                                                v-model="
-                                                    form.env[
-                                                        field.key
-                                                    ] as boolean
-                                                "
-                                                class="mt-0.5"
-                                            />
-                                            <span>{{ field.label }}</span>
-                                        </label>
-                                        <div
-                                            v-else
-                                            class="flex flex-col gap-1.5"
-                                        >
-                                            <label
-                                                :for="`deploy-env-${field.key}`"
-                                                :class="labelClass"
-                                            >
-                                                {{ field.label }}
-                                                <span
-                                                    class="ml-1 font-ui-mono text-[11px] font-normal text-(--ds-text-faint)"
-                                                >
-                                                    {{ field.key }}
-                                                </span>
-                                            </label>
-                                            <Input
-                                                :id="`deploy-env-${field.key}`"
-                                                v-model="
-                                                    form.env[
-                                                        field.key
-                                                    ] as string
-                                                "
-                                                :placeholder="
-                                                    field.generated
-                                                        ? $t(
-                                                              'Generated on deploy',
-                                                          )
-                                                        : undefined
-                                                "
-                                                autocomplete="off"
-                                                spellcheck="false"
-                                            />
-                                            <p
-                                                v-if="field.hint"
-                                                class="text-xs/4 text-(--ds-text-faint)"
-                                            >
-                                                {{ field.hint }}
-                                            </p>
-                                        </div>
-                                        <InputError
-                                            :message="
-                                                errorFor(`env.${field.key}`)
-                                            "
-                                        />
-                                    </template>
-                                </section>
-
-                                <div
-                                    v-if="selected.kind === 'app'"
-                                    class="flex flex-col gap-1.5"
-                                >
-                                    <button
-                                        v-if="!showExtraEnv"
-                                        type="button"
-                                        class="cursor-pointer self-start text-[13px]/5 font-medium text-(--ds-blue) hover:underline hover:underline-offset-4"
-                                        @click="showExtraEnv = true"
-                                    >
-                                        {{
-                                            ' ' +
-                                            $t('Add environment variables') +
-                                            ' '
-                                        }}
-                                    </button>
-                                    <template v-else>
-                                        <label
-                                            for="deploy-extra-env"
-                                            :class="labelClass"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'More environment variables',
-                                                ) +
-                                                ' '
-                                            }}
-                                        </label>
-                                        <textarea
-                                            id="deploy-extra-env"
-                                            v-model="form.extra_env"
-                                            rows="4"
-                                            spellcheck="false"
-                                            placeholder="KEY=value, one per line"
-                                            class="rounded-md border border-input bg-transparent px-3 py-2 font-ui-mono text-xs/5 text-(--ds-text) outline-none placeholder:text-(--ds-text-faint) focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-                                        />
-                                        <p
-                                            v-if="selected?.compose"
-                                            class="text-xs/4 text-(--ds-text-faint)"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'They fill in ${NAME} in the Compose file. Pass them to a service under environment, like DATABASE_URL: ${DATABASE_URL}.',
-                                                ) +
-                                                ' '
-                                            }}
-                                        </p>
-                                        <p
-                                            v-else-if="selected?.kind === 'app'"
-                                            class="text-xs/4 text-(--ds-text-faint)"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'Available while the app runs. Public ones (NEXT_PUBLIC_…, VITE_…) are also there while it builds.',
-                                                ) +
-                                                ' '
-                                            }}
-                                        </p>
-                                        <InputError
-                                            :message="errorFor('extra_env')"
-                                        />
-                                    </template>
-                                </div>
-
-                                <InputError :message="errorFor('form')" />
-                            </div>
-
-                            <div
-                                class="flex items-center justify-end gap-2 border-t border-(--ds-border) px-4 py-3"
-                            >
-                                <AppButton
-                                    size="sm"
-                                    variant="quiet"
-                                    @click="open = false"
-                                >
-                                    {{ ' ' + $t('Cancel') + ' ' }}
-                                </AppButton>
-                                <SubmitButton
-                                    :label="
-                                        $t('Deploy :name', {
-                                            name: String(selected.name),
-                                        })
-                                    "
-                                    busy-label="Queuing…"
-                                    :processing="submitting"
-                                    :disabled="missingAcceptance"
-                                />
-                            </div>
-                        </form>
-
-                        <div v-else-if="step === 'done' && result" key="done">
-                            <div class="flex flex-col gap-4 p-5">
-                                <div class="flex items-center gap-3">
-                                    <span
-                                        class="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--ds-green)/15 text-(--ds-green)"
-                                        aria-hidden="true"
-                                    >
-                                        <svg
-                                            viewBox="0 0 24 24"
-                                            class="size-4.5"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            stroke-width="2.4"
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                        >
-                                            <path
-                                                class="mi-draw"
-                                                pathLength="1"
-                                                d="M5 12.5 10 17.5 19 7"
-                                            />
-                                        </svg>
-                                    </span>
-                                    <div class="flex flex-col">
-                                        <p class="text-sm font-medium">
-                                            {{
-                                                ' ' +
-                                                (result.commit
-                                                    ? $t(
-                                                          'Deploying :service at :commit',
-                                                          {
-                                                              service:
-                                                                  form.service,
-                                                              commit: result.commit.slice(
-                                                                  0,
-                                                                  7,
-                                                              ),
-                                                          },
-                                                      )
-                                                    : $t('Deploying :service', {
-                                                          service: form.service,
-                                                      }))
-                                            }}
-                                        </p>
-                                        <p
-                                            class="text-[13px]/5 text-(--ds-text-muted)"
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t(
-                                                    'Follow it in the Deployments tab. The first deploy pulls images, so give it a minute.',
-                                                ) +
-                                                ' '
-                                            }}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <p
-                                    v-if="result.kept?.length"
-                                    class="text-[13px]/5 text-(--ds-text-secondary)"
-                                >
+                                <p class="break-all text-fg-secondary">
                                     {{
-                                        ' ' +
                                         $t(
-                                            'Kept :keys from the last deploy, so what’s already stored and connected keeps working.',
-                                            { keys: result.kept.join(', ') },
-                                        ) +
-                                        ' '
+                                            ':repo is read over SSH. The machine makes a deploy key for the app, you add it to the repository, then the machine reads it with that key.',
+                                            { repo: ssh.repo },
+                                        )
                                     }}
                                 </p>
-                                <div
-                                    v-if="result.generated.length"
-                                    class="flex flex-col gap-2"
-                                >
-                                    <p
-                                        class="text-[13px]/5 text-(--ds-text-secondary)"
-                                    >
-                                        {{
-                                            ' ' +
-                                            $t(
-                                                'Save these now. ServerOS doesn’t keep them, so this is the only time you’ll see them.',
-                                            ) +
-                                            ' '
-                                        }}
-                                    </p>
-                                    <ul
-                                        class="overflow-hidden rounded-[10px] border border-(--ds-border) bg-(--ds-field)/50"
-                                    >
-                                        <li
-                                            v-for="secret in result.generated"
-                                            :key="secret.key"
-                                            class="flex items-center gap-3 border-t border-(--ds-border) px-3.5 py-2.5 first:border-t-0"
-                                        >
-                                            <span
-                                                class="flex min-w-0 grow flex-col"
+                                <div class="flex flex-col gap-1.5">
+                                    <label for="ssh-service" :class="label">{{
+                                        $t('App name')
+                                    }}</label>
+                                    <div :class="field">
+                                        <input
+                                            id="ssh-service"
+                                            v-model.trim="ssh.service"
+                                            maxlength="63"
+                                            pattern="[a-z][a-z0-9\-]*"
+                                            class="font-ui-mono"
+                                            :disabled="
+                                                !!ssh.publicKey ||
+                                                ssh.busy !== null
+                                            "
+                                        />
+                                    </div>
+                                </div>
+                                <template v-if="ssh.publicKey">
+                                    <div class="flex flex-col gap-1.5">
+                                        <span :class="label">{{
+                                            $t('Deploy key')
+                                        }}</span>
+                                        <div class="flex items-start gap-2">
+                                            <code
+                                                class="min-w-0 flex-1 rounded-[7px] border-[0.5px] border-edge-field bg-surface-field p-2 font-ui-mono text-[11.5px]/4 break-all text-fg-secondary"
+                                                >{{ ssh.publicKey }}</code
                                             >
-                                                <span
-                                                    class="text-xs/4 text-(--ds-text-muted)"
-                                                >
-                                                    {{ secret.label }}
-                                                </span>
-                                                <span
-                                                    class="truncate font-ui-mono text-[13px]/5 select-all"
-                                                >
-                                                    {{ secret.value }}
-                                                </span>
-                                            </span>
-                                            <AppButton
-                                                size="xs"
-                                                variant="quiet"
+                                            <button
+                                                type="button"
+                                                :class="iconButton"
                                                 :aria-label="
-                                                    $t('Copy :label', {
-                                                        label: String(
-                                                            secret.label,
-                                                        ),
-                                                    })
+                                                    $t('Copy the deploy key')
                                                 "
                                                 @click="
                                                     copy(
-                                                        secret.key,
-                                                        secret.value,
+                                                        'ssh-key',
+                                                        ssh.publicKey,
                                                     )
                                                 "
                                             >
                                                 <Check
-                                                    v-if="copied === secret.key"
-                                                    class="mi-pop size-3.5 text-(--ds-green)"
+                                                    v-if="copied === 'ssh-key'"
+                                                    class="mi-pop size-3.5 text-status-live"
                                                     :stroke-width="2.25"
                                                 />
                                                 <Copy
@@ -3005,124 +2183,1314 @@ watch(
                                                     class="mi-copy size-3.5"
                                                     :stroke-width="1.75"
                                                 />
-                                            </AppButton>
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <p
-                                    v-if="result.url"
-                                    class="text-[13px]/5 text-(--ds-text-muted)"
-                                >
-                                    {{ ' ' + $t('It will answer at') }}
-                                    <span class="font-ui-mono text-(--ds-text)">
-                                        {{ result.url }}
-                                    </span>
+                                            </button>
+                                        </div>
+                                        <p :class="hint">
+                                            {{
+                                                $t(
+                                                    'Add it to the repository as a read-only deploy key: Settings → Deploy keys on GitHub and Gitea, Settings → Repository → Deploy keys on GitLab, Repository settings → Access keys on Bitbucket.',
+                                                )
+                                            }}
+                                        </p>
+                                    </div>
+                                    <div class="flex flex-col gap-1.5">
+                                        <label for="ssh-branch" :class="label">
+                                            {{ $t('Branch') }}
+                                            <span
+                                                class="font-normal text-fg-faint"
+                                                >{{
+                                                    ' ' +
+                                                    $t(
+                                                        '(empty for the default one)',
+                                                    )
+                                                }}</span
+                                            >
+                                        </label>
+                                        <div :class="field">
+                                            <input
+                                                id="ssh-branch"
+                                                v-model.trim="ssh.branch"
+                                                class="font-ui-mono"
+                                                :placeholder="$t('main')"
+                                                autocomplete="off"
+                                                spellcheck="false"
+                                                @keydown.enter.prevent="
+                                                    canInspectSsh
+                                                        ? inspectSsh()
+                                                        : lookUpBranch()
+                                                "
+                                            />
+                                        </div>
+                                    </div>
+                                    <template
+                                        v-if="!canInspectSsh && ssh.commit"
+                                    >
+                                        <p class="text-fg-secondary">
+                                            {{
+                                                $t('Found :ref at :commit.', {
+                                                    ref: (
+                                                        ssh.ref ?? ''
+                                                    ).replace(
+                                                        /^refs\/(heads|tags)\//,
+                                                        '',
+                                                    ),
+                                                    commit: ssh.commit.slice(
+                                                        0,
+                                                        7,
+                                                    ),
+                                                })
+                                            }}
+                                        </p>
+                                        <div class="flex flex-col gap-1.5">
+                                            <label
+                                                for="ssh-setup"
+                                                :class="label"
+                                                >{{ $t('Setup') }}</label
+                                            >
+                                            <SelectMenu
+                                                id="ssh-setup"
+                                                v-model="sshSetup"
+                                                :options="appTemplateOptions"
+                                                :placeholder="
+                                                    $t('Choose a setup')
+                                                "
+                                                :class="select"
+                                            />
+                                        </div>
+                                    </template>
+                                </template>
+                                <p v-if="ssh.error" :class="error" role="alert">
+                                    {{ ssh.error }}
                                 </p>
                                 <p
-                                    v-if="result.url?.startsWith('https://')"
-                                    class="flex items-start gap-1.5 text-[13px]/5 text-(--ds-text-muted)"
+                                    v-if="scanning && ssh.busy === 'inspect'"
+                                    class="flex items-center gap-1.5"
+                                    :class="hint"
                                 >
-                                    <LockKeyhole
-                                        class="mt-0.5 size-3.5 shrink-0"
+                                    <LoaderCircle
+                                        class="size-3.5 animate-spin"
                                         :stroke-width="1.75"
                                         aria-hidden="true"
                                     />
                                     {{
                                         $t(
-                                            ':proxy on the machine gets the certificate and redirects HTTP to HTTPS, as soon as the domain points here.',
-                                            {
-                                                proxy: proxyNames[
-                                                    deployedProxy
-                                                ],
-                                            },
-                                        ) + ' '
+                                            ':machine is reading it, which can take a minute.',
+                                            { machine: machineName },
+                                        )
                                     }}
                                 </p>
-                                <div
-                                    v-if="!result.url && result.localUrl"
-                                    class="flex flex-col gap-2 text-[13px]/5 text-(--ds-text-muted)"
-                                >
-                                    <p>
+                                <div class="flex justify-end">
+                                    <DashButton
+                                        size="sm"
+                                        :label="$t('Use another repository')"
+                                        @click="
+                                            resetOwnCode();
+                                            repoInput = '';
+                                            nextTick(() => repoField?.focus());
+                                        "
+                                    />
+                                </div>
+                            </div>
+
+                            <!-- Looking inside -->
+                            <div
+                                v-else-if="scanning || uploadPhase"
+                                class="flex items-center gap-3 rounded-[10px] border-[0.5px] border-[#e2e2e2] bg-[#fafafa] px-4 py-3.5 dark:border-[#2a2a2a] dark:bg-[#1a1a1a]"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <LoaderCircle
+                                    class="size-4 shrink-0 animate-spin text-fg-muted"
+                                    :stroke-width="2"
+                                    aria-hidden="true"
+                                />
+                                <div class="flex min-w-0 flex-1 flex-col gap-1">
+                                    <p
+                                        class="truncate text-[13px]/5 font-medium text-fg-primary"
+                                    >
                                         {{
-                                            ' ' +
-                                            $t(
-                                                'With no domain it only listens on the machine itself, at',
-                                            )
-                                        }}
-                                        <span
-                                            class="font-ui-mono text-(--ds-text)"
-                                            >{{ result.localUrl }}</span
-                                        >{{
-                                            $t(
-                                                '. Add a domain to open it from anywhere, or reach it from your computer through an SSH tunnel, then open that address:',
-                                            ) + ' '
+                                            uploadPhase
+                                                ? uploadPhase.text
+                                                : $t('Looking inside :repo…', {
+                                                      repo:
+                                                          scanning?.label ?? '',
+                                                  })
                                         }}
                                     </p>
                                     <div
-                                        v-if="result.tunnel"
-                                        class="flex items-center gap-2 rounded-[10px] border border-(--ds-border) bg-(--ds-field)/50 py-1.5 pr-1.5 pl-3"
+                                        v-if="
+                                            uploadPhase?.progress !== null &&
+                                            uploadPhase?.progress !== undefined
+                                        "
+                                        class="h-1 overflow-hidden rounded-full bg-black/6 dark:bg-white/8"
                                     >
-                                        <code
-                                            class="min-w-0 grow truncate font-ui-mono text-xs/5 text-(--ds-text) select-all"
-                                            >{{ result.tunnel }}</code
-                                        >
-                                        <AppButton
-                                            size="xs"
-                                            variant="quiet"
-                                            :aria-label="
-                                                $t(
-                                                    'Copy the SSH tunnel command',
-                                                )
-                                            "
-                                            @click="
-                                                copy('tunnel', result.tunnel)
-                                            "
-                                        >
-                                            <Check
-                                                v-if="copied === 'tunnel'"
-                                                class="mi-pop size-3.5 text-(--ds-green)"
-                                                :stroke-width="2.25"
-                                            />
-                                            <Copy
-                                                v-else
-                                                class="mi-copy size-3.5"
-                                                :stroke-width="1.75"
-                                            />
-                                        </AppButton>
+                                        <div
+                                            class="h-full rounded-full bg-dash-blue transition-[width] duration-300"
+                                            :style="{
+                                                width: `${Math.round(uploadPhase.progress * 100)}%`,
+                                            }"
+                                        />
                                     </div>
+                                    <p v-else :class="hint">
+                                        {{
+                                            scanning?.viaMachine
+                                                ? $t(
+                                                      ':machine fetches it to read it, which can take a minute.',
+                                                      { machine: machineName },
+                                                  )
+                                                : $t(
+                                                      'Reading how it’s built, its port and its settings.',
+                                                  )
+                                        }}
+                                    </p>
                                 </div>
-                                <p
-                                    v-if="result.notes"
-                                    class="text-[13px]/5 text-(--ds-text-muted)"
-                                >
-                                    {{ result.notes }}
-                                </p>
+                                <DashButton
+                                    v-if="scanning"
+                                    size="sm"
+                                    :label="$t('Cancel')"
+                                    @click="cancelScan"
+                                />
                             </div>
 
+                            <template v-else>
+                                <form
+                                    class="flex flex-col gap-1.5"
+                                    @submit.prevent="submitRepo"
+                                >
+                                    <label
+                                        for="deploy-repo-input"
+                                        :class="label"
+                                        >{{ $t('Repository') }}</label
+                                    >
+                                    <div :class="[field, 'h-[38px]!']">
+                                        <FilledIcon
+                                            name="branch-fill"
+                                            :size="15"
+                                            class="shrink-0 text-fg-muted"
+                                        />
+                                        <input
+                                            id="deploy-repo-input"
+                                            ref="repoField"
+                                            v-model="repoInput"
+                                            type="text"
+                                            inputmode="url"
+                                            autocomplete="off"
+                                            spellcheck="false"
+                                            :placeholder="
+                                                gitlab?.connected
+                                                    ? $t(
+                                                          'Search repos, or paste a URL',
+                                                      )
+                                                    : github?.connected
+                                                      ? $t(
+                                                            'Paste a link, or search your GitHub repositories',
+                                                        )
+                                                      : 'https://github.com/you/app'
+                                            "
+                                            class="font-ui-mono text-[12.5px]"
+                                            @input="detectError = null"
+                                        />
+                                    </div>
+                                    <p
+                                        v-if="detectError"
+                                        :class="error"
+                                        role="alert"
+                                    >
+                                        {{ detectError }}
+                                    </p>
+                                    <p v-else :class="hint">
+                                        {{
+                                            gitlab?.connected
+                                                ? $t(
+                                                      'GitHub, GitLab, Gitea, Bitbucket or your own git server. For a private one elsewhere, paste its SSH address, like git@git.example.com:you/app.git.',
+                                                  )
+                                                : $t(
+                                                      'GitHub, GitLab, Gitea, Bitbucket or your own git server. For a private one elsewhere, paste its SSH address, like git@gitlab.com:you/app.git.',
+                                                  )
+                                        }}
+                                    </p>
+                                </form>
+
+                                <RepoList
+                                    v-if="
+                                        page.props.githubApp ||
+                                        gitlab?.connected
+                                    "
+                                    v-model:query="repoInput"
+                                    searchless
+                                    :github="github"
+                                    :gitlab="gitlab"
+                                    :available="page.props.githubApp"
+                                    :connect-url="
+                                        workspacePath(
+                                            '/settings/github/connect',
+                                        )
+                                    "
+                                    :gitlab-connect-url="
+                                        workspacePath('/integrations')
+                                    "
+                                    :busy="null"
+                                    :disabled="busy"
+                                    @import="importRepository"
+                                />
+
+                                <div class="mt-1 flex flex-col gap-2">
+                                    <h3 :class="sectionTitle">
+                                        {{ $t('Or') }}
+                                    </h3>
+                                    <div class="grid gap-2 sm:grid-cols-2">
+                                        <div
+                                            class="flex items-center gap-3 rounded-[8px] border-[0.5px] px-3 py-2.5 transition-colors"
+                                            :class="
+                                                dragging
+                                                    ? 'border-[rgb(77_123_255/0.9)] bg-[rgb(51_97_255/0.06)]'
+                                                    : 'border-[#e2e2e2] bg-white dark:border-[#2a2a2a] dark:bg-[#1c1c1c]'
+                                            "
+                                        >
+                                            <span
+                                                class="flex size-8 shrink-0 items-center justify-center rounded-[6px] bg-[#f2f2f2] text-fg-secondary shadow-[0_1px_1.5px_rgb(0_0_0/0.08)] dark:bg-[#262626]"
+                                                aria-hidden="true"
+                                            >
+                                                <FilledIcon
+                                                    name="upload-fill"
+                                                />
+                                            </span>
+                                            <span
+                                                class="flex min-w-0 flex-1 flex-col"
+                                            >
+                                                <span
+                                                    class="text-[13px]/[18px] font-medium tracking-[-0.01em] text-fg-primary"
+                                                    >{{
+                                                        $t(
+                                                            'Upload a folder or .zip',
+                                                        )
+                                                    }}</span
+                                                >
+                                                <span
+                                                    class="truncate text-[12px]/4 text-fg-muted"
+                                                    >{{
+                                                        $t('Or drop it here')
+                                                    }}</span
+                                                >
+                                            </span>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger as-child>
+                                                    <DashButton
+                                                        size="sm"
+                                                        :label="$t('Choose')"
+                                                    />
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent
+                                                    class="ds-modal min-w-40 font-ui"
+                                                    align="end"
+                                                >
+                                                    <DropdownMenuItem
+                                                        @select="
+                                                            folderPicker?.click()
+                                                        "
+                                                    >
+                                                        {{ $t('A folder') }}
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem
+                                                        @select="
+                                                            fileInput?.click()
+                                                        "
+                                                    >
+                                                        {{
+                                                            $t(
+                                                                'Files or a .zip',
+                                                            )
+                                                        }}
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="flex cursor-pointer items-center gap-3 rounded-[8px] border-[0.5px] border-[#e2e2e2] bg-white px-3 py-2.5 text-left transition-colors hover:bg-[#fafafa] focus-visible:outline-2 focus-visible:outline-(--ds-ring) dark:border-[#2a2a2a] dark:bg-[#1c1c1c] dark:hover:bg-[#202020]"
+                                            @click="
+                                                choose(
+                                                    templateBySlug(
+                                                        'docker-image',
+                                                    ),
+                                                )
+                                            "
+                                        >
+                                            <span
+                                                class="flex size-8 shrink-0 items-center justify-center rounded-[6px] bg-[#f2f2f2] shadow-[0_1px_1.5px_rgb(0_0_0/0.08)] dark:bg-[#262626]"
+                                                aria-hidden="true"
+                                            >
+                                                <TemplateLogo
+                                                    icon="docker"
+                                                    :size="17"
+                                                />
+                                            </span>
+                                            <span
+                                                class="flex min-w-0 flex-1 flex-col"
+                                            >
+                                                <span
+                                                    class="text-[13px]/[18px] font-medium tracking-[-0.01em] text-fg-primary"
+                                                    >{{
+                                                        $t('Run a Docker image')
+                                                    }}</span
+                                                >
+                                                <span
+                                                    class="truncate text-[12px]/4 text-fg-muted"
+                                                    >{{
+                                                        $t(
+                                                            'From Docker Hub or any registry',
+                                                        )
+                                                    }}</span
+                                                >
+                                            </span>
+                                            <FilledIcon
+                                                name="chevron-right"
+                                                :size="14"
+                                                class="shrink-0 text-fg-faint"
+                                            />
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configure -->
+                <form
+                    v-else-if="step === 'configure' && selected"
+                    id="deploy-configure"
+                    class="min-h-0 flex-1 overflow-y-auto"
+                    novalidate
+                    @submit.prevent="deploy"
+                >
+                    <div
+                        class="mx-auto flex w-full max-w-[640px] flex-col gap-5 px-5 py-5"
+                    >
+                        <DockerInstall
+                            v-if="showDocker"
+                            :machine-id="target"
+                            :machine-name="machineName"
+                            :message="dockerMessage"
+                            @installed="dockerInstalled"
+                        />
+
+                        <p
+                            v-if="selected.needsUpdate"
+                            class="rounded-[8px] border-[0.5px] border-status-pending/30 bg-status-pending/8 px-3 py-2 text-[12.5px]/4 text-fg-secondary"
+                        >
+                            {{
+                                $t(
+                                    'The ServerOS daemon on :machine is too old for this. It updates itself, or run “sudo serverosd update” on it.',
+                                    { machine: machineName },
+                                )
+                            }}
+                        </p>
+
+                        <ScanSummary
+                            v-if="
+                                fromScan && detection && selected.kind === 'app'
+                            "
+                            v-model:import-example="importExample"
+                            :detection="detection"
+                            :method="method"
+                            :setup-name="selected.name"
+                            :icon="selected.icon"
+                            :port="form.port"
+                            :can-deploy-build="canDeployBuild"
+                            :branch-options="branchOptions"
+                            :busy="busy"
+                            :compose-file="form.compose_file"
+                            @rescan="rescan"
+                            @change-build="openAdvanced"
+                        />
+                        <p v-if="fromScan && detectError" :class="error">
+                            {{ detectError }}
+                        </p>
+                        <p
+                            v-else-if="!isAppLike && selected.notes"
+                            :class="hint"
+                        >
+                            {{ selected.notes }}
+                        </p>
+
+                        <!-- A prebuilt image -->
+                        <div
+                            v-if="selected.kind === 'image'"
+                            class="flex flex-col gap-1.5"
+                        >
+                            <label for="deploy-image" :class="label">{{
+                                $t('Image')
+                            }}</label>
+                            <div :class="field">
+                                <input
+                                    id="deploy-image"
+                                    v-model.trim="build.image"
+                                    class="font-ui-mono"
+                                    placeholder="ghcr.io/you/app:1.4"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    autofocus
+                                />
+                            </div>
+                            <p v-if="errorFor('build.image')" :class="error">
+                                {{ errorFor('build.image') }}
+                            </p>
+                            <p :class="hint">
+                                {{
+                                    $t(
+                                        'Like nginx:alpine or ghcr.io/you/app:1.4.',
+                                    ) + ' '
+                                }}
+                                <a
+                                    :href="
+                                        onWorkspace(
+                                            settingsRoutes.general(
+                                                page.props.workspace.slug,
+                                            ),
+                                        ).url
+                                    "
+                                    target="_blank"
+                                    class="text-fg-secondary underline decoration-fg-faint underline-offset-2 hover:text-fg-primary"
+                                    >{{
+                                        $t(
+                                            'A private one needs its registry’s login in Settings.',
+                                        )
+                                    }}</a
+                                >
+                            </p>
+                        </div>
+
+                        <!-- From the library: the repository by hand -->
+                        <template v-if="selected.kind === 'app' && !fromScan">
                             <div
-                                class="flex justify-end gap-2 border-t border-(--ds-border) px-4 py-3"
+                                v-if="uploadSource"
+                                class="flex flex-col gap-1.5"
                             >
-                                <AppButton
-                                    size="sm"
-                                    variant="quiet"
-                                    v-if="!backCloses"
-                                    @click="back"
+                                <span :class="label">{{ $t('Code') }}</span>
+                                <div
+                                    class="dash-field bg-surface-field-readonly text-fg-secondary"
                                 >
-                                    {{ ' ' + $t('Deploy another') + ' ' }}
-                                </AppButton>
-                                <AppButton
-                                    size="sm"
-                                    variant="primary"
-                                    @click="open = false"
-                                >
-                                    {{ ' ' + $t('Done') + ' ' }}
-                                </AppButton>
+                                    <FilledIcon
+                                        name="zip-fill"
+                                        class="shrink-0 text-fg-muted"
+                                    />
+                                    <span class="min-w-0 truncate">{{
+                                        $t(':name, :count files, uploaded', {
+                                            name: uploadSource.filename,
+                                            count: String(uploadSource.files),
+                                        })
+                                    }}</span>
+                                </div>
+                            </div>
+                            <div
+                                v-else
+                                class="grid gap-4 sm:grid-cols-[2fr_1fr]"
+                            >
+                                <div class="flex flex-col gap-1.5">
+                                    <label for="deploy-repo" :class="label">{{
+                                        $t('Git repository')
+                                    }}</label>
+                                    <div :class="field">
+                                        <input
+                                            id="deploy-repo"
+                                            v-model.trim="form.repo"
+                                            type="text"
+                                            inputmode="url"
+                                            required
+                                            :readonly="lockedService"
+                                            class="font-ui-mono text-[12.5px]"
+                                            placeholder="https://github.com/you/app"
+                                            autocomplete="off"
+                                            spellcheck="false"
+                                        />
+                                    </div>
+                                    <p v-if="errorFor('repo')" :class="error">
+                                        {{ errorFor('repo') }}
+                                    </p>
+                                    <p v-else :class="hint">
+                                        {{
+                                            $t(
+                                                'An HTTPS address, or an SSH one like git@gitlab.com:you/app.git for a private repository.',
+                                            )
+                                        }}
+                                    </p>
+                                </div>
+                                <div class="flex flex-col gap-1.5">
+                                    <label for="deploy-commit" :class="label">{{
+                                        $t('Branch, tag or commit')
+                                    }}</label>
+                                    <div :class="field">
+                                        <input
+                                            id="deploy-commit"
+                                            v-model.trim="form.commit"
+                                            maxlength="255"
+                                            :readonly="lockedService"
+                                            :placeholder="$t('Default branch')"
+                                            class="font-ui-mono"
+                                        />
+                                    </div>
+                                    <p v-if="errorFor('commit')" :class="error">
+                                        {{ errorFor('commit') }}
+                                    </p>
+                                </div>
+                            </div>
+                        </template>
+                        <p
+                            v-if="
+                                fromScan &&
+                                (errorFor('repo') ||
+                                    errorFor('commit') ||
+                                    errorFor('branch'))
+                            "
+                            :class="error"
+                        >
+                            {{
+                                errorFor('repo') ??
+                                errorFor('commit') ??
+                                errorFor('branch')
+                            }}
+                        </p>
+
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div class="flex flex-col gap-1.5">
+                                <label for="deploy-service" :class="label">{{
+                                    isAppLike ? $t('Name') : $t('Service name')
+                                }}</label>
+                                <div :class="field">
+                                    <input
+                                        id="deploy-service"
+                                        v-model.trim="form.service"
+                                        :readonly="lockedService"
+                                        :title="
+                                            lockedService
+                                                ? $t(
+                                                      'The deploy key belongs to this name.',
+                                                  )
+                                                : undefined
+                                        "
+                                        required
+                                        maxlength="63"
+                                        pattern="[a-z][a-z0-9\-]*"
+                                        class="font-ui-mono"
+                                    />
+                                </div>
+                                <p v-if="errorFor('service')" :class="error">
+                                    {{ errorFor('service') }}
+                                </p>
+                                <p v-else-if="replacesExisting" :class="hint">
+                                    {{
+                                        $t(
+                                            ':service is already on this machine. Deploying with this name replaces it and keeps its data. Pick another name to add a second one.',
+                                            { service: form.service },
+                                        )
+                                    }}
+                                </p>
+                            </div>
+                            <div
+                                v-if="
+                                    selected.portEditable &&
+                                    selected.kind === 'compose'
+                                "
+                                class="flex flex-col gap-1.5"
+                            >
+                                <label for="deploy-port" :class="label">
+                                    {{ $t('Port on this machine') }}
+                                </label>
+                                <div :class="field">
+                                    <input
+                                        id="deploy-port"
+                                        v-model.number="form.port"
+                                        type="number"
+                                        min="1"
+                                        max="65535"
+                                        class="tabular-nums"
+                                    />
+                                </div>
+                                <p v-if="errorFor('port')" :class="error">
+                                    {{ errorFor('port') }}
+                                </p>
+                                <p v-else-if="portTaken" :class="hint">
+                                    {{
+                                        $t(
+                                            'Something on this machine already uses port :port.',
+                                            { port: String(form.port) },
+                                        )
+                                    }}
+                                </p>
                             </div>
                         </div>
-                    </Transition>
+
+                        <AddressField
+                            v-if="selected.web"
+                            v-model:mode="addressMode"
+                            v-model:domain="form.domain"
+                            v-model:wildcard="form.wildcard"
+                            v-model:proxy="form.proxy"
+                            v-model:https="form.https"
+                            :machine-id="target"
+                            :service="form.service"
+                            :free-address="freeAddress"
+                            :offers-free="offersFree"
+                            :machine-proxy="machineProxy"
+                            :can-choose-proxy="canChooseProxy"
+                            :can-choose-https="canChooseHttps"
+                            :taken-domains="capabilities?.domains ?? []"
+                            :errors="errors"
+                        />
+
+                        <!-- Settings: the template's own, and for an app a .env, each for the build, the running app or both -->
+                        <section
+                            v-if="selected.env.length || isAppLike"
+                            class="flex flex-col gap-3"
+                            aria-labelledby="deploy-settings"
+                        >
+                            <h3 id="deploy-settings" :class="sectionTitle">
+                                {{ $t('Settings') }}
+                            </h3>
+                            <p v-if="filledFields.length" :class="hint">
+                                {{
+                                    $t('ServerOS fills in :names for :name.', {
+                                        names: filledNames,
+                                        name: selected.name,
+                                    }) + ' '
+                                }}
+                                <button
+                                    type="button"
+                                    :class="linkButton"
+                                    @click="fieldsOpen = true"
+                                >
+                                    {{ $t('Change them') }}
+                                </button>
+                            </p>
+                            <template
+                                v-for="entry in shownFields"
+                                :key="entry.key"
+                            >
+                                <label
+                                    v-if="entry.accept"
+                                    class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-fg-secondary select-none"
+                                >
+                                    <DashCheckbox
+                                        v-model="form.env[entry.key] as boolean"
+                                        class="mt-[3px]"
+                                        :label="entry.label"
+                                    />
+                                    <span>{{ entry.label }}</span>
+                                </label>
+                                <div v-else class="flex flex-col gap-1.5">
+                                    <label
+                                        :for="`deploy-env-${entry.key}`"
+                                        :class="label"
+                                    >
+                                        {{ entry.label }}
+                                        <span
+                                            class="ml-1 font-ui-mono text-[11px] font-normal text-fg-faint"
+                                            >{{ entry.key }}</span
+                                        >
+                                    </label>
+                                    <div :class="field">
+                                        <input
+                                            :id="`deploy-env-${entry.key}`"
+                                            v-model="
+                                                form.env[entry.key] as string
+                                            "
+                                            :placeholder="
+                                                entry.generated
+                                                    ? $t('Generated on deploy')
+                                                    : undefined
+                                            "
+                                            autocomplete="off"
+                                            spellcheck="false"
+                                        />
+                                    </div>
+                                    <p v-if="entry.hint" :class="hint">
+                                        {{ entry.hint }}
+                                    </p>
+                                </div>
+                                <p
+                                    v-if="errorFor(`env.${entry.key}`)"
+                                    :class="error"
+                                >
+                                    {{ errorFor(`env.${entry.key}`) }}
+                                </p>
+                            </template>
+                            <EnvRows
+                                v-if="isAppLike"
+                                v-model="envRows"
+                                :flags="showFlags"
+                                :compose="method === 'compose'"
+                                :error="
+                                    errorFor('extra_env') ??
+                                    errorFor('env_flags')
+                                "
+                            />
+                        </section>
+
+                        <!-- Everything else, with defaults that work -->
+                        <section
+                            v-if="isAppLike"
+                            id="deploy-advanced"
+                            class="flex scroll-mt-4 flex-col gap-4 border-t-[0.5px] border-[#ececec] pt-4 dark:border-[#262626]"
+                        >
+                            <button
+                                type="button"
+                                class="group flex cursor-pointer items-center gap-2 text-left"
+                                :aria-expanded="advancedOpen"
+                                aria-controls="deploy-advanced-fields"
+                                @click="advancedOpen = !advancedOpen"
+                            >
+                                <FilledIcon
+                                    name="chevron-right"
+                                    :size="14"
+                                    class="shrink-0 text-fg-muted transition-transform duration-150"
+                                    :class="advancedOpen && 'rotate-90'"
+                                />
+                                <span
+                                    class="text-[13px]/5 font-medium tracking-[-0.01em] text-fg-primary"
+                                    >{{ $t('Advanced') }}</span
+                                >
+                                <span
+                                    class="min-w-0 truncate text-[12.5px]/4 text-fg-muted"
+                                    >{{
+                                        advancedChanged
+                                            ? $t(':count changed', {
+                                                  count: String(
+                                                      advancedChanged,
+                                                  ),
+                                              })
+                                            : selected.kind === 'image'
+                                              ? $t(
+                                                    'Port, health check, volumes, commands',
+                                                )
+                                              : $t(
+                                                    'Build, port, health check, volumes, commands',
+                                                )
+                                    }}</span
+                                >
+                            </button>
+                            <div
+                                v-show="advancedOpen"
+                                id="deploy-advanced-fields"
+                                class="flex flex-col gap-4"
+                            >
+                                <BuildFields
+                                    v-model:build="build"
+                                    v-model:port="form.port"
+                                    :setup="selected.slug"
+                                    :method="method"
+                                    :setup-options="
+                                        selected.kind === 'app' || fromScan
+                                            ? setupOptions
+                                            : []
+                                    "
+                                    :can-deploy-build="canDeployBuild"
+                                    :machine-name="machineName"
+                                    :web="selected.web"
+                                    :port-editable="selected.portEditable"
+                                    :port-placeholder="
+                                        method === 'image'
+                                            ? $t('The one it exposes')
+                                            : method === 'compose'
+                                              ? $t('The one it publishes')
+                                              : method === 'dockerfile'
+                                                ? $t('Its EXPOSE, or 80')
+                                                : ''
+                                    "
+                                    :port-note="
+                                        !selected.portEditable
+                                            ? $t(
+                                                  'Set by ServerOS’s :name setup.',
+                                                  { name: selected.name },
+                                              )
+                                            : method === 'railpack'
+                                              ? $t(
+                                                    'ServerOS sets PORT to it. Listen on it, on 0.0.0.0.',
+                                                )
+                                              : null
+                                    "
+                                    :upload="uploadSource !== null"
+                                    :railpack="detection?.railpack ?? null"
+                                    :errors="errors"
+                                    @update:setup="changeSetup"
+                                />
+                                <p v-if="selected.notes" :class="hint">
+                                    {{ selected.notes }}
+                                </p>
+                            </div>
+                        </section>
+
+                        <p
+                            v-if="errorFor('form') || errorFor('template')"
+                            :class="error"
+                            role="alert"
+                        >
+                            {{ errorFor('form') ?? errorFor('template') }}
+                        </p>
+                    </div>
+                </form>
+
+                <!-- Follow the deploy -->
+                <div
+                    v-else-if="step === 'follow' && result && followJob"
+                    class="min-h-0 flex-1 overflow-y-auto"
+                >
+                    <div
+                        class="mx-auto flex w-full max-w-[640px] flex-col gap-4 px-5 py-5 text-[13px]/5"
+                    >
+                        <div
+                            v-if="result.generated.length"
+                            class="flex flex-col gap-2"
+                        >
+                            <p class="text-fg-secondary">
+                                {{
+                                    $t(
+                                        'Save these now. ServerOS doesn’t keep them, so this is the only time you’ll see them.',
+                                    )
+                                }}
+                            </p>
+                            <ul class="dash-card">
+                                <li
+                                    v-for="secret in result.generated"
+                                    :key="secret.key"
+                                    class="flex items-center gap-3 border-t-[0.5px] border-edge-row px-3.5 py-2.5 first:border-t-0"
+                                >
+                                    <span class="flex min-w-0 flex-1 flex-col">
+                                        <span
+                                            class="text-[12px]/4 text-fg-muted"
+                                            >{{ secret.label }}</span
+                                        >
+                                        <span
+                                            class="truncate font-ui-mono text-[13px]/5 text-fg-primary select-all"
+                                            >{{ secret.value }}</span
+                                        >
+                                    </span>
+                                    <button
+                                        type="button"
+                                        :class="iconButton"
+                                        :aria-label="
+                                            $t('Copy :label', {
+                                                label: String(secret.label),
+                                            })
+                                        "
+                                        @click="copy(secret.key, secret.value)"
+                                    >
+                                        <Check
+                                            v-if="copied === secret.key"
+                                            class="mi-pop size-3.5 text-status-live"
+                                            :stroke-width="2.25"
+                                        />
+                                        <Copy
+                                            v-else
+                                            class="mi-copy size-3.5"
+                                            :stroke-width="1.75"
+                                        />
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        <p v-if="result.kept?.length" class="text-fg-muted">
+                            {{
+                                $t(
+                                    'Kept :keys from the last deploy, so what’s already stored and connected keeps working.',
+                                    { keys: result.kept.join(', ') },
+                                )
+                            }}
+                        </p>
+                        <DeployFollow
+                            :machine-id="result.machineId ?? target"
+                            :machine-name="machineName"
+                            :service="form.service"
+                            :job-id="followJob"
+                            :url="result.url"
+                            @update="(job) => (followed = job)"
+                            @retried="(id) => (followJob = id)"
+                        />
+                    </div>
                 </div>
-            </div>
-        </DialogContent>
-    </Dialog>
+
+                <!-- Done: a ready-made service -->
+                <div
+                    v-else-if="step === 'done' && result"
+                    class="min-h-0 flex-1 overflow-y-auto"
+                >
+                    <div
+                        class="mx-auto flex w-full max-w-[640px] flex-col gap-4 px-5 py-5 text-[13px]/5"
+                    >
+                        <p v-if="result.kept?.length" class="text-fg-secondary">
+                            {{
+                                $t(
+                                    'Kept :keys from the last deploy, so what’s already stored and connected keeps working.',
+                                    { keys: result.kept.join(', ') },
+                                )
+                            }}
+                        </p>
+                        <div
+                            v-if="result.generated.length"
+                            class="flex flex-col gap-2"
+                        >
+                            <p class="text-fg-secondary">
+                                {{
+                                    $t(
+                                        'Save these now. ServerOS doesn’t keep them, so this is the only time you’ll see them.',
+                                    )
+                                }}
+                            </p>
+                            <ul class="dash-card">
+                                <li
+                                    v-for="secret in result.generated"
+                                    :key="secret.key"
+                                    class="flex items-center gap-3 border-t-[0.5px] border-edge-row px-3.5 py-2.5 first:border-t-0"
+                                >
+                                    <span class="flex min-w-0 flex-1 flex-col">
+                                        <span
+                                            class="text-[12px]/4 text-fg-muted"
+                                            >{{ secret.label }}</span
+                                        >
+                                        <span
+                                            class="truncate font-ui-mono text-[13px]/5 text-fg-primary select-all"
+                                            >{{ secret.value }}</span
+                                        >
+                                    </span>
+                                    <button
+                                        type="button"
+                                        :class="iconButton"
+                                        :aria-label="
+                                            $t('Copy :label', {
+                                                label: String(secret.label),
+                                            })
+                                        "
+                                        @click="copy(secret.key, secret.value)"
+                                    >
+                                        <Check
+                                            v-if="copied === secret.key"
+                                            class="mi-pop size-3.5 text-status-live"
+                                            :stroke-width="2.25"
+                                        />
+                                        <Copy
+                                            v-else
+                                            class="mi-copy size-3.5"
+                                            :stroke-width="1.75"
+                                        />
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <p v-if="result.url" class="text-fg-muted">
+                            {{ $t('It will answer at') + ' ' }}
+                            <span class="font-ui-mono text-fg-primary">{{
+                                result.url
+                            }}</span>
+                        </p>
+                        <p
+                            v-if="result.url?.startsWith('https://')"
+                            class="flex items-start gap-1.5 text-fg-muted"
+                        >
+                            <LockKeyhole
+                                class="mt-0.5 size-3.5 shrink-0"
+                                :stroke-width="1.75"
+                                aria-hidden="true"
+                            />
+                            {{
+                                $t(
+                                    'The proxy on the machine gets the certificate and redirects HTTP to HTTPS, as soon as the domain points here.',
+                                )
+                            }}
+                        </p>
+                        <div
+                            v-if="!result.url && result.localUrl"
+                            class="flex flex-col gap-2 text-fg-muted"
+                        >
+                            <p>
+                                {{
+                                    $t(
+                                        'With no domain it only listens on the machine itself, at',
+                                    ) + ' '
+                                }}
+                                <span class="font-ui-mono text-fg-primary">{{
+                                    result.localUrl
+                                }}</span
+                                >{{
+                                    $t(
+                                        '. Add a domain to open it from anywhere, or reach it from your computer through an SSH tunnel, then open that address:',
+                                    )
+                                }}
+                            </p>
+                            <div
+                                v-if="result.tunnel"
+                                class="dash-field h-auto! py-1 pr-1"
+                            >
+                                <code
+                                    class="min-w-0 flex-1 truncate font-ui-mono text-[12px]/5 text-fg-primary select-all"
+                                    >{{ result.tunnel }}</code
+                                >
+                                <button
+                                    type="button"
+                                    :class="iconButton"
+                                    :aria-label="
+                                        $t('Copy the SSH tunnel command')
+                                    "
+                                    @click="copy('tunnel', result.tunnel)"
+                                >
+                                    <Check
+                                        v-if="copied === 'tunnel'"
+                                        class="mi-pop size-3.5 text-status-live"
+                                        :stroke-width="2.25"
+                                    />
+                                    <Copy
+                                        v-else
+                                        class="mi-copy size-3.5"
+                                        :stroke-width="1.75"
+                                    />
+                                </button>
+                            </div>
+                        </div>
+                        <p v-if="result.notes" class="text-fg-muted">
+                            {{ result.notes }}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <footer
+                    class="flex h-[60px] shrink-0 items-center gap-2.5 border-t-[0.5px] border-[#e8e8e8] bg-[#fafafa] pr-3.5 pl-5 dark:border-[#262626] dark:bg-[#151515]"
+                >
+                    <template v-if="step === 'pick' || step === 'configure'">
+                        <template v-if="step === 'configure' && selected">
+                            <span
+                                class="hidden size-[26px] shrink-0 items-center justify-center rounded-[6px] bg-[#f0f0f0] shadow-[0_1px_1.5px_rgb(0_0_0/0.08)] min-[560px]:flex dark:bg-[#2d2d2d] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_1px_1.5px_rgb(0_0_0/0.5)]"
+                            >
+                                <TemplateLogo
+                                    :icon="selected.icon"
+                                    :size="16"
+                                />
+                            </span>
+                            <span
+                                class="hidden min-w-0 truncate font-ui-mono text-[12.5px]/5 text-fg-primary min-[560px]:block"
+                                >{{ form.service || selected.name }}</span
+                            >
+                        </template>
+                        <template v-else-if="!isOwnCode && pickedTemplate">
+                            <span
+                                class="hidden size-[26px] shrink-0 items-center justify-center rounded-[6px] bg-[#f0f0f0] shadow-[0_1px_1.5px_rgb(0_0_0/0.08)] min-[560px]:flex dark:bg-[#2d2d2d] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_1px_1.5px_rgb(0_0_0/0.5)]"
+                            >
+                                <TemplateLogo
+                                    :icon="pickedTemplate.icon"
+                                    :size="16"
+                                />
+                            </span>
+                            <span
+                                class="hidden min-w-0 truncate text-[13px]/5 font-medium tracking-[-0.01em] text-fg-primary min-[560px]:block"
+                                >{{ pickedTemplate.name }}</span
+                            >
+                        </template>
+                        <span
+                            class="hidden shrink-0 text-[13px]/5 tracking-[-0.005em] text-fg-tertiary min-[700px]:block"
+                            >{{
+                                step === 'pick' && isOwnCode
+                                    ? $t('Deploys to')
+                                    : $t('will run on')
+                            }}</span
+                        >
+                        <DropdownMenu
+                            v-if="canSwitchMachine && !lockedService && !busy"
+                        >
+                            <DropdownMenuTrigger as-child>
+                                <PickerButton
+                                    class="hidden min-[700px]:flex"
+                                    :label="machineName"
+                                    :logo="machine?.provider"
+                                />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                                class="ds-modal max-h-[50svh] min-w-52 overflow-y-auto font-ui"
+                                align="start"
+                                side="top"
+                            >
+                                <DropdownMenuItem
+                                    v-for="entry in machines"
+                                    :key="entry.id"
+                                    :disabled="
+                                        !entry.online && entry.id !== target
+                                    "
+                                    @select="target = entry.id"
+                                >
+                                    <BrandLogo
+                                        :name="entry.provider"
+                                        :size="14"
+                                    />
+                                    <span class="truncate">{{
+                                        entry.name
+                                    }}</span>
+                                    <span
+                                        v-if="!entry.online"
+                                        class="ml-auto pl-3 text-[12px] text-fg-faint"
+                                        >{{ $t('Offline') }}</span
+                                    >
+                                    <Check
+                                        v-else-if="entry.id === target"
+                                        class="ml-auto size-3.5"
+                                    />
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        <PickerButton
+                            v-else-if="machineName"
+                            class="hidden min-[700px]:flex"
+                            :label="machineName"
+                            :logo="machine?.provider"
+                            :menu="false"
+                            disabled
+                        />
+                        <span class="flex-1" />
+                        <DashButton
+                            :label="$t('Cancel')"
+                            @click="open = false"
+                        />
+
+                        <!-- Your own code -->
+                        <template v-if="step === 'pick' && isOwnCode">
+                            <DashButton
+                                v-if="ssh && !ssh.publicKey"
+                                variant="primary"
+                                :loading="ssh.busy === 'key'"
+                                :disabled="ssh.busy !== null || !ssh.service"
+                                :label="
+                                    ssh.busy === 'key'
+                                        ? $t('Making the key…')
+                                        : $t('Make a deploy key')
+                                "
+                                @click="makeKey"
+                            />
+                            <DashButton
+                                v-else-if="ssh && canInspectSsh"
+                                variant="primary"
+                                :loading="ssh.busy === 'inspect'"
+                                :disabled="ssh.busy !== null"
+                                :label="
+                                    ssh.busy === 'inspect'
+                                        ? $t('Looking inside…')
+                                        : $t('Key added, look inside')
+                                "
+                                @click="inspectSsh"
+                            />
+                            <template v-else-if="ssh">
+                                <DashButton
+                                    v-if="!ssh.commit"
+                                    variant="primary"
+                                    :loading="ssh.busy === 'resolve'"
+                                    :disabled="ssh.busy !== null"
+                                    :label="
+                                        ssh.busy === 'resolve'
+                                            ? $t('Checking…')
+                                            : $t('Key added, check')
+                                    "
+                                    @click="lookUpBranch"
+                                />
+                                <DashButton
+                                    v-else
+                                    variant="primary"
+                                    :disabled="!sshSetup"
+                                    :label="$t('Continue')"
+                                    @click="continueSsh"
+                                />
+                            </template>
+                            <DashButton
+                                v-else
+                                variant="primary"
+                                :loading="busy"
+                                :disabled="busy || repoInput.trim() === ''"
+                                :label="
+                                    busy
+                                        ? $t('Looking inside…')
+                                        : $t('Continue')
+                                "
+                                @click="submitRepo"
+                            />
+                        </template>
+
+                        <DashButton
+                            v-else-if="step === 'pick'"
+                            variant="primary"
+                            :disabled="!pickedTemplate"
+                            :label="
+                                pickedTemplate
+                                    ? $t('Set up :name', {
+                                          name: pickedTemplate.name,
+                                      })
+                                    : $t('Set up')
+                            "
+                            @click="choose(pickedTemplate)"
+                        />
+
+                        <DashButton
+                            v-else-if="selected"
+                            type="submit"
+                            form="deploy-configure"
+                            variant="primary"
+                            :loading="submitting"
+                            :disabled="
+                                missingAcceptance ||
+                                busy ||
+                                (selected.kind === 'image' && !build.image)
+                            "
+                            :label="
+                                submitting
+                                    ? $t('Queuing…')
+                                    : $t('Deploy :name', {
+                                          name:
+                                              isAppLike && form.service
+                                                  ? form.service
+                                                  : selected.name,
+                                      })
+                            "
+                        />
+                    </template>
+
+                    <template v-else-if="step === 'follow' && result">
+                        <span class="flex-1" />
+                        <DashButton
+                            :label="$t('Close')"
+                            @click="open = false"
+                        />
+                        <DashButton
+                            v-if="result.appUrl"
+                            :variant="
+                                followState === 'running'
+                                    ? 'secondary'
+                                    : 'primary'
+                            "
+                            :href="result.appUrl"
+                            :label="
+                                $t('Open :service', { service: form.service })
+                            "
+                            @click="open = false"
+                        />
+                    </template>
+
+                    <template v-else-if="step === 'done'">
+                        <span
+                            v-if="machineName"
+                            class="min-w-0 flex-1 truncate text-[13px]/5 tracking-[-0.005em] text-fg-tertiary"
+                            >{{
+                                $t('On :machine', { machine: machineName })
+                            }}</span
+                        >
+                        <span v-else class="flex-1" />
+                        <DashButton
+                            v-if="!backCloses"
+                            :label="$t('Deploy another')"
+                            @click="back"
+                        />
+                        <DashButton
+                            variant="primary"
+                            :label="$t('Done')"
+                            @click="open = false"
+                        />
+                    </template>
+                </footer>
+            </DialogContent>
+        </DialogPortal>
+    </DialogRoot>
 </template>

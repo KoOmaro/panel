@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { router, useForm } from '@inertiajs/vue3';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import {
     ArrowUp,
     Check,
@@ -25,6 +25,9 @@ import {
 import AiBrandIcon from '@/components/workspace/AiBrandIcon.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { appButtonClasses } from '@/lib/appButton';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
+import fixesRoutes from '@/routes/workspace/fixes';
 import BranchPicker from './BranchPicker.vue';
 import GitHubMark from './GitHubMark.vue';
 import MachineDialog from './MachineDialog.vue';
@@ -51,6 +54,8 @@ const props = defineProps<{
     /** ServerOS's own machines, when the workspace can run agents there. */
     hosting?: Hosting | null;
 }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
 
 const form = useForm({
     prompt: props.context?.prompt ?? '',
@@ -280,7 +285,7 @@ function submit(): void {
     if (mode.value === 'server') {
         // The server agent: Fixes reads the machine and proposes steps to approve.
         router.post(
-            '/fixes',
+            onWorkspace(fixesRoutes.store(page.props.workspace.slug)).url,
             { machine: form.machine_id, note: form.prompt.slice(0, 1000) },
             {
                 onError: (errors) =>
@@ -301,7 +306,9 @@ function submit(): void {
         hosted: data.hosted,
         machine_id: data.hosted ? null : data.machine_id,
         service: data.hosted ? null : data.service,
-    })).post('/agents', { preserveScroll: true });
+    })).post(onWorkspace(agentsRoutes.store(page.props.workspace.slug)).url, {
+        preserveScroll: true,
+    });
 }
 
 /** Pull requests can't be opened there: the same task, without them. */

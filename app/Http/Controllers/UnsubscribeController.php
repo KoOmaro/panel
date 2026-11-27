@@ -109,14 +109,14 @@ class UnsubscribeController extends Controller
                 'askBody' => 'You won’t be emailed when something breaks in this workspace. Its other owners and admins still will be, and the problems still show in ServerOS.',
                 'doneTitle' => 'Alert emails are off',
                 'doneBody' => "You won’t get alert emails from {$name}. You can turn them back on, or pick only some kinds, in its settings.",
-                'settings' => $workspace ? 'https://'.$workspace->host().'/settings' : null,
+                'settings' => $workspace ? $workspace->url('/settings') : null,
             ],
             'summary' => [
                 'ask' => "Stop the weekly summary for {$name}?",
                 'askBody' => 'You won’t get the Monday email about this workspace any more.',
                 'doneTitle' => 'Weekly summary is off',
                 'doneBody' => "You won’t get the Monday email about {$name}. You can turn it back on in your settings.",
-                'settings' => $workspace ? 'https://'.$workspace->host().'/settings/profile' : null,
+                'settings' => $workspace ? $workspace->url('/settings/profile') : null,
             ],
             'trial' => [
                 'ask' => "Stop trial emails for {$name}?",

@@ -37,7 +37,7 @@ function siteApp(array $domains = ['shop.example.com'], string $daemon = '0.1.1-
         'command' => ['job' => ['type' => 'deploy', 'service' => 'shop', 'repo' => 'https://github.com/acme/shop', 'commit' => str_repeat('1', 40), 'port' => 3000, 'domains' => $domains]],
     ]);
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 function siteJobs(Machine $machine)

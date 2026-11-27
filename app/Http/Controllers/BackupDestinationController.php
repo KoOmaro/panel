@@ -11,6 +11,7 @@ use App\Support\Audit\Audited;
 use App\Support\Backups\BackupReceivers;
 use App\Support\Backups\S3Probe;
 use App\Support\DaemonJobQueue;
+use App\Support\Integrations\Storage\BackupStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -97,13 +98,14 @@ class BackupDestinationController extends Controller
     }
 
     #[Audited]
-    public function destroy(Request $request, Workspace $workspace, BackupDestination $destination, BackupReceivers $receivers): RedirectResponse
+    public function destroy(Request $request, Workspace $workspace, BackupDestination $destination, BackupReceivers $receivers, BackupStorage $storage): RedirectResponse
     {
         abort_unless($destination->workspace_id === $workspace->id, 404);
         Gate::authorize('manageMachines', $workspace);
 
         $destination->machines()->update(['backup_schedule' => 'off']);
         $receiver = $destination->type === 'machine' ? $destination->machine : null;
+        $storage->destinationRemoved($destination);
         $destination->delete();
         // Its key stops working on the machine that took its backups.
         if ($receiver !== null) {

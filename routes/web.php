@@ -2,12 +2,19 @@
 
 use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\AgentTaskController;
+use App\Http\Controllers\AppDeployController;
+use App\Http\Controllers\AppSentryController;
 use App\Http\Controllers\AppSiteController;
 use App\Http\Controllers\AppVersionController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\Auth\SocialLoginController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BackupDestinationController;
+use App\Http\Controllers\BackupStorageController;
+use App\Http\Controllers\ChatAccountController;
+use App\Http\Controllers\ChatChannelsController;
+use App\Http\Controllers\CloudflareDomainController;
+use App\Http\Controllers\CloudServerController;
 use App\Http\Controllers\CommunityLicenseController;
 use App\Http\Controllers\ConsoleLockController;
 use App\Http\Controllers\ContainerImageController;
@@ -17,12 +24,21 @@ use App\Http\Controllers\DaemonJobController;
 use App\Http\Controllers\DashboardRedirectController;
 use App\Http\Controllers\DeployKeyController;
 use App\Http\Controllers\DeploySourceController;
+use App\Http\Controllers\DiscordConnectionController;
+use App\Http\Controllers\DockerHubController;
 use App\Http\Controllers\DomainCheckController;
 use App\Http\Controllers\FixController;
 use App\Http\Controllers\GitHubAppSetupController;
 use App\Http\Controllers\GitHubConnectionController;
 use App\Http\Controllers\GitHubRepositoryController;
+use App\Http\Controllers\GitLabRepositoryController;
+use App\Http\Controllers\GrafanaController;
+use App\Http\Controllers\HelpController;
 use App\Http\Controllers\ImpersonationController;
+use App\Http\Controllers\IntegrationAccountController;
+use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\IntegrationOAuthController;
+use App\Http\Controllers\IntegrationRoutingController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\LogController;
@@ -35,27 +51,35 @@ use App\Http\Controllers\MachineFileController;
 use App\Http\Controllers\MachineFirewallController;
 use App\Http\Controllers\MachineGroupController;
 use App\Http\Controllers\MachineMetadataController;
+use App\Http\Controllers\MachineReadmeController;
 use App\Http\Controllers\MachineScanController;
+use App\Http\Controllers\MachineServerController;
 use App\Http\Controllers\MachineServiceController;
 use App\Http\Controllers\MachineSettingsController;
+use App\Http\Controllers\MachineSshAccessController;
 use App\Http\Controllers\MachineTrafficController;
 use App\Http\Controllers\MachineTunnelController;
 use App\Http\Controllers\MachineUpdatesController;
 use App\Http\Controllers\MaintenanceController;
 use App\Http\Controllers\Mcp\OAuthAuthorizeController;
 use App\Http\Controllers\MonitorController;
+use App\Http\Controllers\N8nController;
 use App\Http\Controllers\PanelUpdateController;
 use App\Http\Controllers\PanelVersionController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\PublicStatusController;
 use App\Http\Controllers\RobotsTxtController;
+use App\Http\Controllers\SavedViewController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\ServiceDetectController;
 use App\Http\Controllers\ServiceGroupController;
+use App\Http\Controllers\SetupGuideController;
+use App\Http\Controllers\SlackLinkController;
 use App\Http\Controllers\StartWithAgentsController;
 use App\Http\Controllers\StatusIncidentController;
 use App\Http\Controllers\StatusSubscriptionController;
+use App\Http\Controllers\TailnetController;
 use App\Http\Controllers\ThemeShareController;
 use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\UpdatesController;
@@ -63,6 +87,7 @@ use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\WorkspaceAiController;
 use App\Http\Controllers\WorkspaceApiController;
 use App\Http\Controllers\WorkspaceAvailabilityController;
+use App\Http\Controllers\WorkspaceCodeController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Controllers\WorkspaceCustomRoleController;
 use App\Http\Controllers\WorkspaceDomainController;
@@ -95,6 +120,8 @@ use App\Models\Workspace;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
 use App\Support\Licensing\CommunityLicense;
+use App\Support\Workspaces\Dashboard;
+use App\Support\WorkspaceSlugs;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
 
@@ -120,7 +147,87 @@ app(Extensions::class)->loadRoutes(Extensions::SUBDOMAINS);
 
 Route::get('_domain/handoff/{token}', [WorkspaceDomainController::class, 'handoff'])->where('token', '[A-Za-z0-9]{48}')->middleware('throttle:30,1')->name('domains.handoff');
 
-Route::domain('{workspace:slug}.'.config('app.domain'))
+Route::get('/', fn (Request $request) => Edition::home($request))->name('home');
+
+Route::get('install.sh', DaemonInstallScriptController::class)->middleware('throttle:60,1')->name('daemon.install-script');
+
+Route::get('robots.txt', RobotsTxtController::class)->middleware('throttle:60,1')->name('robots');
+
+Route::post('locale', [LocaleController::class, 'update'])->middleware('throttle:30,1')->name('locale.update');
+
+Route::middleware('throttle:120,1')->group(function () {
+    Route::get('status/{slug}', [PublicStatusController::class, 'show'])->name('status.show');
+    Route::get('status/{slug}/badge.svg', [PublicStatusController::class, 'badge'])->name('status.badge');
+    Route::get('status/{slug}/embed', [PublicStatusController::class, 'embed'])->name('status.embed');
+    Route::get('status/{slug}/og.png', [PublicStatusController::class, 'og'])->name('status.og');
+    Route::get('status/{slug}/status.json', [PublicStatusController::class, 'json'])->name('status.json');
+    Route::get('status/{slug}/feed.atom', [StatusSubscriptionController::class, 'feed'])->name('status.feed');
+    Route::post('status/{slug}/subscribe', [StatusSubscriptionController::class, 'store'])->middleware('throttle:5,1')->name('status.subscribe');
+    Route::get('status/{slug}/subscribe/{token}', [StatusSubscriptionController::class, 'confirm'])->name('status.subscribe.confirm');
+    Route::get('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribeShow'])->name('status.unsubscribe');
+    // One-click unsubscribe POSTs without a CSRF token; the link's token stands in for it.
+    Route::post('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribe'])
+        ->withoutMiddleware(PreventRequestForgery::class)
+        ->name('status.unsubscribe.store');
+});
+
+// One-click unsubscribe POSTs without a CSRF token; the signature stands in for it.
+Route::middleware(['signed', 'throttle:30,1'])->group(function () {
+    Route::get('unsubscribe', [UnsubscribeController::class, 'show'])->name('unsubscribe');
+    Route::post('unsubscribe', [UnsubscribeController::class, 'store'])
+        ->withoutMiddleware(PreventRequestForgery::class)
+        ->name('unsubscribe.store');
+});
+
+Route::middleware(['auth', 'verified', StaffTwoFactor::class, 'can:viewAdmin'])->prefix('admin')->name('admin.')->group(function () {
+    app(Extensions::class)->loadRoutes(Extensions::ADMIN);
+});
+
+Route::middleware(['auth', 'verified'])->get('github/setup', [GitHubConnectionController::class, 'setup'])->middleware('throttle:20,1')->name('github.setup');
+Route::middleware(['auth', 'verified'])->get('discord/callback', [DiscordConnectionController::class, 'callback'])->middleware('throttle:20,1')->name('discord.callback');
+Route::middleware(['auth', 'verified'])->get('integrations/oauth/{provider}/callback', [IntegrationOAuthController::class, 'callback'])->where('provider', '[a-z0-9-]+')->middleware('throttle:20,1')->name('integrations.oauth.callback');
+Route::middleware(['auth', 'verified'])->get('github/app/created', [GitHubAppSetupController::class, 'created'])->middleware('throttle:10,1')->name('github.app.created');
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('oauth/authorize', [OAuthAuthorizeController::class, 'show'])->name('mcp.oauth.authorize');
+    Route::post('oauth/authorize', [OAuthAuthorizeController::class, 'store'])->middleware('throttle:30,1')->name('mcp.oauth.approve');
+});
+
+Route::get('start/agents', StartWithAgentsController::class)->name('start.agents');
+
+Route::get('workspaces/availability', WorkspaceAvailabilityController::class)
+    ->middleware('throttle:60,1')
+    ->name('workspaces.availability');
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('dashboard', DashboardRedirectController::class)->name('dashboard');
+    Route::get('workspaces', WorkspaceIndexController::class)->name('workspaces.index');
+    Route::post('workspaces', [WorkspaceController::class, 'store'])->middleware('throttle:10,60')->name('workspaces.store');
+    Route::get('workspaces/movable-machines', [WorkspaceController::class, 'movable'])->name('workspaces.movable-machines');
+    Route::get('join-requests', [WorkspaceJoinRequestController::class, 'show'])->name('join-requests.show');
+});
+
+Route::post('admin/return', ImpersonationController::class)->middleware('auth')->name('impersonation.stop');
+
+Route::get('themes/{token}', [ThemeShareController::class, 'show'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:120,1')->name('themes.show');
+Route::middleware('auth')->group(function () {
+    Route::get('themes/{token}/add', [ThemeShareController::class, 'add'])->where('token', '[a-z0-9]{8,32}')->name('themes.add');
+    Route::post('themes/{token}/import', [ThemeShareController::class, 'import'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:20,1')->name('themes.import');
+});
+
+Route::middleware('auth')->group(function () {
+    Route::get('invitations/{token}', [InvitationController::class, 'show'])->name('invitations.show');
+    Route::post('invitations/{token}/accept', [InvitationController::class, 'accept'])->name('invitations.accept');
+});
+
+require __DIR__.'/settings.php';
+
+app(Extensions::class)->loadRoutes(Extensions::WEB);
+
+// Keep the workspace group last, so every fixed path wins over {workspace}.
+Route::domain(Dashboard::host())
+    ->prefix('{workspace:slug}')
+    ->where(['workspace' => WorkspaceSlugs::routePattern()])
     ->middleware(['auth', 'verified', 'can:view,workspace', RequireWorkspaceGoogleSignIn::class, ...app(Extensions::class)->middleware(Extensions::WORKSPACE_SIGN_IN), RequireWorkspaceTwoFactor::class, ...app(Extensions::class)->middleware(Extensions::WORKSPACE), RecordWorkspaceVisit::class, SendToCustomDomain::class])
     ->group(function () {
         Route::get('/', WorkspaceHomeController::class)->name('workspace.home');
@@ -137,6 +244,18 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('welcome/finish', [WorkspaceWelcomeController::class, 'finish'])->name('workspace.welcome.finish');
         Route::post('pins/{pinned:slug}', [WorkspacePinController::class, 'store'])->withoutScopedBindings()->name('workspace.pins.store');
         Route::delete('pins/{pinned:slug}', [WorkspacePinController::class, 'destroy'])->withoutScopedBindings()->name('workspace.pins.destroy');
+        Route::post('saved-views', [SavedViewController::class, 'store'])->middleware('throttle:60,1')->name('workspace.saved-views.store');
+        Route::patch('saved-views/{savedView}', [SavedViewController::class, 'update'])->withoutScopedBindings()->middleware('throttle:120,1')->name('workspace.saved-views.update');
+        Route::post('saved-views/{savedView}/duplicate', [SavedViewController::class, 'duplicate'])->withoutScopedBindings()->middleware('throttle:60,1')->name('workspace.saved-views.duplicate');
+        Route::delete('saved-views/{savedView}', [SavedViewController::class, 'destroy'])->withoutScopedBindings()->name('workspace.saved-views.destroy');
+        Route::get('setup', SetupGuideController::class)->name('workspace.setup');
+        Route::get('code', [WorkspaceCodeController::class, 'index'])->name('workspace.code.index');
+        Route::get('code/setup', [WorkspaceCodeController::class, 'setup'])->name('workspace.code.setup');
+        Route::get('code/changes', [WorkspaceCodeController::class, 'changes'])->name('workspace.code.changes');
+        Route::get('code/download', [WorkspaceCodeController::class, 'download'])->middleware('throttle:20,1')->name('workspace.code.download');
+        Route::put('code/repository', [WorkspaceCodeController::class, 'repository'])->middleware('throttle:20,1')->name('workspace.code.repository');
+        Route::post('code/pull-request', [WorkspaceCodeController::class, 'pullRequest'])->middleware('throttle:10,1')->name('workspace.code.pull-request');
+        Route::get('help', HelpController::class)->name('workspace.help');
         Route::get('machines', [MachineController::class, 'index'])->name('workspace.machines.index');
         Route::post('machine-groups', [MachineGroupController::class, 'store'])->name('workspace.machine-groups.store');
         Route::put('machine-groups/{group}', [MachineGroupController::class, 'update'])->withoutScopedBindings()->name('workspace.machine-groups.update');
@@ -147,8 +266,10 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('machines/{machine}/service-groups/{group}/icon', [ServiceGroupController::class, 'updateIcon'])->withoutScopedBindings()->middleware('throttle:20,1')->name('workspace.service-groups.icon.update');
         Route::delete('machines/{machine}/service-groups/{group}/icon', [ServiceGroupController::class, 'destroyIcon'])->withoutScopedBindings()->name('workspace.service-groups.icon.destroy');
         Route::get('machines/{machine}', [MachineController::class, 'show'])->name('workspace.machines.show');
-        Route::get('machines/{machine}/{tab}', [MachineController::class, 'show'])->whereIn('tab', ['services', 'scheduled', 'usage', 'ports', 'files', 'specs', 'deployments']);
+        Route::get('machines/{machine}/{tab}', [MachineController::class, 'show'])->whereIn('tab', ['overview', 'readme', 'services', 'system-updates', 'backups', 'firewall', 'access', 'terminal', 'scheduled', 'usage', 'ports', 'files', 'specs', 'deployments']);
         Route::delete('machines/{machine}', [MachineController::class, 'destroy'])->name('workspace.machines.destroy');
+        Route::post('machines/{machine}/readme', [MachineReadmeController::class, 'write'])->middleware('throttle:10,1')->name('workspace.machines.readme.write');
+        Route::post('machines/{machine}/readme/github', [MachineReadmeController::class, 'commit'])->middleware('throttle:10,1')->name('workspace.machines.readme.github');
         Route::get('machines/{machine}/settings', [MachineSettingsController::class, 'show'])->name('workspace.machines.settings');
         Route::get('machines/{machine}/settings/{tab}', [MachineSettingsController::class, 'show'])->whereIn('tab', ['general', 'status']);
         Route::patch('machines/{machine}', [MachineSettingsController::class, 'update'])->name('workspace.machines.update');
@@ -194,6 +315,52 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::get('logs', [LogController::class, 'index'])->name('workspace.logs.index');
         Route::get('activity', [ActivityController::class, 'index'])->name('workspace.activity.index');
         Route::get('activity/export', [ActivityController::class, 'export'])->name('workspace.activity.export');
+        Route::get('integrations', [IntegrationController::class, 'index'])->name('workspace.integrations');
+        Route::post('integrations/promo/dismiss', [IntegrationController::class, 'dismissPromo'])->name('workspace.integrations.promo.dismiss');
+        Route::get('integrations/discord/install', [DiscordConnectionController::class, 'install'])->middleware('throttle:10,1')->name('workspace.integrations.discord.install');
+        Route::put('integrations/{integration}/discord', [DiscordConnectionController::class, 'channels'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.discord.channels');
+        Route::post('integrations/{integration}/discord/test', [DiscordConnectionController::class, 'test'])->whereNumber('integration')->middleware('throttle:5,1')->name('workspace.integrations.discord.test');
+        Route::get('integrations/oauth/{provider}', [IntegrationOAuthController::class, 'redirect'])->where('provider', '[a-z0-9-]+')->middleware('throttle:10,1')->name('workspace.integrations.oauth');
+        Route::put('integrations/{integration}/channels', [ChatChannelsController::class, 'update'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.channels.update');
+        Route::post('integrations/{integration}/channels/test', [ChatChannelsController::class, 'test'])->whereNumber('integration')->middleware('throttle:5,1')->name('workspace.integrations.channels.test');
+        Route::get('integrations/{integration}/slack/link/{token}', [SlackLinkController::class, 'show'])->whereNumber('integration')->where('token', '[A-Za-z0-9]{40}')->name('workspace.integrations.slack.link');
+        Route::post('integrations/{integration}/slack/link/{token}', [SlackLinkController::class, 'store'])->whereNumber('integration')->where('token', '[A-Za-z0-9]{40}')->middleware('throttle:20,1')->name('workspace.integrations.slack.link.store');
+        Route::post('integrations/connect/{provider}', [IntegrationAccountController::class, 'store'])->where('provider', '[a-z0-9-]+')->middleware('throttle:10,1')->name('workspace.integrations.connect');
+        Route::get('integrations/{integration}', [IntegrationAccountController::class, 'show'])->whereNumber('integration')->name('workspace.integrations.show');
+        Route::patch('integrations/{integration}', [IntegrationAccountController::class, 'update'])->whereNumber('integration')->name('workspace.integrations.update');
+        Route::delete('integrations/{integration}', [IntegrationAccountController::class, 'destroy'])->whereNumber('integration')->name('workspace.integrations.destroy');
+        Route::post('integrations/{integration}/check', [IntegrationAccountController::class, 'check'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.check');
+        Route::post('integrations/{integration}/docker-hub/registry', [DockerHubController::class, 'useForPulls'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.docker-hub.registry');
+        Route::get('integrations/{integration}/server-options', [CloudServerController::class, 'options'])->whereNumber('integration')->middleware('throttle:30,1')->name('workspace.integrations.servers.options');
+        Route::put('integrations/{integration}/regions', [CloudServerController::class, 'regions'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.servers.regions');
+        Route::post('integrations/{integration}/servers', [CloudServerController::class, 'store'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.servers.store');
+        Route::get('integrations/{integration}/operations/{operation}', [CloudServerController::class, 'operation'])->whereNumber('integration')->middleware('throttle:240,1')->name('workspace.integrations.operations.show');
+        Route::put('integrations/{integration}/routing', [IntegrationRoutingController::class, 'update'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.routing.update');
+        Route::get('integrations/{integration}/options', [IntegrationRoutingController::class, 'options'])->whereNumber('integration')->middleware('throttle:60,1')->name('workspace.integrations.options');
+        Route::post('integrations/{integration}/test-event', [IntegrationRoutingController::class, 'test'])->whereNumber('integration')->middleware('throttle:5,1')->name('workspace.integrations.test');
+        Route::post('integrations/{integration}/events/{event}/retry', [IntegrationRoutingController::class, 'retry'])->whereNumber('integration')->whereNumber('event')->middleware('throttle:20,1')->name('workspace.integrations.events.retry');
+        Route::post('integrations/{integration}/tailnet/machines', [TailnetController::class, 'join'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.tailnet.join');
+        Route::put('integrations/{integration}/tailnet', [TailnetController::class, 'update'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.tailnet.update');
+        Route::get('integrations/{integration}/n8n/workflows', [N8nController::class, 'workflows'])->whereNumber('integration')->middleware('throttle:60,1')->name('workspace.integrations.n8n.workflows');
+        Route::post('integrations/{integration}/n8n/workflows/{workflow}/activate', [N8nController::class, 'activate'])->whereNumber('integration')->where('workflow', '[A-Za-z0-9_-]{1,64}')->middleware('throttle:20,1')->name('workspace.integrations.n8n.activate');
+        Route::post('integrations/{integration}/n8n/starter', [N8nController::class, 'starter'])->whereNumber('integration')->middleware('throttle:5,1')->name('workspace.integrations.n8n.starter');
+        Route::put('integrations/{integration}/grafana/push', [GrafanaController::class, 'push'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.grafana.push');
+        Route::delete('integrations/{integration}/grafana/push', [GrafanaController::class, 'stopPush'])->whereNumber('integration')->name('workspace.integrations.grafana.push.destroy');
+        Route::post('integrations/{integration}/grafana/dashboard', [GrafanaController::class, 'dashboard'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.grafana.dashboard');
+        Route::post('integrations/{integration}/grafana/tokens', [GrafanaController::class, 'storeToken'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.grafana.tokens.store');
+        Route::delete('integrations/{integration}/grafana/tokens/{token}', [GrafanaController::class, 'destroyToken'])->whereNumber('integration')->whereNumber('token')->withoutScopedBindings()->name('workspace.integrations.grafana.tokens.destroy');
+        Route::post('integrations/{integration}/storage', [BackupStorageController::class, 'store'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.storage.store');
+        Route::put('integrations/{integration}/storage/{bucket}', [BackupStorageController::class, 'update'])->whereNumber('integration')->whereNumber('bucket')->withoutScopedBindings()->middleware('throttle:20,1')->name('workspace.integrations.storage.update');
+        Route::post('integrations/{integration}/storage/{bucket}/retry', [BackupStorageController::class, 'retry'])->whereNumber('integration')->whereNumber('bucket')->withoutScopedBindings()->middleware('throttle:10,1')->name('workspace.integrations.storage.retry');
+        Route::post('integrations/{integration}/storage/{bucket}/keys', [BackupStorageController::class, 'keys'])->whereNumber('integration')->whereNumber('bucket')->withoutScopedBindings()->middleware('throttle:10,1')->name('workspace.integrations.storage.keys');
+        Route::post('machines/{machine}/server/reboot', [MachineServerController::class, 'reboot'])->middleware('throttle:10,1')->name('workspace.machines.server.reboot');
+        Route::post('machines/{machine}/server/power-cycle', [MachineServerController::class, 'powerCycle'])->middleware('throttle:10,1')->name('workspace.machines.server.power-cycle');
+        Route::get('machines/{machine}/server/types', [MachineServerController::class, 'types'])->middleware('throttle:30,1')->name('workspace.machines.server.types');
+        Route::post('machines/{machine}/server/resize', [MachineServerController::class, 'resize'])->middleware('throttle:10,1')->name('workspace.machines.server.resize');
+        Route::get('machines/{machine}/server/snapshots', [MachineServerController::class, 'snapshots'])->middleware('throttle:60,1')->name('workspace.machines.server.snapshots');
+        Route::post('machines/{machine}/server/snapshots', [MachineServerController::class, 'snapshot'])->middleware('throttle:10,1')->name('workspace.machines.server.snapshots.store');
+        Route::delete('machines/{machine}/server/snapshots/{snapshot}', [MachineServerController::class, 'deleteSnapshot'])->where('snapshot', '[0-9A-Za-z_-]+')->middleware('throttle:20,1')->name('workspace.machines.server.snapshots.destroy');
+        Route::delete('machines/{machine}/server', [MachineServerController::class, 'destroy'])->middleware('throttle:10,1')->name('workspace.machines.server.destroy');
         Route::get('search', SearchController::class)->middleware('throttle:120,1')->name('workspace.search');
         Route::post('machines/{machine}/maintenance', [MaintenanceController::class, 'start'])->middleware('throttle:20,1')->name('workspace.machines.maintenance.start');
         Route::delete('machines/{machine}/maintenance', [MaintenanceController::class, 'end'])->name('workspace.machines.maintenance.end');
@@ -240,6 +407,10 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::delete('logs', [LogController::class, 'destroy'])->middleware('throttle:10,1')->name('workspace.logs.destroy');
         Route::post('services/detect', ServiceDetectController::class)->middleware('throttle:20,1')->name('workspace.services.detect');
         Route::get('github/repositories', [GitHubRepositoryController::class, 'index'])->middleware('throttle:30,1')->name('workspace.github.repositories');
+        Route::get('gitlab/repositories', [GitLabRepositoryController::class, 'index'])->middleware('throttle:30,1')->name('workspace.gitlab.repositories');
+        Route::get('gitlab/branches', [GitLabRepositoryController::class, 'branches'])->middleware('throttle:30,1')->name('workspace.gitlab.branches');
+        Route::get('docker-hub/repositories', [DockerHubController::class, 'repositories'])->middleware('throttle:30,1')->name('workspace.docker-hub.repositories');
+        Route::get('docker-hub/tags', [DockerHubController::class, 'tags'])->middleware('throttle:60,1')->name('workspace.docker-hub.tags');
         Route::get('github/repositories/{owner}/{repo}/branches', [GitHubRepositoryController::class, 'branches'])
             ->where(['owner' => '[A-Za-z0-9-]+', 'repo' => '[A-Za-z0-9._-]+'])->middleware('throttle:30,1')->name('workspace.github.branches');
         Route::post('machines/{machine}/sources', [DeploySourceController::class, 'start'])->middleware('throttle:20,1')->name('workspace.sources.start');
@@ -249,6 +420,9 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('machines/{machine}/apps/{service}/domain', [AppVersionController::class, 'domain'])->middleware('throttle:10,1')->name('workspace.apps.domain');
         Route::post('machines/{machine}/apps/{service}/rollback', [AppVersionController::class, 'rollback'])->middleware('throttle:10,1')->name('workspace.apps.rollback');
         Route::put('machines/{machine}/apps/{service}/settings', [AppVersionController::class, 'settings'])->middleware('throttle:20,1')->name('workspace.apps.settings');
+        Route::put('machines/{machine}/apps/{service}/docker-hub', [DockerHubController::class, 'settings'])->middleware('throttle:20,1')->name('workspace.apps.docker-hub');
+        Route::post('machines/{machine}/apps/{service}/docker-hub/update', [DockerHubController::class, 'update'])->middleware('throttle:10,1')->name('workspace.apps.docker-hub.update');
+        Route::put('machines/{machine}/apps/{service}/sentry', [AppSentryController::class, 'update'])->middleware('throttle:20,1')->name('workspace.apps.sentry');
         Route::put('machines/{machine}/apps/{service}/site', [AppSiteController::class, 'update'])->middleware('throttle:20,1')->name('workspace.apps.site');
         Route::get('machines/{machine}/apps/{service}/traffic', [MachineTrafficController::class, 'report'])->middleware('throttle:120,1')->name('workspace.apps.traffic');
         Route::get('machines/{machine}/traffic/sites', [MachineTrafficController::class, 'sites'])->middleware('throttle:120,1')->name('workspace.machines.traffic.sites');
@@ -259,12 +433,26 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::put('machines/{machine}/apps/{service}/limits', [AppVersionController::class, 'limits'])->middleware('throttle:20,1')->name('workspace.apps.limits');
         Route::get('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'variables'])->middleware('throttle:60,1')->name('workspace.apps.variables');
         Route::put('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'updateVariables'])->middleware('throttle:20,1')->name('workspace.apps.variables.update');
+        Route::put('machines/{machine}/apps/{service}/build', [AppDeployController::class, 'build'])->middleware('throttle:20,1')->name('workspace.apps.build');
+        Route::put('machines/{machine}/apps/{service}/env', [AppDeployController::class, 'env'])->middleware('throttle:20,1')->name('workspace.apps.env');
+        Route::post('machines/{machine}/apps/{service}/redeploy', [AppDeployController::class, 'redeploy'])->middleware('throttle:10,1')->name('workspace.apps.redeploy');
+        Route::get('machines/{machine}/apps/{service}/deploys', [AppDeployController::class, 'history'])->middleware('throttle:120,1')->name('workspace.apps.deploys');
+        Route::get('machines/{machine}/apps/{service}/jobs/{job}', [AppDeployController::class, 'job'])->middleware('throttle:240,1')->name('workspace.apps.job');
+        Route::post('machines/{machine}/apps/{service}/hook', [AppDeployController::class, 'storeHook'])->middleware('throttle:10,1')->name('workspace.apps.hook.store');
+        Route::delete('machines/{machine}/apps/{service}/hook', [AppDeployController::class, 'destroyHook'])->middleware('throttle:10,1')->name('workspace.apps.hook.destroy');
+        Route::put('machines/{machine}/apps/{service}/schedules', [AppDeployController::class, 'schedules'])->middleware('throttle:20,1')->name('workspace.apps.schedules');
         Route::post('machines/{machine}/deploy', MachineDeployController::class)->middleware('throttle:10,1')->name('workspace.machines.deploy');
         Route::get('machines/{machine}/deploy/taken', [MachineDeployController::class, 'taken'])->middleware('throttle:60,1')->name('workspace.machines.deploy.taken');
+        Route::post('machines/{machine}/deploy/image', [DockerHubController::class, 'deploy'])->middleware('throttle:10,1')->name('workspace.machines.deploy.image');
         Route::post('machines/{machine}/deploy/key', [DeployKeyController::class, 'key'])->middleware('throttle:20,1')->name('workspace.machines.deploy.key');
         Route::post('machines/{machine}/deploy/resolve', [DeployKeyController::class, 'resolve'])->middleware('throttle:30,1')->name('workspace.machines.deploy.resolve');
+        Route::post('machines/{machine}/deploy/inspect', [DeployKeyController::class, 'inspect'])->middleware('throttle:20,1')->name('workspace.machines.deploy.inspect');
         Route::get('machines/{machine}/deploy/jobs/{job}', [DeployKeyController::class, 'show'])->withoutScopedBindings()->middleware('throttle:120,1')->name('workspace.machines.deploy.job');
         Route::post('machines/{machine}/domain-check', DomainCheckController::class)->middleware('throttle:30,1')->name('workspace.machines.domain-check');
+        Route::post('machines/{machine}/domain-dns', [CloudflareDomainController::class, 'point'])->middleware('throttle:20,1')->name('workspace.machines.domain-dns');
+        Route::patch('machines/{machine}/apps/{service}/dns', [CloudflareDomainController::class, 'proxied'])->middleware('throttle:20,1')->name('workspace.apps.dns');
+        Route::post('machines/{machine}/apps/{service}/purge', [CloudflareDomainController::class, 'purge'])->middleware('throttle:10,1')->name('workspace.apps.purge');
+        Route::put('machines/{machine}/apps/{service}/purge', [CloudflareDomainController::class, 'purgeSetting'])->middleware('throttle:20,1')->name('workspace.apps.purge.setting');
         Route::post('console/unlock', [ConsoleLockController::class, 'unlock'])->middleware('throttle:5,1')->name('workspace.console.unlock');
         Route::post('console/lock', [ConsoleLockController::class, 'lock'])->name('workspace.console.lock');
         Route::post('machines/{machine}/files', [MachineFileController::class, 'store'])->middleware('throttle:120,1')->name('workspace.machines.files.store');
@@ -284,7 +472,7 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
             ->name('workspace.machines.services.show');
         Route::get('machines/{machine}/services/{service}/{tab}', [MachineServiceController::class, 'show'])
             ->where('service', '[A-Za-z0-9:._@-]+')
-            ->whereIn('tab', ['overview', 'traffic', 'logs', 'console', 'files', 'database', 'details']);
+            ->whereIn('tab', ['overview', 'deploys', 'settings', 'traffic', 'logs', 'console', 'files', 'database', 'details']);
         Route::post('machines/{machine}/services/{service}/database', [MachineServiceController::class, 'database'])
             ->where('service', '[A-Za-z0-9:._@-]+')
             ->middleware('throttle:60,1')
@@ -311,6 +499,10 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
             ->where('service', '[A-Za-z0-9:._@-]+')
             ->middleware('throttle:10,1')
             ->name('workspace.machines.services.clone');
+        Route::get('machines/{machine}/services/{service}/log-lines', [MachineServiceController::class, 'logLines'])
+            ->where('service', '[A-Za-z0-9:._@-]+')
+            ->middleware('throttle:240,1')
+            ->name('workspace.machines.services.log-lines');
         Route::post('machines/{machine}/scan', [MachineScanController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.scan.store');
         Route::post('machines/{machine}/refresh', [MachineScanController::class, 'discover'])->middleware('throttle:20,1')->name('workspace.machines.refresh');
         Route::post('machines/{machine}/disk-usage', [MachineDiskUsageController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.disk-usage.store');
@@ -321,6 +513,7 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::get('machines/{machine}/updates/{job}', [MachineUpdatesController::class, 'show'])->name('workspace.machines.updates.show');
         Route::post('machines/{machine}/docker', [MachineDockerController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.docker.store');
         Route::post('machines/{machine}/docker/prune', [MachineDockerController::class, 'prune'])->middleware('throttle:10,1')->name('workspace.machines.docker.prune');
+        Route::post('machines/{machine}/docker/install', [MachineDockerController::class, 'install'])->middleware('throttle:5,1')->name('workspace.machines.docker.install');
         Route::get('machines/{machine}/docker/{job}', [MachineDockerController::class, 'show'])->name('workspace.machines.docker.show');
         Route::post('container-images/update', [ContainerImageController::class, 'update'])->middleware('throttle:20,1')->name('workspace.container-images.update');
         Route::post('container-images/check', [ContainerImageController::class, 'check'])->middleware('throttle:6,1')->name('workspace.container-images.check');
@@ -333,9 +526,21 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::delete('updates/rollouts/{rollout}', [UpdatesController::class, 'cancelRollout'])->withoutScopedBindings()->name('workspace.updates.rollouts.cancel');
         Route::post('machines/{machine}/firewall', [MachineFirewallController::class, 'store'])->middleware('throttle:20,1')->name('workspace.machines.firewall.store');
         Route::get('machines/{machine}/firewall/{job}', [MachineFirewallController::class, 'show'])->name('workspace.machines.firewall.show');
+        Route::post('machines/{machine}/access', [MachineSshAccessController::class, 'store'])->middleware('throttle:20,1')->name('workspace.machines.access.store');
+        Route::delete('machines/{machine}/access', [MachineSshAccessController::class, 'destroyAll'])->middleware('throttle:10,1')->name('workspace.machines.access.destroy-all');
+        Route::post('machines/{machine}/access/request', [MachineSshAccessController::class, 'request'])->middleware('throttle:10,1')->name('workspace.machines.access.request');
+        Route::get('machines/{machine}/access/{access}', [MachineSshAccessController::class, 'show'])->withoutScopedBindings()->whereNumber('access')->name('workspace.machines.access.show');
+        Route::post('machines/{machine}/access/{access}/approve', [MachineSshAccessController::class, 'approve'])->withoutScopedBindings()->whereNumber('access')->middleware('throttle:30,1')->name('workspace.machines.access.approve');
+        Route::post('machines/{machine}/access/{access}/decline', [MachineSshAccessController::class, 'decline'])->withoutScopedBindings()->whereNumber('access')->middleware('throttle:30,1')->name('workspace.machines.access.decline');
+        Route::post('machines/{machine}/access/{access}/retry', [MachineSshAccessController::class, 'retry'])->withoutScopedBindings()->whereNumber('access')->middleware('throttle:20,1')->name('workspace.machines.access.retry');
+        Route::delete('machines/{machine}/access/{access}', [MachineSshAccessController::class, 'destroy'])->withoutScopedBindings()->whereNumber('access')->middleware('throttle:30,1')->name('workspace.machines.access.destroy');
         Route::post('machines/{machine}/tunnel', [MachineTunnelController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.tunnel.store');
         Route::delete('machines/{machine}/tunnel', [MachineTunnelController::class, 'destroy'])->middleware('throttle:10,1')->name('workspace.machines.tunnel.destroy');
         Route::get('machines/{machine}/tunnel/{job}', [MachineTunnelController::class, 'show'])->name('workspace.machines.tunnel.show');
+        Route::get('machines/{machine}/tailnet', [TailnetController::class, 'show'])->middleware('throttle:240,1')->name('workspace.machines.tailnet.show');
+        Route::post('machines/{machine}/tailnet', [TailnetController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.tailnet.store');
+        Route::post('machines/{machine}/tailnet/commands', [TailnetController::class, 'commands'])->middleware('throttle:10,1')->name('workspace.machines.tailnet.commands');
+        Route::delete('machines/{machine}/tailnet', [TailnetController::class, 'destroy'])->middleware('throttle:10,1')->name('workspace.machines.tailnet.destroy');
         Route::put('machines/{machine}/traffic', [MachineTrafficController::class, 'update'])->middleware('throttle:10,1')->name('workspace.machines.traffic.update');
         Route::get('machines/{machine}/traffic/{job}', [MachineTrafficController::class, 'show'])->name('workspace.machines.traffic.show');
         Route::post('machines/{machine}/sites/{site}/timing', [MachineTrafficController::class, 'timing'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:10,1')->name('workspace.machines.sites.timing');
@@ -380,6 +585,8 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('settings/theme/images', [WorkspaceThemeController::class, 'storeImage'])->middleware('throttle:30,1')->name('workspace.settings.theme.images.store');
         Route::delete('settings/theme/images/{image}', [WorkspaceThemeController::class, 'destroyImage'])->where('image', '[A-Za-z0-9._-]+')->name('workspace.settings.theme.images.destroy');
         Route::put('settings/notifications', [WorkspaceSettingsController::class, 'updateNotifications'])->middleware('throttle:30,1')->name('workspace.settings.notifications');
+        Route::post('settings/chat-accounts/{chat}', [ChatAccountController::class, 'code'])->where('chat', 'telegram|discord')->middleware('throttle:10,1')->name('workspace.settings.chat-accounts.code');
+        Route::delete('settings/chat-accounts/{chat}', [ChatAccountController::class, 'destroy'])->where('chat', 'telegram|discord|slack')->name('workspace.settings.chat-accounts.destroy');
 
         Route::get('settings/members', [WorkspaceMemberController::class, 'index'])->name('workspace.members.index');
         Route::patch('settings/members/{member}', [WorkspaceMemberController::class, 'update'])->name('workspace.members.update');
@@ -396,8 +603,10 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
         Route::post('settings/api/keys', [WorkspaceApiController::class, 'store'])->middleware('throttle:20,1')->name('workspace.settings.api.keys.store');
         Route::delete('settings/api/keys/{key}', [WorkspaceApiController::class, 'destroy'])->withoutScopedBindings()->name('workspace.settings.api.keys.destroy');
         Route::get('settings/mcp', [WorkspaceMcpController::class, 'show'])->name('workspace.settings.mcp');
-        Route::put('settings/ai/{provider}', [WorkspaceAiController::class, 'update'])->middleware('throttle:10,1')->whereIn('provider', ['anthropic', 'openai', 'custom'])->name('workspace.settings.ai.update');
-        Route::delete('settings/ai/{provider}', [WorkspaceAiController::class, 'destroy'])->whereIn('provider', ['anthropic', 'openai', 'custom'])->name('workspace.settings.ai.destroy');
+        Route::put('settings/ai/models', [WorkspaceAiController::class, 'models'])->middleware('throttle:30,1')->name('workspace.settings.ai.models');
+        Route::put('settings/ai/{provider}', [WorkspaceAiController::class, 'update'])->middleware('throttle:10,1')->whereIn('provider', ['anthropic', 'openai', 'custom', 'openrouter', 'ollama'])->name('workspace.settings.ai.update');
+        Route::delete('settings/ai/{provider}', [WorkspaceAiController::class, 'destroy'])->whereIn('provider', ['anthropic', 'openai', 'custom', 'openrouter', 'ollama'])->name('workspace.settings.ai.destroy');
+        Route::post('settings/ai/{provider}/test', [WorkspaceAiController::class, 'test'])->middleware('throttle:10,1')->whereIn('provider', ['anthropic', 'openai', 'custom', 'openrouter', 'ollama'])->name('workspace.settings.ai.test');
         Route::post('settings/mcp/keys', [WorkspaceMcpController::class, 'store'])->middleware('throttle:20,1')->name('workspace.settings.mcp.keys.store');
         Route::delete('settings/mcp/connections/{token}', [WorkspaceMcpController::class, 'destroy'])->name('workspace.settings.mcp.connections.destroy');
         Route::get('settings/machine-policies', [WorkspaceMachinePolicyController::class, 'show'])->name('workspace.settings.machine-policies');
@@ -444,80 +653,3 @@ Route::domain('{workspace:slug}.'.config('app.domain'))
             Route::get('settings/license', CommunityLicenseController::class)->name('workspace.settings.license');
         }
     });
-
-if (app(Extensions::class)->marketingSite() === null) {
-    Route::get('/', fn (Request $request) => Edition::home($request))->name('home');
-}
-
-Route::get('install.sh', DaemonInstallScriptController::class)->middleware('throttle:60,1')->name('daemon.install-script');
-
-Route::get('robots.txt', RobotsTxtController::class)->middleware('throttle:60,1')->name('robots');
-
-Route::post('locale', [LocaleController::class, 'update'])->middleware('throttle:30,1')->name('locale.update');
-
-Route::middleware('throttle:120,1')->group(function () {
-    Route::get('status/{slug}', [PublicStatusController::class, 'show'])->name('status.show');
-    Route::get('status/{slug}/badge.svg', [PublicStatusController::class, 'badge'])->name('status.badge');
-    Route::get('status/{slug}/embed', [PublicStatusController::class, 'embed'])->name('status.embed');
-    Route::get('status/{slug}/og.png', [PublicStatusController::class, 'og'])->name('status.og');
-    Route::get('status/{slug}/status.json', [PublicStatusController::class, 'json'])->name('status.json');
-    Route::get('status/{slug}/feed.atom', [StatusSubscriptionController::class, 'feed'])->name('status.feed');
-    Route::post('status/{slug}/subscribe', [StatusSubscriptionController::class, 'store'])->middleware('throttle:5,1')->name('status.subscribe');
-    Route::get('status/{slug}/subscribe/{token}', [StatusSubscriptionController::class, 'confirm'])->name('status.subscribe.confirm');
-    Route::get('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribeShow'])->name('status.unsubscribe');
-    // One-click unsubscribe POSTs without a CSRF token; the link's token stands in for it.
-    Route::post('status/{slug}/unsubscribe/{token}', [StatusSubscriptionController::class, 'unsubscribe'])
-        ->withoutMiddleware(PreventRequestForgery::class)
-        ->name('status.unsubscribe.store');
-});
-
-// One-click unsubscribe POSTs without a CSRF token; the signature stands in for it.
-Route::middleware(['signed', 'throttle:30,1'])->group(function () {
-    Route::get('unsubscribe', [UnsubscribeController::class, 'show'])->name('unsubscribe');
-    Route::post('unsubscribe', [UnsubscribeController::class, 'store'])
-        ->withoutMiddleware(PreventRequestForgery::class)
-        ->name('unsubscribe.store');
-});
-
-Route::middleware(['auth', 'verified', StaffTwoFactor::class, 'can:viewAdmin'])->prefix('admin')->name('admin.')->group(function () {
-    app(Extensions::class)->loadRoutes(Extensions::ADMIN);
-});
-
-Route::middleware(['auth', 'verified'])->get('github/setup', [GitHubConnectionController::class, 'setup'])->middleware('throttle:20,1')->name('github.setup');
-Route::middleware(['auth', 'verified'])->get('github/app/created', [GitHubAppSetupController::class, 'created'])->middleware('throttle:10,1')->name('github.app.created');
-
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('oauth/authorize', [OAuthAuthorizeController::class, 'show'])->name('mcp.oauth.authorize');
-    Route::post('oauth/authorize', [OAuthAuthorizeController::class, 'store'])->middleware('throttle:30,1')->name('mcp.oauth.approve');
-});
-
-Route::get('start/agents', StartWithAgentsController::class)->name('start.agents');
-
-Route::get('workspaces/availability', WorkspaceAvailabilityController::class)
-    ->middleware('throttle:60,1')
-    ->name('workspaces.availability');
-
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', DashboardRedirectController::class)->name('dashboard');
-    Route::get('workspaces', WorkspaceIndexController::class)->name('workspaces.index');
-    Route::post('workspaces', [WorkspaceController::class, 'store'])->middleware('throttle:10,60')->name('workspaces.store');
-    Route::get('workspaces/movable-machines', [WorkspaceController::class, 'movable'])->name('workspaces.movable-machines');
-    Route::get('join-requests', [WorkspaceJoinRequestController::class, 'show'])->name('join-requests.show');
-});
-
-Route::post('admin/return', ImpersonationController::class)->middleware('auth')->name('impersonation.stop');
-
-Route::get('themes/{token}', [ThemeShareController::class, 'show'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:120,1')->name('themes.show');
-Route::middleware('auth')->group(function () {
-    Route::get('themes/{token}/add', [ThemeShareController::class, 'add'])->where('token', '[a-z0-9]{8,32}')->name('themes.add');
-    Route::post('themes/{token}/import', [ThemeShareController::class, 'import'])->where('token', '[a-z0-9]{8,32}')->middleware('throttle:20,1')->name('themes.import');
-});
-
-Route::middleware('auth')->group(function () {
-    Route::get('invitations/{token}', [InvitationController::class, 'show'])->name('invitations.show');
-    Route::post('invitations/{token}/accept', [InvitationController::class, 'accept'])->name('invitations.accept');
-});
-
-require __DIR__.'/settings.php';
-
-app(Extensions::class)->loadRoutes(Extensions::WEB);

@@ -1,6 +1,7 @@
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import type { ChangelogCard } from '@/lib/changelog';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 export type WhatsNewEntry = ChangelogCard & { new: boolean };
 
@@ -22,7 +23,7 @@ export function useWhatsNew() {
         open.value = true;
         if (unread.value > 0) {
             router.post(
-                '/changelog/seen',
+                workspacePath('/changelog/seen'),
                 {},
                 {
                     preserveState: true,

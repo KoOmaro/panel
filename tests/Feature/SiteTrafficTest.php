@@ -41,7 +41,7 @@ function trafficApp(string $app = 'shop', array $domains = ['shop.example.com'],
         'command' => ['job' => ['type' => 'deploy', 'service' => $app, 'repo' => 'https://github.com/acme/shop', 'commit' => str_repeat('1', 40), 'port' => 3000, 'domains' => $domains]],
     ]);
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 function sendEnvelopes(Machine $machine, array $envelopes): void
@@ -214,7 +214,7 @@ test('the Traffic tab reads its numbers from its own endpoint, for anyone in the
     $this->actingAs($viewer)->getJson($base."/machines/{$machine->id}/apps/nope/traffic")->assertNotFound();
 
     $other = Workspace::factory()->create();
-    $this->actingAs($other->owner)->getJson('https://'.$other->host()."/machines/{$machine->id}/apps/shop/traffic")->assertNotFound();
+    $this->actingAs($other->owner)->getJson($other->url()."/machines/{$machine->id}/apps/shop/traffic")->assertNotFound();
 });
 
 test('the app page and machine settings say whether traffic is counted', function () {

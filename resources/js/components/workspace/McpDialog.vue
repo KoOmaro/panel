@@ -24,12 +24,18 @@ import TickBox from '@/components/workspace/TickBox.vue';
 import { useStepFrame } from '@/composables/useStepFrame';
 import { appButtonClasses } from '@/lib/appButton';
 import { MCP_CLIENTS } from '@/lib/mcpClients';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import mcpTerms from '@/routes/mcp-terms';
+import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
 
 const open = defineModel<boolean>('open', { default: false });
 
 const page = usePage<{ workspace: Workspace }>();
+
+const mcpSettingsHref = computed(
+    () => onWorkspace(settingsRoutes.mcp(page.props.workspace.slug)).url,
+);
 
 const accepted = computed(() => !!page.props.auth.user.mcp_terms_accepted_at);
 
@@ -81,7 +87,9 @@ function accept(): void {
     );
 }
 
-const url = computed(() => `https://${page.props.workspace.host}/mcp`);
+const url = computed(
+    () => `${page.props.dashboardUrl}/${page.props.workspace.slug}/mcp`,
+);
 const copied = ref(false);
 
 async function copyUrl(): Promise<void> {
@@ -345,7 +353,7 @@ const risks = [
                                     {{ ' ' + $t('Close') + ' ' }}
                                 </AppButton>
                                 <Link
-                                    href="/settings/mcp"
+                                    :href="mcpSettingsHref"
                                     :class="appButtonClasses('primary', 'sm')"
                                     @click="open = false"
                                 >

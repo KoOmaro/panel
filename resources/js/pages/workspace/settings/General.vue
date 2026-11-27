@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { Form, Head, Link, router, useForm } from '@inertiajs/vue3';
-import {
-    SolarBell as Bell,
-    SolarBox as Box,
-    SolarBuilding2 as Building2,
-    SolarGitBranch as GitBranch,
-    SolarTriangleAlert as TriangleAlert,
-} from '@/lib/solarIcons';
-import { ref, watch } from 'vue';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { Mail } from '@lucide/vue';
+import { computed, ref, useTemplateRef, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashSwitch from '@/components/dash/DashSwitch.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
 import AlertsDialog from '@/components/monitors/AlertsDialog.vue';
 import {
     Dialog,
@@ -19,19 +17,20 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import ImageUploadField from '@/components/workspace/ImageUploadField.vue';
+import AppButton from '@/components/workspace/AppButton.vue';
+import DangerButton from '@/components/workspace/DangerButton.vue';
 import PanelUpdateTile from '@/components/workspace/PanelUpdateTile.vue';
 import type { PanelUpdateState } from '@/components/workspace/PanelUpdateTile.vue';
-import { onWorkspace } from '@/lib/workspaceRoute';
+import SubmitButton from '@/components/workspace/SubmitButton.vue';
+import SettingsItemRow from '@/components/workspace/settings/SettingsItemRow.vue';
+import SettingsSection from '@/components/workspace/settings/SettingsSection.vue';
+import { onWorkspace, workspaceAddress } from '@/lib/workspaceRoute';
+import githubRoutes from '@/routes/workspace/github';
+import alertRoutes from '@/routes/workspace/monitors/alerts';
+import registryRoutes from '@/routes/workspace/registries';
 import settings from '@/routes/workspace/settings';
 import logo from '@/routes/workspace/settings/logo';
 import type { Workspace } from '@/types';
-import AppButton from '@/components/workspace/AppButton.vue';
-import SubmitButton from '@/components/workspace/SubmitButton.vue';
-import DangerButton from '@/components/workspace/DangerButton.vue';
-import SettingsRow from '@/components/workspace/SettingsRow.vue';
-import Tile from '@/components/workspace/Tile.vue';
-import { appButtonClasses } from '@/lib/appButton';
 
 type Props = {
     workspace: Workspace;
@@ -50,6 +49,7 @@ type Props = {
               id: number;
               account: string;
               organisation: boolean;
+              repositories: number | null;
               manageUrl: string;
           }[]
         | null;
@@ -66,18 +66,179 @@ type Props = {
               label: string;
               username: string;
               addedAt: string | null;
+              integration?: number | null;
           }[]
         | null;
 };
 
 const props = defineProps<Props>();
 
-const updateRoute = onWorkspace(settings.update(props.workspace.slug));
+const page = usePage();
+const slug = props.workspace.slug;
 
-const confirmingDelete = ref(false);
+const nameForm = useForm({ name: props.workspace.name });
+
+watch(
+    () => props.workspace.name,
+    (name) => {
+        nameForm.defaults({ name });
+        nameForm.reset();
+    },
+);
+
+function saveName(): void {
+    nameForm.patch(onWorkspace(settings.update(slug)).url, {
+        preserveScroll: true,
+    });
+}
+
+const address = computed(() => {
+    const full = workspaceAddress(props.workspace.url);
+    const at = full.lastIndexOf(slug);
+
+    return at === -1
+        ? { before: full, slug: '', after: '' }
+        : {
+              before: full.slice(0, at),
+              slug,
+              after: full.slice(at + slug.length),
+          };
+});
+
+const logoInput = useTemplateRef<HTMLInputElement>('logoInput');
+const uploadingLogo = ref(false);
+
+function uploadLogo(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+
+    if (!file) {
+        return;
+    }
+
+    router.post(
+        onWorkspace(logo.update(slug)).url,
+        { logo: file },
+        {
+            forceFormData: true,
+            preserveScroll: true,
+            onStart: () => (uploadingLogo.value = true),
+            onFinish: () => {
+                uploadingLogo.value = false;
+
+                if (logoInput.value) {
+                    logoInput.value.value = '';
+                }
+            },
+        },
+    );
+}
+
+function removeLogo(): void {
+    router.delete(onWorkspace(logo.destroy(slug)).url, {
+        preserveScroll: true,
+    });
+}
+
 const alertsOpen = ref(false);
+const emailAlerts = ref(props.alerts.email);
+const savingEmail = ref(false);
 
-const githubConnectUrl = `/settings/github/connect`;
+watch(
+    () => props.alerts.email,
+    (on) => (emailAlerts.value = on),
+);
+
+function setEmailAlerts(on: boolean): void {
+    emailAlerts.value = on;
+    router.put(
+        onWorkspace(alertRoutes.update(slug)).url,
+        { email: on, webhook: props.alerts.webhook },
+        {
+            preserveScroll: true,
+            onStart: () => (savingEmail.value = true),
+            onFinish: () => (savingEmail.value = false),
+            onError: () => (emailAlerts.value = props.alerts.email),
+        },
+    );
+}
+
+const webhook = computed<{
+    brand: 'slack' | 'discord' | null;
+    title: string;
+    description: string;
+}>(() => {
+    const url = props.alerts.webhook;
+
+    if (!props.alerts.webhookSet) {
+        return {
+            brand: null,
+            title: trans('Slack, Discord or a webhook'),
+            description: trans('Not connected'),
+        };
+    }
+
+    let host = '';
+
+    try {
+        host = url ? new URL(url).hostname : '';
+    } catch {
+        host = '';
+    }
+
+    if (host === 'hooks.slack.com') {
+        return {
+            brand: 'slack',
+            title: 'Slack',
+            description: trans('Posts to your Slack channel'),
+        };
+    }
+
+    if (/(^|\.)discord(app)?\.com$/.test(host)) {
+        return {
+            brand: 'discord',
+            title: 'Discord',
+            description: trans('Posts to your Discord channel'),
+        };
+    }
+
+    return {
+        brand: null,
+        title: trans('Webhook'),
+        description: host
+            ? trans('Posts to :host', { host })
+            : trans('Posts to your webhook'),
+    };
+});
+
+const mutedLine = computed(() =>
+    props.alerts.muted.length === 0
+        ? trans('Every kind of alert is on.')
+        : trans(
+              props.alerts.muted.length === 1
+                  ? ':count kind is switched off.'
+                  : ':count kinds are switched off.',
+              { count: String(props.alerts.muted.length) },
+          ),
+);
+
+function githubLine(account: {
+    organisation: boolean;
+    repositories: number | null;
+}): string {
+    const kind = account.organisation
+        ? trans('Organisation')
+        : trans('Personal account');
+    const reach =
+        account.repositories === null
+            ? trans('all repositories')
+            : account.repositories === 1
+              ? trans('1 repository')
+              : trans(':count repositories', {
+                    count: String(account.repositories),
+                });
+
+    return `${kind} · ${reach}`;
+}
 
 function disconnectGitHub(id: number, account: string): void {
     if (
@@ -90,8 +251,14 @@ function disconnectGitHub(id: number, account: string): void {
     ) {
         return;
     }
-    router.delete(`/settings/github/${id}`, { preserveScroll: true });
+
+    router.delete(
+        onWorkspace(githubRoutes.destroy({ workspace: slug, installation: id }))
+            .url,
+        { preserveScroll: true },
+    );
 }
+
 const registryOpen = ref(false);
 const registryForm = useForm({ host: '', username: '', password: '' });
 
@@ -102,7 +269,7 @@ watch(registryOpen, (open) => {
 });
 
 function addRegistry(): void {
-    registryForm.post('/settings/registries', {
+    registryForm.post(onWorkspace(registryRoutes.store(slug)).url, {
         preserveScroll: true,
         onSuccess: () => (registryOpen.value = false),
     });
@@ -119,9 +286,15 @@ function removeRegistry(id: number, label: string): void {
     ) {
         return;
     }
-    router.delete(`/settings/registries/${id}`, { preserveScroll: true });
+
+    router.delete(
+        onWorkspace(registryRoutes.destroy({ workspace: slug, registry: id }))
+            .url,
+        { preserveScroll: true },
+    );
 }
 
+const confirmingDelete = ref(false);
 const deleteForm = useForm({ confirmation: '' });
 
 function deleteWorkspace(): void {
@@ -129,7 +302,7 @@ function deleteWorkspace(): void {
         return;
     }
 
-    deleteForm.delete(onWorkspace(settings.destroy(props.workspace.slug)).url, {
+    deleteForm.delete(onWorkspace(settings.destroy(slug)).url, {
         preserveScroll: true,
     });
 }
@@ -140,13 +313,17 @@ watch(confirmingDelete, (open) => {
         deleteForm.clearErrors();
     }
 });
+
+const fieldLabel =
+    'text-[13px]/5 font-medium tracking-[-0.01em] text-fg-primary';
 </script>
 
 <template>
     <Head :title="$t('Workspace settings')" />
 
-    <Tile
+    <SettingsSection
         id="workspace"
+        icon="settings-fill"
         :title="$t('Workspace')"
         :description="
             canManageSettings
@@ -155,200 +332,276 @@ watch(confirmingDelete, (open) => {
                       'How the workspace appears to everyone in it. Only owners and admins can change these.',
                   )
         "
-        :icon="Building2"
+        :padded="false"
     >
-        <div class="grid gap-x-8 gap-y-6 md:grid-cols-2">
-            <SettingsRow :label="$t('Logo')" wide>
-                <ImageUploadField
-                    field="logo"
-                    :label="$t('Logo')"
-                    hide-label
-                    :image-url="workspace.logoUrl"
-                    :fallback="workspace.name.charAt(0).toUpperCase()"
-                    :upload-url="onWorkspace(logo.update(workspace.slug)).url"
-                    :remove-url="onWorkspace(logo.destroy(workspace.slug)).url"
+        <form
+            id="workspace-form"
+            class="dash-card-row"
+            @submit.prevent="saveName"
+        >
+            <label for="workspace-name" :class="fieldLabel">{{
+                $t('Name')
+            }}</label>
+            <div class="dash-field">
+                <input
+                    id="workspace-name"
+                    v-model="nameForm.name"
+                    name="name"
+                    required
+                    maxlength="255"
                     :disabled="!canManageSettings"
                 />
-            </SettingsRow>
+            </div>
+            <InputError :message="nameForm.errors.name" />
+        </form>
 
-            <Form
-                :action="updateRoute.url"
-                method="patch"
-                :options="{ preserveScroll: true }"
-                v-slot="{ errors, processing, recentlySuccessful }"
-                class="contents"
+        <div class="dash-card-row">
+            <label for="workspace-address" :class="fieldLabel">{{
+                $t('Address')
+            }}</label>
+            <div
+                class="dash-field bg-surface-field-readonly! font-ui-mono tracking-normal"
             >
-                <SettingsRow :label="$t('Name')" input-id="workspace-name">
-                    <Input
-                        id="workspace-name"
-                        name="name"
-                        :default-value="workspace.name"
-                        required
-                        maxlength="255"
-                        :disabled="!canManageSettings"
-                    />
-                    <InputError :message="errors.name" />
-                </SettingsRow>
-
-                <SettingsRow
-                    :label="$t('Address')"
-                    input-id="workspace-address"
-                    :hint="$t('The address can\'t be changed yet.')"
+                <span
+                    id="workspace-address"
+                    class="min-w-0 truncate"
+                    role="textbox"
+                    aria-readonly="true"
+                    ><span class="text-fg-faint">{{ address.before }}</span
+                    ><span class="text-fg-tertiary">{{ address.slug }}</span
+                    ><span class="text-fg-faint">{{
+                        address.after
+                    }}</span></span
                 >
-                    <Input
-                        id="workspace-address"
-                        :model-value="workspace.host"
-                        readonly
-                        class="font-ui-mono text-(--ds-text-muted) md:text-[13px]"
-                    />
-                </SettingsRow>
-
-                <div
-                    v-if="canManageSettings"
-                    class="flex justify-end md:col-span-2"
-                >
-                    <SubmitButton
-                        :processing="processing"
-                        :done="recentlySuccessful"
-                    />
-                </div>
-            </Form>
+            </div>
+            <p
+                class="text-[12.5px]/[18px] tracking-[-0.005em] text-fg-tertiary"
+            >
+                {{ $t('The address can’t be changed yet.') }}
+            </p>
         </div>
-    </Tile>
 
-    <Tile
-        id="alerts"
+        <SettingsItemRow
+            :title="$t('Logo')"
+            :description="
+                $t('Shown in the sidebar, on your status page and in emails.')
+            "
+        >
+            <template #lead>
+                <span
+                    class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[8px] text-[16px]/5 font-medium tracking-[-0.01em] text-white shadow-[0_1px_1.5px_rgb(0_0_0/0.5)]"
+                    :class="
+                        workspace.logoUrl
+                            ? 'bg-surface-card'
+                            : 'bg-linear-to-b from-[#3d6bff] to-[#2a4fd6] shadow-[0_1px_1.5px_rgb(0_0_0/0.5),inset_0_1px_0_rgb(255_255_255/0.22)]'
+                    "
+                    aria-hidden="true"
+                >
+                    <img
+                        v-if="workspace.logoUrl"
+                        :src="workspace.logoUrl"
+                        alt=""
+                        class="size-full object-cover"
+                    />
+                    <template v-else>{{
+                        workspace.name.charAt(0).toUpperCase()
+                    }}</template>
+                </span>
+            </template>
+            <InputError :message="page.props.errors.logo" class="mt-1" />
+            <template v-if="canManageSettings" #actions>
+                <input
+                    ref="logoInput"
+                    type="file"
+                    name="logo"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    class="sr-only"
+                    tabindex="-1"
+                    aria-hidden="true"
+                    @change="uploadLogo"
+                />
+                <DashButton
+                    :label="workspace.logoUrl ? $t('Change') : $t('Upload')"
+                    :loading="uploadingLogo"
+                    @click="logoInput?.click()"
+                />
+                <DashButton
+                    v-if="workspace.logoUrl"
+                    :label="$t('Remove')"
+                    @click="removeLogo"
+                />
+            </template>
+        </SettingsItemRow>
+
+        <template v-if="canManageSettings" #footer>
+            <DashButton
+                variant="primary"
+                type="submit"
+                form="workspace-form"
+                :label="$t('Save')"
+                :loading="nameForm.processing"
+            />
+        </template>
+    </SettingsSection>
+
+    <SettingsSection
         v-if="canManageAlerts"
+        id="alerts"
+        icon="info-fill"
         :title="$t('Alerts')"
         :description="$t('Who hears about it when something breaks.')"
-        :icon="Bell"
+        :padded="false"
     >
-        <div class="flex flex-wrap items-center justify-between gap-4">
-            <div class="flex max-w-xl flex-col gap-1">
-                <h3 class="text-[13px]/5 font-medium">
-                    {{
-                        [
-                            alerts.email
-                                ? $t('Email to owners and admins')
-                                : null,
-                            alerts.webhookSet ? $t('Webhook') : null,
-                            alerts.telegram?.set ? $t('Telegram') : null,
-                        ]
-                            .filter(Boolean)
-                            .join(' and ') || $t('Off')
-                    }}
-                </h3>
-                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                    {{
-                        ' ' +
-                        $t(
-                            'When a machine stops reporting or runs low on disk or memory, a service stops, a deploy or backup fails, a monitor goes down, or a certificate is about to expire, and again when it’s fixed.',
-                        ) +
-                        ' '
-                    }}
-                    <template v-if="alerts.muted.length">
-                        {{
-                            ' ' +
-                            $t(
-                                alerts.muted.length === 1
-                                    ? ':count kind is switched off.'
-                                    : ':count kinds are switched off.',
-                                { count: String(alerts.muted.length) },
-                            )
-                        }}
-                    </template>
-                </p>
-            </div>
-            <AppButton size="sm" @click="alertsOpen = true">
-                {{ ' ' + $t('Change') + ' ' }}
-            </AppButton>
-        </div>
-    </Tile>
+        <SettingsItemRow
+            :title="$t('Email')"
+            :description="$t('To owners and admins')"
+        >
+            <template #icon>
+                <Mail
+                    class="size-[15px] text-fg-secondary"
+                    :stroke-width="1.25"
+                />
+            </template>
+            <template #actions>
+                <DashSwitch
+                    :model-value="emailAlerts"
+                    :label="$t('Email alerts')"
+                    :disabled="savingEmail"
+                    @update:model-value="setEmailAlerts"
+                />
+            </template>
+        </SettingsItemRow>
+
+        <SettingsItemRow
+            :title="webhook.title"
+            :description="webhook.description"
+        >
+            <template #icon>
+                <BrandLogo v-if="webhook.brand" :name="webhook.brand" />
+                <FilledIcon v-else name="globe-fill" class="text-fg-tertiary" />
+            </template>
+            <template #actions>
+                <DashButton
+                    :label="alerts.webhookSet ? $t('Change') : $t('Connect')"
+                    @click="alertsOpen = true"
+                />
+            </template>
+        </SettingsItemRow>
+
+        <SettingsItemRow
+            title="Telegram"
+            :description="
+                alerts.telegram.set
+                    ? alerts.telegram.chat
+                        ? $t('Posts to chat :chat', {
+                              chat: alerts.telegram.chat,
+                          })
+                        : $t('Connected')
+                    : $t('Not connected')
+            "
+        >
+            <template #icon>
+                <BrandLogo name="telegram" />
+            </template>
+            <template #actions>
+                <DashButton
+                    :label="alerts.telegram.set ? $t('Change') : $t('Connect')"
+                    @click="alertsOpen = true"
+                />
+            </template>
+        </SettingsItemRow>
+
+        <SettingsItemRow
+            :title="$t('What you hear about')"
+            :description="mutedLine"
+        >
+            <template #icon>
+                <FilledIcon name="sliders" class="text-fg-tertiary" />
+            </template>
+            <template #actions>
+                <DashButton :label="$t('Choose')" @click="alertsOpen = true" />
+            </template>
+        </SettingsItemRow>
+    </SettingsSection>
     <AlertsDialog v-model:open="alertsOpen" :alerts="alerts" />
 
-    <Tile
-        id="github"
+    <SettingsSection
         v-if="github"
-        :title="$t('GitHub')"
+        id="github"
+        logo="github"
+        title="GitHub"
         :description="
-            $t(
-                'Deploy private repositories. ServerOS reads only the ones you choose on GitHub.',
-            )
+            $t('Deploy from your repositories and get pull request previews.')
         "
-        :icon="GitBranch"
+        :padded="false"
     >
-        <div
-            v-if="githubSetup && !githubSetup.ready"
-            class="flex flex-col items-start gap-3"
-        >
-            <p class="max-w-xl text-[13px]/5 text-(--ds-text-muted)">
-                {{
+        <template v-if="githubSetup && !githubSetup.ready">
+            <SettingsItemRow
+                :title="$t('No GitHub App yet')"
+                :description="
                     githubSetup.canSetUp
                         ? $t(
                               'This install needs a GitHub App of its own before it can deploy private repositories. Setting one up takes about a minute, and we’ll walk you through it.',
                           )
                         : $t(
-                              'This install doesn’t have a GitHub App yet. Ask the workspace owner to set one up in Settings › General. Public repositories deploy without it.',
+                              'This install doesn’t have a GitHub App yet. Ask the workspace owner to set one up in Developers › GitHub App. Public repositories deploy without it.',
                           )
-                }}
-            </p>
-            <Link
-                v-if="githubSetup.canSetUp"
-                href="/settings/github/app"
-                :class="appButtonClasses('secondary', 'sm')"
+                "
             >
-                {{ $t('Set up GitHub') }}
-            </Link>
-        </div>
-        <div v-else class="flex flex-col gap-3">
-            <ul v-if="github.length" class="flex flex-col">
-                <li
-                    v-for="account in github"
-                    :key="account.id"
-                    class="flex items-center gap-3 border-b border-(--ds-divider) py-2.5 first:pt-0 last:border-b-0"
-                >
-                    <span class="min-w-0 grow">
-                        <span class="block truncate text-[13px]/5 font-medium">
-                            {{ account.account }}
-                        </span>
-                        <span class="block text-xs/4 text-(--ds-text-muted)">
-                            {{
-                                account.organisation
-                                    ? $t('Organisation')
-                                    : $t('Personal account')
-                            }}
-                        </span>
-                    </span>
-                    <a
+                <template #icon>
+                    <BrandLogo name="github" />
+                </template>
+                <template v-if="githubSetup.canSetUp" #actions>
+                    <DashButton
+                        :href="
+                            onWorkspace(githubRoutes.app(workspace.slug)).url
+                        "
+                        :label="$t('Set up GitHub')"
+                    />
+                </template>
+            </SettingsItemRow>
+        </template>
+
+        <template v-else>
+            <SettingsItemRow
+                v-for="account in github"
+                :key="account.id"
+                :title="account.account"
+                :description="githubLine(account)"
+            >
+                <template #icon>
+                    <BrandLogo name="github" />
+                </template>
+                <template #actions>
+                    <DashButton
                         :href="account.manageUrl"
-                        target="_blank"
-                        rel="noopener"
-                        :class="appButtonClasses('quiet', 'sm')"
-                    >
-                        {{ ' ' + $t('Choose repositories') + ' ' }}
-                    </a>
-                    <AppButton
-                        size="sm"
-                        variant="quiet"
+                        external
+                        :label="$t('Choose repositories')"
+                    />
+                    <DashButton
+                        :label="$t('Disconnect')"
                         @click="disconnectGitHub(account.id, account.account)"
-                    >
-                        {{ ' ' + $t('Disconnect') + ' ' }}
-                    </AppButton>
-                </li>
-            </ul>
-            <p v-else class="text-[13px]/5 text-(--ds-text-muted)">
-                {{
-                    ' ' +
-                    $t(
-                        'Not connected. Public repositories deploy without it.',
-                    ) +
-                    ' '
-                }}
-            </p>
-            <div>
+                    />
+                </template>
+            </SettingsItemRow>
+            <SettingsItemRow
+                v-if="github.length === 0"
+                :title="$t('Not connected')"
+                :description="$t('Public repositories deploy without it.')"
+            >
+                <template #icon>
+                    <BrandLogo name="github" />
+                </template>
+            </SettingsItemRow>
+        </template>
+
+        <template v-if="!githubSetup || githubSetup.ready" #footer>
+            <div class="flex grow flex-wrap items-center gap-2">
                 <a
-                    :href="githubConnectUrl"
-                    :class="appButtonClasses('secondary', 'sm')"
+                    :href="
+                        onWorkspace(githubRoutes.connect(workspace.slug)).url
+                    "
+                    class="dash-button dash-button--secondary"
                 >
                     {{
                         github.length
@@ -358,118 +611,99 @@ watch(confirmingDelete, (open) => {
                 </a>
                 <Link
                     v-if="githubSetup?.canSetUp"
-                    href="/settings/github/app"
-                    :class="appButtonClasses('quiet', 'sm')"
-                    class="ml-1"
+                    :href="onWorkspace(githubRoutes.app(workspace.slug)).url"
+                    class="px-2 text-[13px]/5 font-medium text-fg-tertiary hover:text-fg-primary"
                 >
                     {{ $t('GitHub App') }}
                 </Link>
             </div>
-        </div>
-    </Tile>
+        </template>
+    </SettingsSection>
 
-    <Tile
-        id="registries"
+    <SettingsSection
         v-if="registries"
+        id="registries"
+        icon="package-fill"
         :title="$t('Container registries')"
         :description="
-            $t(
-                'Deploy private Docker images. Deploys pull from these registries with your login.',
-            )
+            $t('Logins for private images. Public images deploy without one.')
         "
-        :icon="Box"
+        :padded="false"
     >
-        <div class="flex flex-col gap-3">
-            <ul v-if="registries.length" class="flex flex-col">
-                <li
-                    v-for="registry in registries"
-                    :key="registry.id"
-                    class="flex items-center gap-3 border-b border-(--ds-divider) py-2.5 first:pt-0 last:border-b-0"
-                >
-                    <span class="min-w-0 grow">
-                        <span class="block truncate text-[13px]/5 font-medium">
-                            {{ registry.label }}
-                        </span>
-                        <span
-                            class="block truncate text-xs/4 text-(--ds-text-muted)"
-                        >
-                            {{
-                                registry.label === registry.host
-                                    ? $t('As :username', {
-                                          username: registry.username,
-                                      })
-                                    : $t(':host, as :username', {
-                                          host: registry.host,
-                                          username: registry.username,
-                                      })
-                            }}
-                        </span>
-                    </span>
-                    <AppButton
-                        size="sm"
-                        variant="quiet"
-                        @click="removeRegistry(registry.id, registry.label)"
-                    >
-                        {{ ' ' + $t('Remove') + ' ' }}
-                    </AppButton>
-                </li>
-            </ul>
-            <p v-else class="text-[13px]/5 text-(--ds-text-muted)">
-                {{
-                    ' ' +
-                    $t('None yet. Public images deploy without a login.') +
-                    ' '
-                }}
-            </p>
-            <div>
-                <AppButton size="sm" @click="registryOpen = true">
-                    {{ ' ' + $t('Add a registry login') + ' ' }}
-                </AppButton>
+        <SettingsItemRow
+            v-for="registry in registries"
+            :key="registry.id"
+            :title="registry.host"
+            :description="
+                registry.integration
+                    ? $t(
+                          'As :username, from the Docker Hub account in Integrations',
+                          {
+                              username: registry.username,
+                          },
+                      )
+                    : $t('As :username', { username: registry.username })
+            "
+        >
+            <template #icon>
+                <BrandLogo :name="`${registry.label} ${registry.host}`" />
+            </template>
+            <template #actions>
+                <DashButton
+                    :label="$t('Remove')"
+                    @click="removeRegistry(registry.id, registry.label)"
+                />
+            </template>
+        </SettingsItemRow>
+        <SettingsItemRow
+            v-if="registries.length === 0"
+            :title="$t('None yet')"
+            :description="$t('Public images deploy without a login.')"
+        >
+            <template #icon>
+                <FilledIcon name="box" class="text-fg-tertiary" />
+            </template>
+        </SettingsItemRow>
+
+        <template #footer>
+            <div class="flex grow items-center">
+                <DashButton
+                    :label="$t('Add a registry login')"
+                    @click="registryOpen = true"
+                />
             </div>
-        </div>
-    </Tile>
+        </template>
+    </SettingsSection>
 
     <PanelUpdateTile v-if="panelUpdate" :state="panelUpdate" />
 
-    <Tile
-        id="danger-zone"
+    <SettingsSection
         v-if="canDelete"
+        id="danger-zone"
+        icon="info-fill"
         :title="$t('Danger zone')"
-        :description="$t('Actions here can\'t be undone.')"
-        :icon="TriangleAlert"
+        :description="$t('Actions here can’t be undone.')"
+        :padded="false"
         danger
     >
-        <div class="flex flex-wrap items-center justify-between gap-4">
-            <div class="flex max-w-xl flex-col gap-1">
-                <h3 class="text-[13px]/5 font-medium">
-                    {{ ' ' + $t('Delete workspace') + ' ' }}
-                </h3>
-                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                    {{
-                        ' ' +
-                        $t(
-                            'Permanently deletes :name, its machines, members and invitations. Connected machines stop reporting to it, but nothing on the machines themselves is touched.',
-                            { name: workspace.name },
-                        ) +
-                        ' '
-                    }}
-                </p>
-            </div>
-            <button
-                type="button"
-                :class="
-                    appButtonClasses(
-                        'secondary',
-                        'sm',
-                        'border-(--ds-red)/30 text-(--ds-red) hover:border-(--ds-red)/60 hover:bg-(--ds-red)/10',
-                    )
-                "
-                @click="confirmingDelete = true"
-            >
-                {{ $t('Delete workspace') }}
-            </button>
-        </div>
-    </Tile>
+        <SettingsItemRow
+            :title="$t('Delete workspace')"
+            :description="
+                $t(
+                    'Removes :name, its machine connections, monitors and backup settings. Your servers keep running.',
+                    { name: workspace.name },
+                )
+            "
+        >
+            <template #actions>
+                <DashButton @click="confirmingDelete = true">
+                    <span class="text-status-down">{{
+                        $t('Delete workspace')
+                    }}</span>
+                </DashButton>
+            </template>
+        </SettingsItemRow>
+    </SettingsSection>
 
     <Dialog v-model:open="registryOpen">
         <DialogContent
@@ -534,7 +768,7 @@ watch(confirmingDelete, (open) => {
                     </AppButton>
                     <SubmitButton
                         :label="$t('Save')"
-                        busy-label="Saving…"
+                        :busy-label="$t('Saving…')"
                         :processing="registryForm.processing"
                     />
                 </div>

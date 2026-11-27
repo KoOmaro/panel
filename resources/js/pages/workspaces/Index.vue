@@ -6,11 +6,11 @@ import { computed, ref } from 'vue';
 import AppButton from '@/components/workspace/AppButton.vue';
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue';
 import PlanBadge from '@/components/workspace/PlanBadge.vue';
+import { workspaceAddress } from '@/lib/workspaceRoute';
 import { workspaceInitial, workspaceTileColor } from '@/lib/workspaceTile';
 import type { Workspace } from '@/types';
 
 type WorkspaceCard = Workspace & {
-    url: string;
     switchUrl: string;
     role: string | null;
     machineCount: number;
@@ -23,7 +23,7 @@ defineProps<{
 
 const page = usePage();
 
-const domain = computed(() => new URL(page.props.appUrl).host);
+const domain = computed(() => new URL(page.props.dashboardUrl).host);
 
 const creating = ref(false);
 
@@ -113,7 +113,7 @@ function plural(count: number, word: string): string {
                                 <span
                                     class="truncate text-[13px]/5 text-(--ds-text-muted)"
                                 >
-                                    {{ workspace.host }}
+                                    {{ workspaceAddress(workspace.url) }}
                                 </span>
                             </span>
                             <PlanBadge

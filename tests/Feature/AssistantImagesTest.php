@@ -36,7 +36,7 @@ test('images sent to Ask AI reach a model that can see them, even on the free mo
         ->push(groqImageTurn('Saved it.'))]);
 
     $workspace = Workspace::factory()->create();
-    $response = $this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/assistant', [
+    $response = $this->actingAs($workspace->owner)->post($workspace->url().'/assistant', [
         'message' => 'Put this on my dashboard',
         'images' => [assistantPng()],
     ])->assertOk();
@@ -83,7 +83,7 @@ test('Ask AI refuses files that aren’t images, and too many images', function 
     config()->set('services.groq.key', 'test-key');
     Http::preventStrayRequests();
     $workspace = Workspace::factory()->create();
-    $url = 'https://'.$workspace->host().'/assistant';
+    $url = $workspace->url().'/assistant';
 
     $this->actingAs($workspace->owner)->postJson($url, ['message' => 'x', 'images' => ['data:image/png;base64,'.base64_encode('not really a png')]])
         ->assertStatus(422);

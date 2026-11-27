@@ -14,7 +14,10 @@ use App\Models\User;
 use App\Support\Audit\AuditContext;
 use App\Support\Deploys\AppDatabase;
 use App\Support\Deploys\AppLimits;
+use App\Support\Deploys\DeployOnPush;
 use App\Support\GitHub\GitHubApp;
+use App\Support\Integrations\GitLab\GitLabRepositories;
+use App\Support\Integrations\Sentry\SentryReleases;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -24,7 +27,7 @@ class DaemonJobQueue
 
     public const array NEEDS_PLAN = ['deploy', 'release', 'rollback', 'service_exec', 'service_clone', 'database_query'];
 
-    private const array READS = ['database_query', 'service_logs', 'service_inspect', 'discover', 'file_list', 'file_read', 'package_updates', 'disk_usage', 'docker_resources', 'image_packages'];
+    private const array READS = ['database_query', 'service_logs', 'service_inspect', 'discover', 'file_list', 'file_read', 'package_updates', 'disk_usage', 'docker_resources', 'image_packages', 'repo_inspect'];
 
     public function __construct(private readonly DaemonGatewayClient $gateway) {}
 
@@ -61,17 +64,27 @@ class DaemonJobQueue
 
     /**
      * @param  array<string, mixed>  $job
+     * @param  array<string, mixed>  $meta  more for the activity log
      *
      * @throws RuntimeException
      */
-    public function deploy(Machine $machine, User $user, array $job, bool $hold = false, ?string $trigger = null): DaemonJob
+    public function deploy(Machine $machine, User $user, array $job, bool $hold = false, ?string $trigger = null, bool $noCache = false, array $meta = []): DaemonJob
     {
-        $job = AppLimits::forJob($machine, $job);
+        $job = SentryReleases::withRelease($machine, AppLimits::forJob($machine, $job));
+        // Building from scratch is for the one deploy that asks for it: the
+        // next deploy copies this spec, so it's never left in.
+        if (is_array($job['build'] ?? null)) {
+            unset($job['build']['no_cache']);
+        }
+        if ($noCache) {
+            $job['build'] = [...(is_array($job['build'] ?? null) ? $job['build'] : ['method' => 'dockerfile']), 'no_cache' => true];
+        }
         $job['snapshot_before'] = $machine->snapshotsBeforeDeploy((string) $job['service']);
         $database = $job['snapshot_before'] ? AppDatabase::for($machine, (string) $job['service'], (array) ($job['env'] ?? [])) : null;
         $job['snapshot_also'] = $database === null ? [] : [$database['key']];
 
-        $record = $this->queue($machine, $user, 'deploy', $job, $job['service'], self::DEPLOY_TIMEOUT_SECS, hold: $hold, trigger: $trigger);
+        $meta = array_filter([...$meta, 'trigger' => $trigger, 'no_cache' => $noCache ?: null], fn ($value) => $value !== null);
+        $record = $this->queue($machine, $user, 'deploy', $job, $job['service'], self::DEPLOY_TIMEOUT_SECS, meta: $meta, hold: $hold, trigger: $trigger);
         event(new DeployQueued($machine, $record, (array) ($job['domains'] ?? [])));
 
         return $record;
@@ -105,13 +118,17 @@ class DaemonJobQueue
      * @param  array<string, mixed>  $job
      * @param  array{kind: string, job: array<string, mixed>, service: string|null}|null  $then
      * @param  array<string, mixed>  $meta  what the activity log keeps instead of the job itself
+     * @param  array<string, string>  $secretEnv  settings added to the job's env as it's sent, never stored (a one-off key)
      *
      * @throws RuntimeException
      */
-    public function queue(Machine $machine, User $user, string $kind, array $job, ?string $service, int $timeoutSecs = 300, ?array $then = null, array $meta = [], bool $hold = false, ?string $trigger = null): DaemonJob
+    public function queue(Machine $machine, User $user, string $kind, array $job, ?string $service, int $timeoutSecs = 300, ?array $then = null, array $meta = [], bool $hold = false, ?string $trigger = null, bool $audit = true, array $secretEnv = []): DaemonJob
     {
         if (($reason = self::needsPlan($machine, $kind)) !== null) {
             throw new RuntimeException($reason);
+        }
+        if ($hold && $secretEnv !== []) {
+            throw new RuntimeException('A job with secrets is sent straight away, never held.');
         }
 
         $session = AuditContext::viewAsSession($user);
@@ -140,9 +157,12 @@ class DaemonJobQueue
         ]);
 
         if (! $hold) {
-            $this->send($machine, $record, $command);
+            $this->send($machine, $record, $command, $secretEnv);
         }
-        $this->recordActivity($machine, $user, $kind, $job, $service, $meta);
+        // A scheduled command is recorded once, when it's saved, not every run.
+        if ($audit) {
+            $this->recordActivity($machine, $user, $kind, $job, $service, $meta);
+        }
 
         return $record;
     }
@@ -285,6 +305,36 @@ class DaemonJobQueue
         return in_array($from['via'] ?? null, ['mcp', 'api'], true) && is_string($from['call'] ?? null) ? $from['call'] : null;
     }
 
+    /**
+     * Stops waiting on a queued or running job: it's marked cancelled here,
+     * and a job the machine has is cancelled there too (every daemon takes
+     * cancel_job). If the machine finishes it anyway, that's still recorded.
+     */
+    public function stopWaiting(DaemonJob $job): void
+    {
+        $held = $job->held;
+        $sent = false;
+        if (! $held && $job->machine->uid !== null) {
+            try {
+                $this->gateway->control($job->machine, ['type' => 'cancel_job', 'job_id' => $job->id]);
+                $sent = true;
+            } catch (RuntimeException) {
+                // Offline, or no gateway: the panel stops waiting all the same.
+            }
+        }
+        $job->forceFill([
+            'state' => 'cancelled',
+            'held' => false,
+            'error' => $held
+                ? ['phase' => 'panel', 'message' => 'Cancelled before it was sent to the machine.']
+                : ['phase' => 'panel', 'message' => $sent ? DaemonJob::STOPPED : DaemonJob::STOPPED_WAITING, 'stopped' => true],
+            'finished_at' => now(),
+        ])->save();
+        if (! $held && in_array($job->kind, DaemonJob::LONG_KINDS, true) && is_string($job->service)) {
+            app(DeployOnPush::class)->release($job->machine, $job->service);
+        }
+    }
+
     public function retry(DaemonJob $job, User $user): DaemonJob
     {
         $command = $job->command ?? throw new RuntimeException('This deploy can’t be retried.');
@@ -338,8 +388,16 @@ class DaemonJobQueue
     private function withRepoToken(Machine $machine, array $command): array
     {
         $repo = $command['job']['repo'] ?? null;
-        if (($command['job']['type'] ?? null) !== 'deploy' || ! is_string($repo)
-            || ! preg_match('#^https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$#', $repo, $m)) {
+        if (! in_array($command['job']['type'] ?? null, ['deploy', 'repo_inspect'], true) || ! is_string($repo)) {
+            return $command;
+        }
+        if (! preg_match('#^https://github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$#', $repo, $m)) {
+            // Only ever for an address on the account's own GitLab, so the token can't be sent anywhere else.
+            $gitlab = app(GitLabRepositories::class)->find($machine->workspace, $repo);
+            if ($gitlab !== null && self::canFetchPrivate($machine)) {
+                $command['job']['repo_token'] = $gitlab[0]->credential('token');
+            }
+
             return $command;
         }
 
@@ -411,6 +469,17 @@ class DaemonJobQueue
     public static function canLimitResources(Machine $machine): bool
     {
         return self::atLeast($machine, (string) config('daemon.resource_limits_since'));
+    }
+
+    /**
+     * Whether the daemon builds with Railpack, runs prebuilt images, and
+     * reads build settings, volumes, release and post-deploy commands, the
+     * shared network and health start periods, installs Docker, and reads
+     * a repository on any git host (repo_inspect).
+     */
+    public static function canDeployBuild(Machine $machine): bool
+    {
+        return self::atLeast($machine, (string) config('daemon.deploy_build_since'));
     }
 
     public static function canUseRegistryLogins(Machine $machine): bool
@@ -561,9 +630,14 @@ class DaemonJobQueue
 
     /**
      * @param  array<string, mixed>  $command
+     * @param  array<string, string>  $secretEnv
      */
-    private function send(Machine $machine, DaemonJob $record, array $command): void
+    private function send(Machine $machine, DaemonJob $record, array $command, array $secretEnv = []): void
     {
+        if ($secretEnv !== []) {
+            $command['job']['env'] = [...(array) ($command['job']['env'] ?? []), ...$secretEnv];
+        }
+
         try {
             $this->gateway->dispatch($machine, $record->id, $this->withRegistryLogins($machine, $this->withRepoToken($machine, self::withMaps($command))));
         } catch (RuntimeException $e) {

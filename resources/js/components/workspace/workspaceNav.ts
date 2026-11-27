@@ -1,89 +1,89 @@
 import { trans } from 'laravel-vue-i18n';
 import { usePage } from '@inertiajs/vue3';
-import type { InertiaLinkProps } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import type { Component, ComputedRef } from 'vue';
-import {
-    SolarActivity,
-    SolarBackups,
-    SolarCircleArrowUp,
-    SolarHome,
-    SolarLayoutGrid,
-    SolarLogs,
-    SolarMachines,
-    SolarMembers,
-    SolarMonitors,
-    SolarServices,
-    SolarSettings,
-    SolarWorkflows,
-    SolarSparkles,
-} from '@/lib/solarIcons';
+import type { FilledIconName } from '@/components/icons/filledIcons';
+import { docsUrl } from '@/lib/docs';
 import { extensionIcon } from '@/lib/extensionIcons';
-import { onWorkspace } from '@/lib/workspaceRoute';
-import { home } from '@/routes/workspace';
-import backups from '@/routes/workspace/backups';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import { help, home, integrations, setup } from '@/routes/workspace';
 import activity from '@/routes/workspace/activity';
+import agents from '@/routes/workspace/agents';
+import backups from '@/routes/workspace/backups';
+import code from '@/routes/workspace/code';
+import fixes from '@/routes/workspace/fixes';
+import github from '@/routes/workspace/github';
 import logs from '@/routes/workspace/logs';
 import machines from '@/routes/workspace/machines';
+import members from '@/routes/workspace/members';
 import monitors from '@/routes/workspace/monitors';
 import projects from '@/routes/workspace/projects';
 import services from '@/routes/workspace/services';
-import updates from '@/routes/workspace/updates';
-import fixes from '@/routes/workspace/fixes';
-import workflows from '@/routes/workspace/workflows';
-import members from '@/routes/workspace/members';
 import settings from '@/routes/workspace/settings';
-import { useSettingsNav } from '@/components/workspace/settingsNav';
-import type { Workspace } from '@/types';
+import updates from '@/routes/workspace/updates';
+import workflows from '@/routes/workspace/workflows';
+import type { SetupGuide, Workspace } from '@/types';
 
-const icons = {
-    House: SolarHome,
-    Server: SolarMachines,
-    PackageCheck: SolarCircleArrowUp,
-    Layers: SolarServices,
-    Projects: SolarLayoutGrid,
-    Workflow: SolarWorkflows,
-    Archive: SolarBackups,
-    Activity: SolarMonitors,
-    ScrollText: SolarLogs,
-    Users: SolarMembers,
-    History: SolarActivity,
-    Settings: SolarSettings,
+export type WorkspaceNavSection = 'menu' | 'other' | 'hidden';
+
+export type WorkspaceNavChild = {
+    key: string;
+    label: string;
+    href: string;
+    current: boolean;
 };
 
 export type WorkspaceNavItem = {
     key: string;
     label: string;
-    icon: Component;
-    href: NonNullable<InertiaLinkProps['href']> | null;
-    active: boolean;
-    group: WorkspaceNavGroup;
+    icon: FilledIconName | Component;
+    href: string;
+    external?: boolean;
+    section: WorkspaceNavSection;
+    current: boolean;
+    bright?: boolean;
+    badge?: number | null;
     children?: WorkspaceNavChild[];
 };
 
-export type WorkspaceNavChild = {
+export type WorkspaceNavGroupKey = 'machines' | 'developers';
+
+type ExtensionNavItem = {
     key: string;
     label: string;
-    icon: Component;
-    href: string;
-    active: boolean;
+    icon: string;
+    path: string;
+    group: string;
+    components: string[];
+    after: string | null;
+    before?: string | null;
 };
 
-export type WorkspaceNavGroup =
-    | 'start'
-    | 'servers'
-    | 'operations'
-    | 'workspace'
-    | 'menu';
+const is = (component: string, ...names: string[]): boolean =>
+    names.includes(component);
+
+export function remainingSetupSteps(guide: SetupGuide | null): number | null {
+    if (!guide) {
+        return null;
+    }
+
+    const left = guide.groups
+        .flatMap((group) => group.steps)
+        .filter((step) => !step.done).length;
+
+    return left > 0 ? left : null;
+}
 
 export function useWorkspaceNav(): ComputedRef<WorkspaceNavItem[]> {
     const page = usePage<{
         workspace?: Workspace;
-        extensions?: { nav: ExtensionNavItem[] } | null;
+        setupGuide?: SetupGuide | null;
+        setupStepsLeft?: number | null;
+        docsUrl: string;
         agentsPreview?: boolean;
+        githubAppSetup?: boolean;
+        extensions?: { nav: ExtensionNavItem[] } | null;
     }>();
-
-    const settingsNav = useSettingsNav();
 
     return computed(() => {
         const slug = page.props.workspace?.slug;
@@ -92,191 +92,291 @@ export function useWorkspaceNav(): ComputedRef<WorkspaceNavItem[]> {
             return [];
         }
 
-        const items: WorkspaceNavItem[] = [
-            {
-                key: 'home',
-                label: trans('Home'),
-                icon: icons.House,
-                href: onWorkspace(home(slug)),
-                active: page.component === 'workspace/Home',
-                group: 'start',
-            },
-            // Agents is its own side now: the switch at the top of the sidebar.
+        const component = page.component;
+        const url = (route: { url: string }): string => route.url;
+        const extensions = page.props.extensions?.nav ?? [];
+        const extensionChildren = (group: string): WorkspaceNavChild[] =>
+            extensions
+                .filter((item) => item.group === group)
+                .map((item) => ({
+                    key: item.key,
+                    label: item.label,
+                    href: workspacePath(item.path),
+                    current: item.components.includes(component),
+                }));
 
+        const machineChildren: WorkspaceNavChild[] = [
             {
-                key: 'machines',
-                label: trans('Machines'),
-                icon: icons.Server,
-                href: onWorkspace(machines.index(slug)),
-                active: [
-                    'workspace/Machines',
-                    'workspace/MachineShow',
-                ].includes(page.component),
-                group: 'servers',
+                key: 'services',
+                label: trans('Services'),
+                href: url(onWorkspace(services.index(slug))),
+                current: is(
+                    component,
+                    'workspace/Services',
+                    'workspace/ServiceShow',
+                ),
             },
             {
                 key: 'updates',
                 label: trans('Updates'),
-                icon: icons.PackageCheck,
-                href: onWorkspace(updates.index(slug)),
-                active: page.component === 'workspace/Updates',
-                group: 'servers',
-            },
-            {
-                key: 'services',
-                label: trans('Services'),
-                icon: icons.Layers,
-                href: onWorkspace(services.index(slug)),
-                active: [
-                    'workspace/Services',
-                    'workspace/ServiceShow',
-                ].includes(page.component),
-                group: 'servers',
-            },
-            {
-                key: 'projects',
-                label: trans('Projects'),
-                icon: icons.Projects,
-                href: onWorkspace(projects.index(slug)),
-                active: [
-                    'workspace/Projects',
-                    'workspace/ProjectShow',
-                ].includes(page.component),
-                group: 'servers',
-            },
-            {
-                key: 'workflows',
-                label: trans('Workflows'),
-                icon: icons.Workflow,
-                href: onWorkspace(workflows.index(slug)),
-                active: [
-                    'workspace/Workflows',
-                    'workspace/WorkflowEditor',
-                ].includes(page.component),
-                group: 'operations',
-            },
-            {
-                key: 'fixes',
-                label: trans('Fixes'),
-                icon: SolarSparkles,
-                href: onWorkspace(fixes.index(slug)),
-                active: page.component === 'workspace/Fixes',
-                group: 'operations',
+                href: url(onWorkspace(updates.index(slug))),
+                current: is(component, 'workspace/Updates'),
             },
             {
                 key: 'backups',
                 label: trans('Backups'),
-                icon: icons.Archive,
-                href: onWorkspace(backups.index(slug)),
-                active: page.component === 'workspace/Backups',
-                group: 'operations',
+                href: url(onWorkspace(backups.index(slug))),
+                current: is(component, 'workspace/Backups'),
+            },
+            ...extensionChildren('servers'),
+        ];
+
+        const developerChildren: WorkspaceNavChild[] = [
+            {
+                key: 'code',
+                label: trans('Code'),
+                href: url(onWorkspace(code.index(slug))),
+                current: component.startsWith('workspace/code/'),
+            },
+            {
+                key: 'api',
+                label: trans('API keys'),
+                href: url(onWorkspace(settings.api(slug))),
+                current: is(component, 'workspace/settings/Api'),
+            },
+            {
+                key: 'mcp',
+                label: trans('AI and MCP'),
+                href: url(onWorkspace(settings.mcp(slug))),
+                current: is(component, 'workspace/settings/Mcp'),
+            },
+            ...(page.props.githubAppSetup
+                ? [
+                      {
+                          key: 'github',
+                          label: trans('GitHub App'),
+                          href: url(onWorkspace(github.app(slug))),
+                          current: is(
+                              component,
+                              'workspace/settings/GitHubApp',
+                          ),
+                      },
+                  ]
+                : []),
+            ...(page.props.agentsPreview
+                ? [
+                      {
+                          key: 'agents',
+                          label: trans('Agents'),
+                          href: url(onWorkspace(agents.index(slug))),
+                          current: component.startsWith('workspace/Agent'),
+                      },
+                  ]
+                : []),
+        ];
+
+        const settingsOwned =
+            (component.startsWith('workspace/settings/') &&
+                !developerChildren.some((child) => child.current)) ||
+            is(component, 'workspace/Billing');
+
+        const items: WorkspaceNavItem[] = [
+            {
+                key: 'home',
+                label: trans('Home'),
+                icon: 'house-fill',
+                href: url(onWorkspace(home(slug))),
+                section: 'menu',
+                current: is(component, 'workspace/Home'),
+            },
+            {
+                key: 'projects',
+                label: trans('Projects'),
+                icon: 'projects-fill',
+                href: url(onWorkspace(projects.index(slug))),
+                section: 'menu',
+                current: is(
+                    component,
+                    'workspace/Projects',
+                    'workspace/ProjectShow',
+                ),
+            },
+            {
+                key: 'machines',
+                label: trans('Machines'),
+                icon: 'machines-fill',
+                href: url(onWorkspace(machines.index(slug))),
+                section: 'menu',
+                bright: true,
+                current: is(
+                    component,
+                    'workspace/Machines',
+                    'workspace/MachineShow',
+                    'workspace/MachineSettings',
+                ),
+                children: machineChildren,
             },
             {
                 key: 'monitors',
                 label: trans('Monitors'),
-                icon: icons.Activity,
-                href: onWorkspace(monitors.index(slug)),
-                active: [
+                icon: 'monitors-fill',
+                href: url(onWorkspace(monitors.index(slug))),
+                section: 'menu',
+                current: is(
+                    component,
                     'workspace/Monitors',
                     'workspace/MonitorShow',
-                ].includes(page.component),
-                group: 'operations',
-            },
-            {
-                key: 'logs',
-                label: trans('Logs'),
-                icon: icons.ScrollText,
-                href: onWorkspace(logs.index(slug)),
-                active: page.component === 'workspace/Logs',
-                group: 'operations',
-            },
-            {
-                key: 'members',
-                label: trans('Members'),
-                icon: icons.Users,
-                href: onWorkspace(members.index(slug)),
-                active: page.component === 'workspace/settings/Members',
-                group: 'workspace',
+                    'workspace/Logs',
+                    'workspace/Workflows',
+                    'workspace/WorkflowEditor',
+                ),
             },
             {
                 key: 'activity',
                 label: trans('Activity'),
-                icon: icons.History,
-                href: onWorkspace(activity.index(slug)),
-                active: page.component === 'workspace/Activity',
-                group: 'start',
+                icon: 'activity-fill',
+                href: url(onWorkspace(activity.index(slug))),
+                section: 'menu',
+                current: is(component, 'workspace/Activity', 'workspace/Fixes'),
+            },
+            {
+                key: 'integrations',
+                label: trans('Integrations'),
+                icon: 'package-fill',
+                href: url(onWorkspace(integrations(slug))),
+                section: 'menu',
+                current: is(
+                    component,
+                    'workspace/Integrations',
+                    'workspace/IntegrationShow',
+                ),
+            },
+            {
+                key: 'setup',
+                label: trans('Setup guide'),
+                icon: 'setup-fill',
+                href: url(onWorkspace(setup(slug))),
+                section:
+                    (page.props.setupStepsLeft ?? 0) > 0 ||
+                    is(component, 'workspace/SetupGuide')
+                        ? 'menu'
+                        : 'hidden',
+                current: is(component, 'workspace/SetupGuide'),
+                badge: remainingSetupSteps(page.props.setupGuide ?? null),
+            },
+            {
+                key: 'developers',
+                label: trans('Developers'),
+                icon: 'code-fill',
+                href: url(onWorkspace(code.index(slug))),
+                section: 'menu',
+                current: false,
+                children: developerChildren,
+            },
+            {
+                key: 'docs',
+                label: trans('Docs'),
+                icon: 'docs-fill',
+                href: docsUrl(page.props.docsUrl),
+                external: true,
+                section: 'other',
+                current: false,
+            },
+            {
+                key: 'help',
+                label: trans('Help'),
+                icon: 'help-fill',
+                href: url(onWorkspace(help(slug))),
+                section: 'other',
+                current: is(
+                    component,
+                    'workspace/Help',
+                    'workspace/Support',
+                    'workspace/SupportNew',
+                    'workspace/SupportShow',
+                ),
             },
             {
                 key: 'settings',
                 label: trans('Settings'),
-                icon: icons.Settings,
-                href: onWorkspace(settings.general(slug)),
-                active:
-                    page.component.startsWith('workspace/settings/') &&
-                    page.component !== 'workspace/settings/Members',
-                group: 'workspace',
-                children: settingsNav.value
-                    .flatMap((group) => group.items)
-                    .filter((item) => item.key !== 'workspace/settings/Members')
-                    .map((item) => ({
-                        key: item.key,
-                        label: item.label,
-                        icon: item.icon,
-                        href: item.href,
-                        active: item.current,
-                    })),
+                icon: 'settings-fill',
+                href: url(onWorkspace(settings.general(slug))),
+                section: 'other',
+                current: settingsOwned,
+            },
+            {
+                key: 'logs',
+                label: trans('Logs'),
+                icon: 'file-fill',
+                href: url(onWorkspace(logs.index(slug))),
+                section: 'hidden',
+                current: false,
+            },
+            {
+                key: 'workflows',
+                label: trans('Workflows'),
+                icon: 'branch-fill',
+                href: url(onWorkspace(workflows.index(slug))),
+                section: 'hidden',
+                current: false,
+            },
+            {
+                key: 'fixes',
+                label: trans('Fixes'),
+                icon: 'sparkle-fill',
+                href: url(onWorkspace(fixes.index(slug))),
+                section: 'hidden',
+                current: false,
+            },
+            {
+                key: 'members',
+                label: trans('Members'),
+                icon: 'user-fill',
+                href: url(onWorkspace(members.index(slug))),
+                section: 'hidden',
+                current: false,
             },
         ];
 
-        return withExtensions(
-            items,
-            page.props.extensions?.nav ?? [],
-            page.component,
-        );
+        for (const extension of extensions) {
+            if (extension.group === 'servers' || extension.group === 'menu') {
+                continue;
+            }
+
+            const section: WorkspaceNavSection =
+                extension.key === 'billing'
+                    ? 'hidden'
+                    : extension.group === 'workspace'
+                      ? 'other'
+                      : 'menu';
+            const item: WorkspaceNavItem = {
+                key: extension.key,
+                label: extension.label,
+                icon: extensionIcon(extension.icon),
+                href: workspacePath(extension.path),
+                section,
+                current:
+                    section !== 'hidden' &&
+                    extension.components.includes(component),
+            };
+            const anchor =
+                section === 'other'
+                    ? items.findIndex((existing) => existing.key === 'settings')
+                    : section === 'menu'
+                      ? items.findIndex((existing) => existing.key === 'setup')
+                      : -1;
+
+            items.splice(anchor === -1 ? items.length : anchor, 0, item);
+        }
+
+        return items;
     });
 }
 
-type ExtensionNavItem = {
-    key: string;
-    label: string;
-    icon: string;
-    path: string;
-    group: WorkspaceNavGroup;
-    components: string[];
-    after: string | null;
-    before?: string | null;
-};
+export function openGroupFor(items: WorkspaceNavItem[]): WorkspaceNavGroupKey {
+    const developers = items.find((item) => item.key === 'developers');
 
-function withExtensions(
-    items: WorkspaceNavItem[],
-    extensions: ExtensionNavItem[],
-    component: string,
-): WorkspaceNavItem[] {
-    const result = [...items];
-
-    for (const extension of extensions) {
-        const item: WorkspaceNavItem = {
-            key: extension.key,
-            label: extension.label,
-            icon: extensionIcon(extension.icon),
-            href: extension.path,
-            active: extension.components.includes(component),
-            group: extension.group,
-        };
-        const before = extension.before
-            ? result.findIndex((existing) => existing.key === extension.before)
-            : -1;
-        if (before !== -1) {
-            result.splice(before, 0, item);
-            continue;
-        }
-
-        const after = extension.after
-            ? result.findIndex((existing) => existing.key === extension.after)
-            : result.findLastIndex((existing) => existing.group === item.group);
-
-        result.splice(after === -1 ? result.length : after + 1, 0, item);
-    }
-
-    return result;
+    return developers?.children?.some((child) => child.current)
+        ? 'developers'
+        : 'machines';
 }

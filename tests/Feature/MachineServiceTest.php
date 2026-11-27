@@ -38,7 +38,7 @@ function serviceMachine(): array
         'service_stats' => ['docker:abc123def456' => ['cpu' => 1.5, 'memUsed' => 9_000_000, 'memLimit' => null, 'pids' => 6, 'netRx' => 0, 'netTx' => 0, 'startedAt' => 100, 'restarts' => 0, 'at' => 200]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/services/'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/services/'];
 }
 
 function lastSentJob(): array
@@ -163,7 +163,7 @@ test('the console needs two-factor on the account and a fresh code to unlock', f
     [$workspace, , $url] = serviceMachine();
     $owner = $workspace->owner;
     $exec = fn () => $this->actingAs($owner)->postJson($url.'docker:abc123def456/actions', ['action' => 'exec', 'command' => 'redis-cli ping']);
-    $unlock = 'https://'.$workspace->host().'/console/unlock';
+    $unlock = $workspace->url().'/console/unlock';
 
     $exec()->assertForbidden()->assertJson(['code' => 'two_factor_required']);
     $this->actingAs($owner)->postJson($unlock, ['code' => '123456'])->assertForbidden();
@@ -183,7 +183,7 @@ test('the console needs two-factor on the account and a fresh code to unlock', f
     $exec()->assertStatus(423);
 
     $this->actingAs($owner)->postJson($unlock, ['code' => '123456'])->assertOk();
-    $this->actingAs($owner)->postJson('https://'.$workspace->host().'/console/lock')->assertOk();
+    $this->actingAs($owner)->postJson($workspace->url().'/console/lock')->assertOk();
     $exec()->assertStatus(423);
 });
 
@@ -289,7 +289,7 @@ test('a failed console command’s output stays hidden too', function () {
         'command' => ['job' => ['type' => 'service_exec', 'service' => 'docker:abc123def456', 'command' => 'cat .env']],
         'log' => [], 'error' => ['phase' => 'exec', 'message' => 'exited 1', 'output_tail' => ['SECRET=hunter2', 'error: no space left on device']],
     ]);
-    $machinePage = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $machinePage = $workspace->url().'/machines/'.$machine->id;
 
     foreach ([$machinePage, $url.'docker:abc123def456'] as $page) {
         $this->actingAs($viewer)->get($page)
@@ -313,7 +313,7 @@ test('console commands and their output reach only people who manage machines', 
         'command' => ['job' => ['type' => 'service_exec', 'service' => 'docker:abc123def456', 'command' => 'cat .env']],
         'log' => ['$ cat .env', 'SECRET=hunter2'], 'result' => ['exit_code' => 0, 'stdout' => 'SECRET=hunter2'],
     ]);
-    $machinePage = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $machinePage = $workspace->url().'/machines/'.$machine->id;
 
     foreach ([$machinePage, $url.'docker:abc123def456'] as $page) {
         $this->actingAs($viewer)->get($page)

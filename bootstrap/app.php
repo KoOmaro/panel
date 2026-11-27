@@ -6,8 +6,10 @@ use App\Http\Middleware\AllowWorkspacePasskeys;
 use App\Http\Middleware\BindCustomDomainSession;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RedirectLegacyWorkspaceHost;
 use App\Http\Middleware\RequirePasswordIfSet;
 use App\Http\Middleware\ResolveCustomDomain;
+use App\Http\Middleware\ResolveWorkspacePath;
 use App\Http\Middleware\RestoreCustomDomain;
 use App\Http\Middleware\RunPackageWebMiddleware;
 use App\Http\Middleware\SecurityHeaders;
@@ -44,7 +46,9 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prepend(ResolveWorkspacePath::class);
         $middleware->prepend(ResolveCustomDomain::class);
+        $middleware->prepend(RedirectLegacyWorkspaceHost::class);
         $middleware->prepend(SendToInstaller::class);
         // First, so everything after it (the installer's redirect, too) sees
         // the visitor's address and HTTPS behind Cloudflare or its tunnel.
@@ -52,7 +56,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->trimStrings(except: ['db_password', 'mail_password']);
 
-        $middleware->encryptCookies(except: ['appearance', 'sidebar_state', 'cookie_consent', 'locale', 'ask_chat']);
+        $middleware->encryptCookies(except: ['appearance', 'sidebar_state', 'cookie_consent', 'locale', 'ask_chat', ResolveWorkspacePath::COOKIE]);
 
         $middleware->alias(['password.confirm' => RequirePasswordIfSet::class]);
 

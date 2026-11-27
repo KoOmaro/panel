@@ -21,7 +21,7 @@ function sendTelemetry(Machine $machine, array $samples): void
 /** @return array<string, mixed> */
 function usageReload(Workspace $workspace, Machine $machine, string $range): array
 {
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $url = $workspace->url().'/machines/'.$machine->id;
     $version = test()->actingAs($workspace->owner)->get($url)->viewData('page')['version'];
 
     return test()->actingAs($workspace->owner)
@@ -71,7 +71,7 @@ test('the machine page loads usage history only when asked, with gaps where noth
         MachineSample::query()->create(['machine_id' => $machine->id, 'ts' => $ts, 'samples' => 6, 'cpu' => $cpu, 'cpu_max' => $max, 'mem_used' => 100, 'mem_max' => 200, 'disk_percent' => 50]);
     }
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines/'.$machine->id)
+    $this->actingAs($workspace->owner)->get($workspace->url().'/machines/'.$machine->id)
         ->assertInertia(fn (Assert $page) => $page
             ->where('range', '24h')
             ->missing('history')

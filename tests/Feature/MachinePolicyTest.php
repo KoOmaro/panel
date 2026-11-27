@@ -49,7 +49,7 @@ function policyControls(): array
 
 function policyUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/settings/machine-policies'.$path;
+    return $workspace->url().'/settings/machine-policies'.$path;
 }
 
 function policyForm(MachinePolicy $policy, array $changes = []): array
@@ -99,11 +99,11 @@ test('a join command can carry a policy and a group, and the daemon gets the set
     Artisan::call('daemon:ca', ['action' => 'init']);
 
     $other = Workspace::factory()->create()->machinePolicies()->create(['name' => 'Theirs']);
-    $this->actingAs($workspace->owner)->postJson('https://'.$workspace->host().'/machines/connect', ['policy' => $other->id])->assertUnprocessable();
+    $this->actingAs($workspace->owner)->postJson($workspace->url().'/machines/connect', ['policy' => $other->id])->assertUnprocessable();
 
     try {
         $command = $this->actingAs($workspace->owner)
-            ->postJson('https://'.$workspace->host().'/machines/connect', ['policy' => $quiet->id, 'group' => $group->id])
+            ->postJson($workspace->url().'/machines/connect', ['policy' => $quiet->id, 'group' => $group->id])
             ->assertOk()->json('command');
         preg_match('/--token=\x27([a-f0-9]{64})\x27/', $command, $match);
         expect(DaemonEnrolment::query()->sole())->machine_policy_id->toBe($quiet->id)->machine_group_id->toBe($group->id);
@@ -210,7 +210,7 @@ test('a group’s policy reaches its machines that didn’t pick their own', fun
     $quiet = $workspace->machinePolicies()->create(['name' => 'Quiet', 'logs' => false]);
     $own = $workspace->machinePolicies()->create(['name' => 'Own']);
     $b->forceFill(['machine_policy_id' => $own->id])->save();
-    $url = 'https://'.$workspace->host().'/machine-groups';
+    $url = $workspace->url().'/machine-groups';
 
     $this->actingAs($workspace->owner)->post($url, ['name' => 'Nodes', 'machines' => [$a->id, $b->id], 'policy' => $quiet->id])->assertSessionHasNoErrors();
     expect(collect(policyControls())->pluck('uid')->all())->toBe([$a->uid]);
@@ -230,7 +230,7 @@ test('a machine can pick its policy, and approve a daemon update its policy hold
     $machine = policyMachine($workspace, 'web-1', 'v0.1.1-pre.23');
     $machine->forceFill(['facts' => ['hostname' => 'web-1', 'arch' => 'x86_64']])->save();
     $careful = $workspace->machinePolicies()->create(['name' => 'Careful', 'updates' => 'approve']);
-    $base = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $base = $workspace->url().'/machines/'.$machine->id;
 
     $this->actingAs($workspace->owner)->put($base.'/policy', ['policy' => $careful->id])->assertSessionHasNoErrors();
     expect(policyControls()[0])->toMatchArray(['uid' => $machine->uid, 'updates_automatic' => false])
@@ -266,14 +266,14 @@ test('with discovery off, a new machine is done once it connects', function () {
     $machine = policyMachine($workspace);
     $enrolment = DaemonEnrolment::query()->create(['workspace_id' => $workspace->id, 'machine_id' => $machine->id, 'token_hash' => str_repeat('a', 64), 'expires_at' => now()->addMinutes(5), 'used_at' => now()]);
 
-    $this->actingAs($workspace->owner)->getJson('https://'.$workspace->host().'/machines/connect/'.$enrolment->id.'/status')
+    $this->actingAs($workspace->owner)->getJson($workspace->url().'/machines/connect/'.$enrolment->id.'/status')
         ->assertOk()->assertJson(['state' => 'discovered', 'discovery' => false]);
 });
 
 test('the welcome flow sets the default policy: a preset from what they run, then what they choose', function () {
     $owner = User::factory()->create();
     $workspace = Workspace::factory()->for($owner, 'owner')->create(['onboarded_at' => null, 'trial_ends_at' => now()->addDays(14)]);
-    $base = 'https://'.$workspace->host().'/welcome';
+    $base = $workspace->url().'/welcome';
 
     $this->actingAs($owner)->post($base.'/about', ['segment' => 'hosting', 'servers' => '20+', 'team' => true])->assertSessionHasNoErrors();
     expect(MachinePolicies::defaultFor($workspace)->settings())->toBe(MachinePolicy::PRESETS['hosting']);

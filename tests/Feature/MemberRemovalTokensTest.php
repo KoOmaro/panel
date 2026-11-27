@@ -25,7 +25,7 @@ test('removing someone revokes their keys and app connections for that workspace
     [$elsewhere] = McpToken::issueKey($other, $sam, 'Elsewhere', Scopes::ALL);
     [$owners] = McpToken::issueKey($workspace, $workspace->owner, 'Owner', Scopes::ALL);
 
-    $this->actingAs($workspace->owner)->delete('https://'.$workspace->host()."/settings/members/{$sam->id}")->assertSessionHasNoErrors();
+    $this->actingAs($workspace->owner)->delete($workspace->url()."/settings/members/{$sam->id}")->assertSessionHasNoErrors();
 
     expect($mcpKey->fresh()->revoked_at)->not->toBeNull()
         ->and($apiKey->fresh()->revoked_at)->not->toBeNull()

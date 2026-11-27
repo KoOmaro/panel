@@ -7,6 +7,7 @@ use App\Mcp\Schema;
 use App\Mcp\Scopes;
 use App\Mcp\Tool;
 use App\Mcp\ToolError;
+use App\Support\Integrations\Telegram\TelegramWebhooks;
 use App\Support\Monitors\AlertKinds;
 use App\Support\Monitors\HostResolver;
 use App\Support\Monitors\TelegramAlerts;
@@ -90,6 +91,7 @@ final class UpdateAlertSettings extends Tool
 
         $muted = array_key_exists('off', $data) ? array_values(array_intersect(AlertKinds::keys(), $data['off'])) : AlertKinds::muted($workspace);
 
+        $previousToken = $workspace->alert_telegram_token;
         $workspace->forceFill([
             'alert_email' => (bool) $data['email'],
             'alert_webhook_url' => $webhook,
@@ -98,6 +100,7 @@ final class UpdateAlertSettings extends Tool
             'alert_muted' => $muted,
         ])->save();
         $context->record('alerts.update', null, null, ['email' => (bool) $data['email'], 'webhook' => $webhook !== null, 'telegram' => $telegram['chat'] !== null, 'muted' => $muted]);
+        app(TelegramWebhooks::class)->sync($workspace, $previousToken);
 
         return [...AlertSettings::present($context), 'note' => 'Saved.'];
     }

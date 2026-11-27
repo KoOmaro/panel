@@ -190,7 +190,7 @@ final class ListServices extends Tool
 
         $now = now()->getTimestamp();
         $value = function (array $row) use ($sort, $now): float {
-            $stat = $row['machine']->service_stats[$row['service']['key']] ?? null;
+            $stat = $row['machine']->serviceStatsNow()[$row['service']['key']] ?? null;
 
             return (float) match ($sort) {
                 'memory' => $stat['memUsed'] ?? -1,

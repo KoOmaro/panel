@@ -64,7 +64,7 @@ function anySiteMachine(string $daemon = '0.1.1-pre.48', bool $collecting = true
         ]),
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 function anySiteMinute(string $site, int $requests): array

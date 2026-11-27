@@ -13,9 +13,12 @@ use App\Models\Workspace;
 use App\Support\Audit\AuditContext;
 use App\Support\Audit\Audited;
 use App\Support\Audit\NotAudited;
+use App\Support\DaemonFacts;
 use App\Support\DaemonGatewayClient;
 use App\Support\DaemonJobQueue;
 use App\Support\DaemonUpdates;
+use App\Support\Integrations\Servers\CloudServers;
+use App\Support\Integrations\Tailscale\TailscaleDevices;
 use App\Support\Logs\LogSkipRules;
 use App\Support\Machines\CloudflareTunnel;
 use App\Support\Machines\MachineDataEraser;
@@ -49,6 +52,14 @@ class MachineSettingsController extends Controller
             'workspace' => $workspace->toPageProps(),
             'machine' => (new MachineResource($machine))->resolve(),
             'canManage' => Gate::allows('manageMachines', $workspace),
+            'deployEnabled' => (bool) config('daemon.commands_enabled') && filled(config('daemon.gateway_internal_url')),
+            'detected' => [
+                'provider' => DaemonFacts::provider($machine->facts ?? []),
+                'region' => MachineMetadata::detectedRegion($machine),
+                'tier' => is_string($machine->facts['hosting']['instance_type'] ?? null) ? $machine->facts['hosting']['instance_type'] : null,
+            ],
+            'providers' => MachineMetadata::inUse($workspace)['providers'],
+            'updatesWaiting' => (int) $machine->updates_count,
             'policy' => $this->policyProps($workspace, $machine),
             'tunnel' => CloudflareTunnel::offered() ? [
                 'supported' => CloudflareTunnel::supported($machine),
@@ -58,6 +69,8 @@ class MachineSettingsController extends Controller
                 'changing' => CloudflareTunnel::changing($machine)?->id,
             ] : null,
             'traffic' => TrafficSwitch::props($machine),
+            'cloudServer' => Gate::allows('manageMachines', $workspace) ? CloudServers::machineProps($machine) : null,
+            'tailnet' => Gate::allows('manageMachines', $workspace) ? TailscaleDevices::machineProps($machine) : null,
             'logSkip' => [
                 'available' => DaemonJobQueue::canSkipLogs($machine),
                 'since' => 'v'.config('daemon.log_skip_since'),
@@ -105,6 +118,7 @@ class MachineSettingsController extends Controller
                 'preview' => $report->toArray(),
             ],
             'collectedData' => Inertia::optional(fn () => app(MachineDataEraser::class)->summary($machine)),
+            'skippedLogs' => Inertia::optional(fn () => self::skippedLogs($machine)),
             'planAllows' => $workspace->hasStatusPages(),
             'environments' => array_map(fn (MachineEnvironment $e) => $e->value, MachineEnvironment::cases()),
         ]);
@@ -383,6 +397,18 @@ class MachineSettingsController extends Controller
                 'online' => $machine->isOnline(),
             ],
         ];
+    }
+
+    /** @return list<array{rule: string, services: list<array{service: string, lines: int}>}> */
+    private static function skippedLogs(Machine $machine): array
+    {
+        $rules = ($machine->log_skip ?? LogSkipRules::none())['services'];
+        $stored = MachineDataEraser::skippedServices($machine, $rules);
+
+        return array_map(fn (string $rule) => [
+            'rule' => $rule,
+            'services' => array_values(array_filter($stored, fn (array $s) => LogSkipRules::matchesService($rule, $s['service']))),
+        ], $rules);
     }
 
     private static function onMainDomain(string $path): string

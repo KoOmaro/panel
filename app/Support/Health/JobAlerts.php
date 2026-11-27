@@ -28,7 +28,7 @@ final class JobAlerts
             ->value('state');
 
         $machine = $backup->machine;
-        $url = 'https://'.$machine->workspace->host().'/backups';
+        $url = $machine->workspace->url('/backups');
         $extra = ['machine' => ['id' => $machine->id, 'name' => $machine->name], 'service' => $backup->service_name];
 
         if ($backup->state === 'failed' && $previous !== 'failed') {
@@ -62,23 +62,34 @@ final class JobAlerts
         $previousFailed = in_array($previous, self::DEPLOY_FAILED, true);
 
         $machine = $job->machine;
-        $url = 'https://'.$machine->workspace->host().'/machines/'.$machine->id;
+        $url = $machine->workspace->url('/machines/'.$machine->id);
         $extra = ['machine' => ['id' => $machine->id, 'name' => $machine->name], 'service' => $job->service, 'job_id' => $job->id];
 
+        $why = $failed ? $this->whyFailed($job) : [];
+        $this->alerts->deployNotice($machine->workspace, $failed ? "{$job->service} on {$machine->name} failed to deploy" : "{$job->service} on {$machine->name} deployed",
+            $failed ? $why : ($previousFailed ? ['The latest deploy worked, after the last one failed.'] : []), $url.'?job='.$job->id, $failed, $extra);
+
         if ($failed && ! $previousFailed) {
-            $error = is_array($job->error) ? trim((string) ($job->error['message'] ?? '')) : '';
-            $why = DeployFailure::explain($job);
-            $this->alerts->notify($machine->workspace, 'deploy.failed', "{$job->service} on {$machine->name} failed to deploy", array_values(array_filter($why !== null ? [
-                $why['cause'],
-                trim($why['fix'].(isset($why['command']) ? ' '.$why['command'] : '')),
-            ] : [
-                $job->state === 'timed_out' ? 'The deploy took too long and was stopped.' : ($error !== '' ? $error : 'The deploy failed.'),
-                'If an earlier version was running, it still is. The deploy’s log shows where it stopped.',
-            ])), $url.'?job='.$job->id, true, 'Open the deploy', $extra);
+            $this->alerts->notify($machine->workspace, 'deploy.failed', "{$job->service} on {$machine->name} failed to deploy", $why, $url.'?job='.$job->id, true, 'Open the deploy', $extra);
         } elseif (! $failed && $previousFailed) {
             $this->alerts->notify($machine->workspace, 'deploy.recovered', "{$job->service} on {$machine->name} deployed", [
                 'The latest deploy worked, after the last one failed.',
             ], $url, false, 'Open the machine', $extra);
         }
+    }
+
+    /** @return list<string> */
+    private function whyFailed(DaemonJob $job): array
+    {
+        $error = is_array($job->error) ? trim((string) ($job->error['message'] ?? '')) : '';
+        $why = DeployFailure::explain($job);
+
+        return array_values(array_filter($why !== null ? [
+            $why['cause'],
+            trim($why['fix'].(isset($why['command']) ? ' '.$why['command'] : '')),
+        ] : [
+            $job->state === 'timed_out' ? 'The deploy took too long and was stopped.' : ($error !== '' ? $error : 'The deploy failed.'),
+            'If an earlier version was running, it still is. The deploy’s log shows where it stopped.',
+        ]));
     }
 }

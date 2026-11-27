@@ -6,8 +6,12 @@ use App\Http\Resources\MachineResource;
 use App\Models\Activity;
 use App\Models\DaemonJob;
 use App\Models\DeploySource;
+use App\Models\LogEntry;
 use App\Models\Machine;
+use App\Models\ProjectLink;
+use App\Models\ProjectNode;
 use App\Models\ServiceSample;
+use App\Models\TrafficRollup;
 use App\Models\Workspace;
 use App\Support\Audit\AuditContext;
 use App\Support\Audit\Audited;
@@ -15,19 +19,33 @@ use App\Support\Audit\NotAudited;
 use App\Support\ConsoleLock;
 use App\Support\DaemonJobQueue;
 use App\Support\Databases\DatabaseConsole;
+use App\Support\Deploys\AppDatabase;
+use App\Support\Deploys\AppDeploys;
+use App\Support\Deploys\AppPage;
 use App\Support\Deploys\AppReleases;
 use App\Support\Deploys\AppVersions;
+use App\Support\Deploys\CommitMessages;
 use App\Support\Deploys\ContainerNames;
 use App\Support\Deploys\DeployOnPush;
+use App\Support\Deploys\ImageDeploy;
 use App\Support\Deploys\ServiceLabels;
 use App\Support\Deploys\SiteSwitches;
 use App\Support\Files\FileJobs;
+use App\Support\Integrations\Cloudflare\CloudflareDns;
+use App\Support\Integrations\DockerHub\DockerHubApps;
+use App\Support\Integrations\Sentry\SentryReleases;
+use App\Support\Logs\LogStore;
+use App\Support\Machines\MachinePolicies;
 use App\Support\Machines\ServiceClones;
 use App\Support\Projects\AppSettings;
 use App\Support\Projects\Placement;
+use App\Support\Projects\ProjectFacts;
 use App\Support\Traffic\ExistingSites;
 use App\Support\Traffic\SiteTraffic;
 use App\Support\Traffic\TrafficSwitch;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -37,6 +55,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use PDOException;
 use RuntimeException;
 
 class MachineServiceController extends Controller
@@ -45,6 +64,8 @@ class MachineServiceController extends Controller
 
     private const MAX_POINTS = 120;
 
+    public const LOG_LINES = [100, 300, 1000];
+
     public function show(Request $request, Workspace $workspace, Machine $machine, string $service, ConsoleLock $console): Response|RedirectResponse
     {
         abort_unless($machine->workspace_id === $workspace->id, 404);
@@ -52,7 +73,7 @@ class MachineServiceController extends Controller
         $found = $this->find($machine, $service);
 
         if (str_starts_with($service, 'docker:') && $found['app'] !== null) {
-            return redirect("/machines/{$machine->id}/services/app:{$found['app']}".($request->getQueryString() ? '?'.$request->getQueryString() : ''));
+            return redirect($workspace->url("/machines/{$machine->id}/services/app:{$found['app']}").($request->getQueryString() ? '?'.$request->getQueryString() : ''));
         }
 
         $service = $found['key'];
@@ -61,12 +82,23 @@ class MachineServiceController extends Controller
             ? (string) $request->query('range')
             : '1h';
         $seesConsole = Gate::allows('manageMachines', $workspace);
+        $deploy = AppVersionController::lastDeploy($machine, $found['name'] ?? null);
+        $linked = self::linkedDatabase($workspace, $machine, $found, $deploy);
+        $sites = is_string($found['app'] ?? null)
+            ? [TrafficRollup::siteOf($found['app'])]
+            : array_map(fn (array $site) => (string) $site['site'], ExistingSites::forService($machine, $found)['sites']);
 
         return Inertia::render('workspace/ServiceShow', [
             'workspace' => $workspace->toPageProps(),
             'machine' => (new MachineResource($machine))->resolve(),
             'service' => $found,
-            'stats' => $machine->service_stats[$service] ?? null,
+            'brand' => $deploy === null ? null : app(ProjectFacts::class)->kindOf($deploy),
+            'stack' => self::stack($workspace, $machine, $found, $linked),
+            'linked' => $linked,
+            'usage' => fn () => self::usage($machine, $sites),
+            'logs' => fn () => self::logSummary($workspace, $machine, $found),
+            'messages' => Inertia::defer(fn () => $deploy === null ? (object) [] : (object) self::messages($workspace, $machine, (string) $deploy->service)),
+            'stats' => $machine->serviceStatsNow()[$service] ?? null,
             'removable' => self::removable($machine, $found),
             'clone' => str_starts_with($service, 'docker:') ? [
                 'unavailable' => ServiceClones::unavailable($machine, $found),
@@ -105,8 +137,10 @@ class MachineServiceController extends Controller
                         'createdAt' => $job->created_at?->toIso8601String(),
                     ];
                 }),
-            'app' => ($deploy = AppVersionController::lastDeploy($machine, $found['name'] ?? null)) === null ? null : [
+            'app' => $deploy === null ? null : [
                 'service' => $deploy->service,
+                'port' => is_int($deploy->command['job']['port'] ?? null) ? $deploy->command['job']['port'] : null,
+                'https' => ($deploy->command['job']['https'] ?? true) !== false,
                 'commit' => $deploy->command['job']['commit'] ?? null,
                 'fromUpload' => str_contains((string) ($deploy->command['job']['repo'] ?? ''), '/api/deploy-sources/'),
                 'repo' => str_contains((string) ($deploy->command['job']['repo'] ?? ''), '/api/deploy-sources/') ? null : ($deploy->command['job']['repo'] ?? null),
@@ -116,26 +150,29 @@ class MachineServiceController extends Controller
                     || (DeploySource::fromRepoUrl($deploy->command['job']['repo'] ?? null)?->usable() ?? false),
                 'deployedAt' => $deploy->created_at?->toIso8601String(),
                 'snapshotBefore' => $machine->snapshotsBeforeDeploy($deploy->service),
-                'deployOnPush' => DeployOnPush::repoName($deploy->command['job']['repo'] ?? null) === null ? null : DeployOnPush::setting($machine, (string) $deploy->service),
+                'deployOnPush' => DeployOnPush::supports($workspace, is_string($deploy->command['job']['repo'] ?? null) ? $deploy->command['job']['repo'] : null) ? DeployOnPush::setting($machine, (string) $deploy->service) : null,
                 'database' => AppVersionController::databaseProps($machine, $deploy),
                 'site' => SiteSwitches::props($machine, (string) $deploy->service, (array) ($deploy->command['job']['domains'] ?? [])),
                 'traffic' => SiteTraffic::state($machine, (string) $deploy->service, (array) ($deploy->command['job']['domains'] ?? [])),
                 'limits' => AppVersionController::limitsProps($machine, $deploy),
                 'versions' => array_map(fn (array $v) => [
+                    'id' => $v['job']->id,
                     'commit' => $v['commit'],
                     'live' => $v['live'],
                     'deployedAt' => $v['job']->created_at?->toIso8601String(),
                     'by' => $v['job']->startedByName(),
+                    'push' => $v['job']->trigger === DeployOnPush::TRIGGER,
+                    'repo' => self::repoName((string) ($v['job']->command['job']['repo'] ?? '')) ?? (ImageDeploy::of((array) $v['job']->command['job'])['reference'] ?? null)?->display(),
                     'data' => $v['restore'] !== [],
                     'dataAt' => $v['dataAt'],
                 ], AppVersions::for($machine, $deploy->service)),
-                'variables' => (function () use ($machine, $deploy) {
-                    $names = array_map('strval', array_keys((array) (AppSettings::lastDeploy($machine, (string) $deploy->service)?->command['job']['env'] ?? [])));
-                    sort($names);
-
-                    return $names;
-                })(),
+                'variables' => app(AppSettings::class)->readApp($machine, (string) $deploy->service)['names'],
             ],
+            'deploy' => ($name = self::appName($found)) === null ? null : AppPage::props($machine, $name),
+            'deployHistory' => Inertia::defer(fn () => ($name = self::appName($found)) === null ? [] : AppDeploys::history($machine, $name, 20)->map(fn (DaemonJob $job) => AppDeploys::row($job))->values()->all()),
+            'cloudflare' => $deploy === null || ! app(CloudflareDns::class)->connected($workspace->id) ? null : Inertia::defer(fn () => app(CloudflareDns::class)->appProps($machine, (string) $deploy->service, (array) ($deploy->command['job']['domains'] ?? []))),
+            'dockerHub' => $deploy === null || ImageDeploy::of((array) $deploy->command['job']) === null ? null : Inertia::defer(fn () => app(DockerHubApps::class)->props($machine, (string) $deploy->service, $seesConsole)),
+            'sentry' => $deploy === null ? null : Inertia::defer(fn () => SentryReleases::props($machine, (string) $deploy->service, array_map(fn (array $v) => $v['commit'], AppVersions::for($machine, (string) $deploy->service)))),
             'siteTraffic' => self::siteTraffic($machine, $found),
             'commandsEnabled' => (bool) config('daemon.commands_enabled'),
             'files' => fn () => [
@@ -496,12 +533,305 @@ class MachineServiceController extends Controller
         return back();
     }
 
+    public function logLines(Request $request, Workspace $workspace, Machine $machine, string $service): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id, 404);
+        $found = $this->find($machine, $service);
+        $data = $request->validate([
+            'lines' => ['nullable', 'integer', Rule::in(self::LOG_LINES)],
+            'range' => ['nullable', Rule::in(array_keys(LogController::RANGES))],
+            'q' => ['nullable', 'string', 'max:200'],
+            'after' => ['nullable', 'integer', 'min:0'],
+        ]);
+        $limit = (int) ($data['lines'] ?? 300);
+        $text = trim((string) ($data['q'] ?? ''));
+
+        try {
+            $lines = LogStore::entries($workspace)
+                ->where('machine_id', $machine->id)
+                ->whereIn('service', self::logNames($machine, $found))
+                ->when($data['range'] ?? null, fn (Builder $q, string $range) => $q->where('logged_at', '>=', now()->subMinutes(LogController::RANGES[$range])->getTimestampMs()))
+                ->when($text !== '', fn (Builder $q) => $q->whereLike('message', '%'.addcslashes($text, '%_\\').'%'))
+                ->when(isset($data['after']), fn (Builder $q) => $q->where('id', '>', (int) $data['after']))
+                ->orderByDesc('id')
+                ->limit($limit + 1)
+                ->get();
+        } catch (QueryException|PDOException) {
+            return response()->json(['message' => 'Can’t reach your log database right now. Try again in a minute.'], 503);
+        }
+
+        return response()->json([
+            'lines' => $lines->take($limit)->reverse()->values()->map(fn (LogEntry $line) => [
+                'id' => $line->id,
+                'at' => $line->logged_at,
+                'level' => $line->level,
+                'stream' => $line->stream,
+                'message' => $line->message,
+            ]),
+            'more' => $lines->count() > $limit,
+            'today' => self::logsToday($workspace, $machine, $found),
+        ]);
+    }
+
+    /**
+     * The names a service's lines are kept under. An app's container is
+     * named after the commit it runs, so its earlier releases count too.
+     *
+     * @param  array<string, mixed>  $found
+     * @return list<string>
+     */
+    private static function logNames(Machine $machine, array $found): array
+    {
+        $names = [ltrim((string) ($found['name'] ?? ''), '/')];
+        $app = $found['app'] ?? null;
+        if (is_string($app)) {
+            foreach (Placement::containers($machine, $app) as $container) {
+                $names[] = ltrim((string) ($container['name'] ?? ''), '/');
+            }
+            $deploys = DaemonJob::query()
+                ->where('machine_id', $machine->id)
+                ->where('kind', 'deploy')
+                ->where('service', $app)
+                ->where('state', 'succeeded')
+                ->latest()
+                ->limit(20)
+                ->get();
+            foreach ($deploys as $deploy) {
+                $commit = (string) ($deploy->command['job']['commit'] ?? '');
+                if (preg_match('/^[0-9a-f]{12}/', $commit) === 1) {
+                    $names[] = "serveros-{$app}-".substr($commit, 0, 12);
+                    $names[] = "serveros-{$app}-".substr($commit, 0, 12).'-b';
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($names, fn (string $name) => $name !== '')));
+    }
+
+    /**
+     * @param  array<string, mixed>  $found
+     * @return array{today: int|null, stored: bool, shipping: bool, retentionDays: int, names: list<string>}
+     */
+    private static function logSummary(Workspace $workspace, Machine $machine, array $found): array
+    {
+        $names = self::logNames($machine, $found);
+        try {
+            $stored = LogStore::entries($workspace)->where('machine_id', $machine->id)->whereIn('service', $names)->exists();
+        } catch (QueryException|PDOException) {
+            $stored = true;
+        }
+
+        return [
+            'today' => self::logsToday($workspace, $machine, $found),
+            'stored' => $stored,
+            'shipping' => MachinePolicies::for($machine)->logs && ! ($found['logsMuted'] ?? false),
+            'retentionDays' => $workspace->logRetentionDays(),
+            'names' => $names,
+        ];
+    }
+
+    /** @param  array<string, mixed>  $found */
+    private static function logsToday(Workspace $workspace, Machine $machine, array $found): ?int
+    {
+        try {
+            return (int) LogStore::counts($workspace)
+                ->where('machine_id', $machine->id)
+                ->whereIn('service', self::logNames($machine, $found))
+                ->where('minute', '>=', CarbonImmutable::now('UTC')->startOfDay()->getTimestampMs())
+                ->sum('n');
+        } catch (QueryException|PDOException) {
+            return null;
+        }
+    }
+
+    /**
+     * Requests a minute and response times over the last hour, from the
+     * proxy's counts for the service's sites. Null when none are counted.
+     *
+     * @param  list<string>  $sites
+     * @return array{requests: int, p50: float|null, p95: float|null}|null
+     */
+    private static function usage(Machine $machine, array $sites): ?array
+    {
+        if ($sites === []) {
+            return null;
+        }
+        $row = TrafficRollup::query()
+            ->where('machine_id', $machine->id)
+            ->whereIn('site', $sites)
+            ->where('seconds', TrafficRollup::MINUTE)
+            ->where('bucket', '>=', intdiv(now()->getTimestamp(), 60) * 60 - 3600)
+            ->selectRaw('count(*) as buckets, sum(requests) as requests')
+            ->selectRaw('sum(case when p50_ms is null then 0 else p50_ms * requests end) as p50_sum, sum(case when p50_ms is null then 0 else requests end) as p50_weight')
+            ->selectRaw('sum(case when p95_ms is null then 0 else p95_ms * requests end) as p95_sum, sum(case when p95_ms is null then 0 else requests end) as p95_weight')
+            ->toBase()
+            ->first();
+        if ($row === null || (int) $row->buckets === 0) {
+            return null;
+        }
+        $weighted = fn (mixed $sum, mixed $weight) => (float) $weight > 0 ? round((float) $sum / (float) $weight, 1) : null;
+
+        return [
+            'requests' => (int) round((int) $row->requests / 60),
+            'p50' => $weighted($row->p50_sum, $row->p50_weight),
+            'p95' => $weighted($row->p95_sum, $row->p95_weight),
+        ];
+    }
+
+    /**
+     * The database the app is connected to: through its project, on any
+     * machine, or the one on this machine its settings point at.
+     *
+     * @param  array<string, mixed>  $found
+     * @return array{name: string, status: string|null, machine: string, sameMachine: bool, logo: string|null, url: string|null}|null
+     */
+    private static function linkedDatabase(Workspace $workspace, Machine $machine, array $found, ?DaemonJob $deploy): ?array
+    {
+        if ($deploy === null) {
+            return null;
+        }
+        $node = ProjectNode::query()->where('machine_id', $machine->id)->where('name', $deploy->service)->where('kind', 'app')->first();
+        $link = $node === null ? null : ProjectLink::query()
+            ->where('app_node_id', $node->id)
+            ->where('state', 'applied')
+            ->with('resource.machine')
+            ->get()
+            ->first(fn (ProjectLink $link) => $link->resource->kind === 'database');
+        if ($link !== null) {
+            $resource = $link->resource;
+            $container = Placement::containers($resource->machine, $resource->name)[0] ?? null;
+
+            return [
+                'name' => $resource->name,
+                'status' => is_array($container) ? (string) ($container['status'] ?? '') : null,
+                'machine' => $resource->machine->name,
+                'sameMachine' => $resource->machine_id === $machine->id,
+                'logo' => $resource->template ?? (is_array($container) ? ($container['details']['image'] ?? null) : null),
+                'url' => is_array($container) ? $workspace->url("/machines/{$resource->machine_id}/services/".self::routeKey($resource->machine, $container)) : null,
+            ];
+        }
+
+        $current = AppDatabase::for($machine, (string) $deploy->service, (array) ($deploy->command['job']['env'] ?? []));
+        if ($current === null) {
+            return null;
+        }
+
+        return [
+            'name' => ServiceLabels::display($machine, $current),
+            'status' => (string) ($current['status'] ?? ''),
+            'machine' => $machine->name,
+            'sameMachine' => true,
+            'logo' => (string) (($current['details']['image'] ?? null) ?? $current['name'] ?? ''),
+            'url' => $workspace->url("/machines/{$machine->id}/services/".self::routeKey($machine, $current)),
+        ];
+    }
+
+    /**
+     * The rest of the service's stack on this machine: its project's other
+     * parts, or the other services of its Compose project.
+     *
+     * @param  array<string, mixed>  $found
+     * @param  array{name: string}|null  $linked
+     * @return array{kind: string, name: string, url: string|null, members: list<array{name: string, status: string|null, logo: string|null, url: string}>}|null
+     */
+    private static function stack(Workspace $workspace, Machine $machine, array $found, ?array $linked): ?array
+    {
+        $compose = $found['details']['compose_project'] ?? null;
+        $name = $found['app'] ?? (is_string($compose) && str_starts_with($compose, 'serveros-') ? substr($compose, 9) : null);
+        $node = is_string($name)
+            ? ProjectNode::query()->with('project')->where('machine_id', $machine->id)->where('name', $name)->first()
+            : null;
+
+        if ($node !== null) {
+            $members = [];
+            $others = ProjectNode::query()
+                ->where('project_id', $node->project_id)
+                ->where('machine_id', $machine->id)
+                ->whereKeyNot($node->id)
+                ->when($node->environment_id !== null, fn (Builder $q) => $q->where('environment_id', $node->environment_id))
+                ->orderBy('name')
+                ->get();
+            foreach ($others as $other) {
+                $container = Placement::containers($machine, $other->name)[0] ?? null;
+                if ($container === null || $other->name === ($linked['name'] ?? null)) {
+                    continue;
+                }
+                $members[] = self::member($workspace, $machine, $container, $other->name, $other->template);
+            }
+
+            return ['kind' => 'project', 'name' => $node->project->name, 'url' => $workspace->url('/projects/'.$node->project->uid), 'members' => $members];
+        }
+
+        if (! is_string($compose) || $compose === '') {
+            return null;
+        }
+        $members = [];
+        foreach ((array) ($machine->inventory['services'] ?? []) as $service) {
+            if (is_array($service) && ($service['details']['compose_project'] ?? null) === $compose && ($service['key'] ?? null) !== $found['key']) {
+                $members[] = self::member($workspace, $machine, $service, ServiceLabels::display($machine, $service), null);
+            }
+        }
+
+        return ['kind' => 'compose', 'name' => $name ?? $compose, 'url' => null, 'members' => $members];
+    }
+
+    /**
+     * @param  array<string, mixed>  $service
+     * @return array{name: string, status: string|null, logo: string|null, url: string}
+     */
+    private static function member(Workspace $workspace, Machine $machine, array $service, string $name, ?string $template): array
+    {
+        return [
+            'name' => ServiceLabels::for($machine, $service) ?? $name,
+            'status' => is_string($service['status'] ?? null) ? $service['status'] : null,
+            'logo' => $template ?? (is_string($service['details']['image'] ?? null) ? $service['details']['image'] : (string) ($service['name'] ?? '')),
+            'url' => $workspace->url("/machines/{$machine->id}/services/".self::routeKey($machine, $service)),
+        ];
+    }
+
+    /** @param  array<string, mixed>  $service */
+    private static function routeKey(Machine $machine, array $service): string
+    {
+        $release = AppReleases::parse($service['name'] ?? null);
+
+        return $release !== null && isset(AppReleases::live($machine)[$release['app']]) ? 'app:'.$release['app'] : (string) ($service['key'] ?? '');
+    }
+
+    /** @return array<string, string> */
+    private static function messages(Workspace $workspace, Machine $machine, string $app): array
+    {
+        $byRepo = [];
+        foreach (AppVersions::for($machine, $app) as $version) {
+            $byRepo[(string) ($version['job']->command['job']['repo'] ?? '')][] = $version['commit'];
+        }
+        $messages = [];
+        foreach ($byRepo as $repo => $commits) {
+            foreach (CommitMessages::for($workspace, (string) $repo, $commits) as $commit => $message) {
+                $messages[(string) $commit] = $message;
+            }
+        }
+
+        return $messages;
+    }
+
+    private static function repoName(string $repo): ?string
+    {
+        if ($repo === '' || str_contains($repo, '/api/deploy-sources/')) {
+            return null;
+        }
+        $path = trim((string) (parse_url($repo, PHP_URL_PATH) ?? preg_replace('/^[^:]+:/', '', $repo)), '/');
+
+        return preg_replace('/\.git$/', '', $path) ?: $repo;
+    }
+
     /** @return array<string, mixed> */
     private function find(Machine $machine, string $key): array
     {
         $service = null;
         if (str_starts_with($key, 'app:')) {
-            $service = AppReleases::find($machine, substr($key, 4));
+            $app = substr($key, 4);
+            // An app's live release, a container of its Compose stack, or its page with none yet.
+            $service = AppReleases::find($machine, $app) ?? (Placement::containers($machine, $app)[0] ?? null) ?? self::notRunning($machine, $app);
         } else {
             foreach ($machine->inventory['services'] ?? [] as $candidate) {
                 if (is_array($candidate) && ($candidate['key'] ?? null) === $key) {
@@ -517,6 +847,7 @@ class MachineServiceController extends Controller
         return [
             ...$service,
             'app' => $release !== null && isset(AppReleases::live($machine)[$release['app']]) ? $release['app'] : null,
+            'missing' => (bool) ($service['missing'] ?? false),
             'label' => ServiceLabels::for($machine, $service),
             'found' => ContainerNames::found($service),
             'icon' => ServiceLabels::iconUrl($machine, $service),
@@ -524,6 +855,55 @@ class MachineServiceController extends Controller
             'hidden' => ServiceLabels::isHidden($machine, $service),
             'logsMuted' => ServiceLabels::logsMuted($machine, $service),
             'container' => str_starts_with((string) $service['key'], 'docker:'),
+        ];
+    }
+
+    /**
+     * The app a service belongs to, by its release's name: also an app whose
+     * latest deploy failed (it isn't live), and one with no container yet.
+     *
+     * @param  array<string, mixed>  $found
+     */
+    private static function appName(array $found): ?string
+    {
+        if (($found['missing'] ?? false) === true) {
+            return (string) $found['name'];
+        }
+        if (is_string($found['app'] ?? null)) {
+            return $found['app'];
+        }
+        // A container of an app run from its repository's Compose file.
+        $project = (string) ($found['details']['compose_project'] ?? '');
+        if (str_starts_with($project, 'serveros-')) {
+            return substr($project, strlen('serveros-'));
+        }
+        $release = AppReleases::parse(is_string($found['name'] ?? null) ? $found['name'] : null);
+
+        return $release['app'] ?? null;
+    }
+
+    /**
+     * An app ServerOS deployed that has no container on the machine: its
+     * first deploy failed, or it's deploying for the first time. Its page
+     * still opens, so its settings can be fixed and it can be deployed again.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function notRunning(Machine $machine, string $app): ?array
+    {
+        if (AppDeploys::current($machine, $app) === null || Placement::containers($machine, $app) !== []) {
+            return null;
+        }
+
+        return [
+            'key' => "app:{$app}",
+            'name' => $app,
+            'kind' => 'app',
+            'manager' => 'docker',
+            'status' => 'not_deployed',
+            'ports' => [],
+            'details' => ['managed' => 'true'],
+            'missing' => true,
         ];
     }
 

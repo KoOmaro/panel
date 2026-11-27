@@ -27,7 +27,7 @@ function registryWorkspace(): array
 {
     $workspace = Workspace::factory()->onPlan(Plan::Pro)->create();
 
-    return [$workspace, 'https://'.$workspace->host()];
+    return [$workspace, $workspace->url()];
 }
 
 function registryMachine(Workspace $workspace, string $version = '0.1.1-pre.46'): Machine

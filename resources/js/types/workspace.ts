@@ -31,6 +31,7 @@ export type Workspace = {
     name: string;
     slug: string;
     host: string;
+    url: string;
     logoUrl: string | null;
     billing: WorkspaceBilling;
 };
@@ -119,18 +120,6 @@ export type McpCallsUsage = {
     maxPacks: number;
 };
 
-export type OnboardingStepKey =
-    | 'workspace'
-    | 'machine'
-    | 'service'
-    | 'backups'
-    | 'plan';
-
-export type OnboardingStep = {
-    key: OnboardingStepKey;
-    done: boolean;
-};
-
 export type SetupGuide = {
     percent: number;
     groups: {
@@ -145,16 +134,4 @@ export type SetupGuide = {
             done: boolean;
         }[];
     }[];
-};
-
-export type WorkspaceStats = {
-    machines: number;
-    environments: Record<'production' | 'staging' | 'development', number>;
-    services: number;
-    averageCpu: number;
-    busy: number;
-    backedUp: number;
-    cpuHistory: (number | null)[];
-    cpuTimeline: (number | null)[];
-    cpuRange: '1h' | '24h' | '7d' | '30d';
 };

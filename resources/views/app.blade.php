@@ -28,7 +28,7 @@
             }
 
             html.dark {
-                background-color: #111111;
+                background-color: #181818;
             }
         </style>
         @if ($page['component'] === 'status/Embed')
@@ -74,7 +74,7 @@
             @include('partials.favicons')
         @endif
 
-        @fonts(['instrument-sans', 'mona-sans', 'geist-mono', 'cabin', 'inter', 'schibsted-grotesk'])
+        @fonts(['instrument-sans', 'mona-sans', 'geist', 'geist-mono', 'cabin', 'inter', 'schibsted-grotesk'])
 
         @if (($headTags = app(\App\Support\Extensions\Extensions::class)->headTags($page)) !== [])
             @foreach ($headTags as $headTag)

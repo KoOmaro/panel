@@ -53,7 +53,7 @@ function detailsControls(string $type = 'reconfigure'): array
 test('a provider or region set by hand stays; emptied, detection fills it in again', function () {
     $workspace = Workspace::factory()->onPlan(Plan::Pro)->create();
     $machine = detailsMachine($workspace);
-    $url = 'https://'.$workspace->host().'/machines/'.$machine->id;
+    $url = $workspace->url().'/machines/'.$machine->id;
     $hetzner = ['hostname' => 'node-1', 'arch' => 'x86_64', 'hosting' => ['provider' => 'Hetzner', 'region' => 'eu-central', 'source' => 'instance_metadata']];
 
     detailsHello($machine, ['facts' => $hetzner]);
@@ -84,7 +84,7 @@ test('details can be set on many machines at once', function () {
     $b = detailsMachine($workspace, 'b');
     $b->forceFill(['labels' => ['old' => 'yes', 'customer' => 'zed']])->save();
     $other = detailsMachine(Workspace::factory()->create(), 'theirs');
-    $url = 'https://'.$workspace->host().'/machines/metadata';
+    $url = $workspace->url().'/machines/metadata';
 
     $this->actingAs($workspace->owner)->post($url, ['machines' => [$a->id, $other->id], 'tier' => 'budget'])->assertSessionHasErrors('machines.1');
 
@@ -103,7 +103,7 @@ test('a policy can apply by machine details, after a machine’s own pick and it
     $workspace = Workspace::factory()->onPlan(Plan::Business)->create();
     $fast = detailsMachine($workspace, 'fast');
     $cheap = detailsMachine($workspace, 'cheap');
-    $url = 'https://'.$workspace->host();
+    $url = $workspace->url();
     $default = MachinePolicies::defaultFor($workspace);
 
     $this->actingAs($workspace->owner)->post($url.'/settings/machine-policies', [
@@ -162,7 +162,7 @@ test('a pinned policy keeps machines on one release, and a pin set elsewhere is 
         DaemonRelease::query()->create(['version' => $version, 'arch' => 'amd64', 'channel' => 'stable', 'sha256' => str_repeat('a', 64), 'signature' => base64_encode(str_repeat('s', 64))]);
     }
     $policy = MachinePolicies::defaultFor($workspace);
-    $url = 'https://'.$workspace->host().'/settings/machine-policies/'.$policy->id;
+    $url = $workspace->url().'/settings/machine-policies/'.$policy->id;
 
     $this->actingAs($workspace->owner)->put($url, ['name' => 'Default', ...$policy->settings(), 'updates' => 'pinned', 'pinned_version' => null])->assertSessionHasErrors('pinned_version');
     $this->actingAs($workspace->owner)->put($url, ['name' => 'Default', ...$policy->settings(), 'updates' => 'pinned', 'pinned_version' => 'v9.9.9'])->assertSessionHasErrors('pinned_version');
@@ -194,11 +194,11 @@ test('machines that ask first get one workspace update notice and individual upd
     Notification::assertSentTo($workspace->owner, MonitorAlert::class, fn (MonitorAlert $n) => $n->subject === 'Daemon v0.1.1-pre.25 is ready to install');
     expect(ActivityLine::sentence(Activity::query()->where('action', 'daemon.update_waiting')->sole()))->toBe('v0.1.1-pre.25 is waiting for approval on 2 machines');
 
-    $this->actingAs($workspace->owner)->post('https://'.$workspace->host().'/settings/machine-policies/'.MachinePolicies::defaultFor($workspace)->id.'/install-updates')->assertSessionHasNoErrors();
+    $this->actingAs($workspace->owner)->post($workspace->url().'/settings/machine-policies/'.MachinePolicies::defaultFor($workspace)->id.'/install-updates')->assertSessionHasNoErrors();
     expect(collect(detailsControls('self_update'))->pluck('uid')->sort()->values()->all())->toBe(collect([$one->uid, $two->uid])->sort()->values()->all())
         ->and(collect(detailsControls('self_update'))->every(fn (array $c) => $c['approved'] === true))->toBeTrue();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines/'.$two->id.'/settings')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/machines/'.$two->id.'/settings')
         ->assertInertia(fn ($page) => $page->where('policy.daemon.compareUrl', 'https://github.com/serveroshq/daemon/compare/v0.1.1-pre.24...v0.1.1-pre.25'));
 
     detailsHello($one, ['daemon_version' => 'v0.1.1-pre.25']);

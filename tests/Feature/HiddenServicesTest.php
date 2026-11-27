@@ -33,7 +33,7 @@ function hiddenMachine(): array
         ]]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 test('services are hidden and shown again in bulk, without touching the machine', function () {
@@ -80,7 +80,7 @@ test('hidden services are not problems, and are left off status pages', function
     ServiceLabels::setHidden($machine, [$machine->inventory['services'][1], $machine->inventory['services'][2]], true);
     expect(implode(' ', $titles()))->not->toContain('stopped on web-1');
 
-    $this->actingAs($workspace->owner)->put('https://'.$workspace->host().'/machines/'.$machine->id.'/status-page', [
+    $this->actingAs($workspace->owner)->put($workspace->url().'/machines/'.$machine->id.'/status-page', [
         'enabled' => true, 'public' => true, 'slug' => 'web-one', 'title' => 'Acme status', 'description' => null,
         'include_new' => true, 'show_uptime' => false, 'notice' => null, 'notice_kind' => null, 'services' => [],
     ])->assertSessionHasNoErrors();

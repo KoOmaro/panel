@@ -24,7 +24,7 @@ test('choosing a language beats the browser’s, and is kept on the account', fu
 
     $workspace = Workspace::factory()->for($user, 'owner')->create();
     $this->actingAs($user->fresh())
-        ->get('https://'.$workspace->host().'/', ['Accept-Language' => 'de'])
+        ->get($workspace->url().'/', ['Accept-Language' => 'de'])
         ->assertInertia(fn (Assert $page) => $page->where('locale', 'es'));
 });
 

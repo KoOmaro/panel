@@ -14,6 +14,7 @@ import AppButton from '@/components/workspace/AppButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { describe, errorMessage } from '@/lib/errors';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const props = defineProps<{
     alerts: {
@@ -116,7 +117,7 @@ async function sendTest(channel: Channel): Promise<void> {
             : { channel, webhook: form.webhook };
 
     try {
-        const response = await fetch('/monitor-alerts/test', {
+        const response = await fetch(workspacePath('/monitor-alerts/test'), {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -152,7 +153,7 @@ async function sendTest(channel: Channel): Promise<void> {
 }
 
 function submit(): void {
-    form.put('/monitor-alerts', {
+    form.put(workspacePath('/monitor-alerts'), {
         preserveScroll: true,
         onSuccess: () => (open.value = false),
     });

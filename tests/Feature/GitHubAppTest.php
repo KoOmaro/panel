@@ -32,7 +32,7 @@ function connectedWorkspace(string $login = 'acme'): array
 
 function workspaceUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('a token is minted for just the one repository, signed as the app, and reused', function () {
@@ -255,6 +255,20 @@ test('the settings page lists connections, and one can be disconnected', functio
     expect(GitHubInstallation::count())->toBe(0);
 });
 
+test('the settings page says how many repositories each connection reaches', function () {
+    [$workspace] = connectedWorkspace();
+    $workspace->githubInstallations()->create(['installation_id' => 778, 'account_login' => 'sam-carter', 'account_type' => 'User', 'repository_ids' => [11, 12, 13]]);
+
+    $this->actingAs($workspace->owner)
+        ->get(workspaceUrl($workspace, '/settings/general'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('github.0.account', 'acme')
+            ->where('github.0.repositories', null)
+            ->where('github.1.account', 'sam-carter')
+            ->where('github.1.organisation', false)
+            ->where('github.1.repositories', 3));
+});
+
 test('without the app in the env there’s nothing to connect', function () {
     config()->set('services.github_app.private_key', null);
     $workspace = Workspace::factory()->create();
@@ -329,12 +343,12 @@ test('the repository list says when GitHub isn’t set up or nothing is connecte
     Http::fake();
 
     $this->actingAs($workspace->owner)->getJson(workspaceUrl($workspace, '/github/repositories'))
-        ->assertOk()->assertExactJson(['enabled' => true, 'connected' => false, 'repositories' => []]);
+        ->assertOk()->assertExactJson(['enabled' => true, 'connected' => false, 'accounts' => [], 'repositories' => []]);
 
     $workspace->githubInstallations()->create(['installation_id' => 777, 'account_login' => 'acme']);
     config()->set('services.github_app', []);
     $this->actingAs($workspace->owner)->getJson(workspaceUrl($workspace, '/github/repositories'))
-        ->assertOk()->assertExactJson(['enabled' => false, 'connected' => false, 'repositories' => []]);
+        ->assertOk()->assertExactJson(['enabled' => false, 'connected' => false, 'accounts' => [], 'repositories' => []]);
     Http::assertNothingSent();
 });
 

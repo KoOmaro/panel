@@ -10,7 +10,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function welcomeUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/'.$path;
+    return $workspace->url().'/'.$path;
 }
 
 test('only a first workspace someone makes for themselves starts with the welcome flow', function () {

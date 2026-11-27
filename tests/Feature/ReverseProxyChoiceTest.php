@@ -29,7 +29,7 @@ function proxyMachine(string $version = '0.1.1-pre.40', ?string $proxy = 'caddy'
         'facts' => ['docker_version' => '27.0.1'],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id];
 }
 
 /** @return array<string, mixed>|null */

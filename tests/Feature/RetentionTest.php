@@ -15,8 +15,8 @@ test('opening a workspace page counts one day of use, not one per page', functio
     $user = User::factory()->create();
     $workspace = Workspace::factory()->for($user, 'owner')->create();
 
-    $this->actingAs($user)->get('https://'.$workspace->host().'/')->assertOk();
-    $this->actingAs($user)->get('https://'.$workspace->host().'/machines')->assertOk();
+    $this->actingAs($user)->get($workspace->url().'/')->assertOk();
+    $this->actingAs($user)->get($workspace->url().'/machines')->assertOk();
 
     expect(DB::table('workspace_visits')->where('workspace_id', $workspace->id)->count())->toBe(1);
 });

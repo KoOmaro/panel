@@ -6,7 +6,7 @@ use App\Models\Workspace;
 
 test('an open dashboard can ask which build is live', function () {
     $workspace = Workspace::factory()->create();
-    $url = 'https://'.$workspace->host().'/panel-version';
+    $url = $workspace->url().'/panel-version';
 
     $this->actingAs($workspace->owner)->getJson($url)
         ->assertOk()

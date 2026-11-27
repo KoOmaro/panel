@@ -6,6 +6,7 @@ import { computed, ref } from 'vue';
 import { ALL_MACHINES, CONDITIONS, EVENTS, FROM_TRIGGER, STEPS } from './kinds';
 import type { Options, WorkflowNode } from './kinds';
 import AgentSettings from './AgentSettings.vue';
+import N8nSettings from './N8nSettings.vue';
 import ReleaseSettings from './ReleaseSettings.vue';
 import { useWorkflowEditor } from './useWorkflowEditor';
 
@@ -119,8 +120,13 @@ const githubActions = computed(() =>
 );
 const snippet = ref<'github' | 'curl'>('github');
 
-const placeholders =
-    '{{service}} {{machine}} {{trigger}} {{workflow}} {{run_url}} {{data.field}}';
+const placeholders = computed(
+    () =>
+        '{{service}} {{machine}} {{trigger}} {{workflow}} {{run_url}} {{data.field}}' +
+        (editor.nodes.value.some((n) => n.kind === 'n8n')
+            ? ' {{n8n.field}}'
+            : ''),
+);
 
 const field = 'wf-field h-9 w-full px-3 text-[13px]/5';
 const label = 'text-[12px]/5 font-[550] text-(--wf-muted)';
@@ -761,6 +767,12 @@ const label = 'text-[12px]/5 font-[550] text-(--wf-muted)';
             :two-factor="twoFactor"
         />
 
+        <N8nSettings
+            v-if="node.kind === 'n8n'"
+            :node="node"
+            :options="options"
+        />
+
         <ReleaseSettings
             v-if="node.kind === 'release'"
             :node="node"
@@ -1001,7 +1013,9 @@ const label = 'text-[12px]/5 font-[550] text-(--wf-muted)';
                 />
             </label>
             <div
-                v-if="value('condition') === 'trigger_field'"
+                v-if="
+                    ['trigger_field', 'n8n_field'].includes(value('condition'))
+                "
                 class="grid grid-cols-2 gap-2"
             >
                 <label class="flex flex-col gap-1.5">
@@ -1034,7 +1048,16 @@ const label = 'text-[12px]/5 font-[550] text-(--wf-muted)';
                         "
                     />
                 </label>
-                <span class="col-span-2 text-[12px]/4 text-(--wf-faint)">
+                <span
+                    v-if="value('condition') === 'n8n_field'"
+                    class="col-span-2 text-[12px]/4 text-(--wf-faint)"
+                    >{{
+                        $t(
+                            'A field of what the last n8n step got back, by dot path, like result.ok.',
+                        )
+                    }}</span
+                >
+                <span v-else class="col-span-2 text-[12px]/4 text-(--wf-faint)">
                     {{ ' ' + $t('A webhook’s JSON, or the event’s:') }}
                     <code class="font-ui-mono">outcome</code>,
                     <code class="font-ui-mono">service</code>,
@@ -1173,7 +1196,7 @@ const label = 'text-[12px]/5 font-[550] text-(--wf-muted)';
             class="text-[12px]/4 text-(--wf-faint)"
         >
             {{ ' ' + $t('If it fails, the run goes down') }}
-            <span class="font-semibold text-(--ds-red)">{{ $t('FAILED') }}</span
+            <span class="font-medium text-fg-secondary">{{ $t('failed') }}</span
             >{{ $t('; with nothing there, the run stops as failed.') + ' ' }}
         </p>
     </div>

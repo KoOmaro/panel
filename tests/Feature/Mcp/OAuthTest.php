@@ -74,10 +74,18 @@ function approve(User $user, string $nonce, array $choices = ['write' => true]):
 test('discovery: protected resource and authorization server metadata', function () {
     $workspace = Workspace::factory()->create();
 
-    $this->getJson('https://'.$workspace->host().'/.well-known/oauth-protected-resource/mcp')
+    $this->getJson('https://'.$workspace->host().'/.well-known/oauth-protected-resource/'.$workspace->slug.'/mcp')
         ->assertOk()
-        ->assertJsonPath('resource', 'https://'.$workspace->host().'/mcp')
+        ->assertJsonPath('resource', $workspace->url().'/mcp')
         ->assertJsonPath('authorization_servers.0', OAuth::issuer());
+
+    $legacy = 'https://'.$workspace->slug.'.'.config('app.domain');
+    $this->getJson($legacy.'/.well-known/oauth-protected-resource/mcp')
+        ->assertOk()
+        ->assertJsonPath('resource', $legacy.'/mcp');
+    $this->getJson($legacy.'/.well-known/oauth-protected-resource')
+        ->assertOk()
+        ->assertJsonPath('resource', $legacy.'/mcp');
 
     $this->getJson('/.well-known/oauth-authorization-server')
         ->assertOk()
@@ -125,6 +133,29 @@ test('the whole flow: consent, code with PKCE, MCP access, refresh rotation, rev
 
     $this->postJson('/oauth/revoke', ['token' => $fresh['refresh_token'], 'client_id' => $client->client_id])->assertOk();
     mcpRequest($workspace, $fresh['access_token'], 'ping')->assertUnauthorized();
+});
+
+test('apps connected to the old workspace subdomain keep connecting and calling there', function () {
+    $workspace = Workspace::factory()->create(['name' => 'Acme']);
+    $user = $workspace->owner;
+    $client = oauthClient();
+    [$verifier, $challenge] = pkce();
+    $legacy = 'https://'.$workspace->slug.'.'.config('app.domain').'/mcp';
+
+    expect(OAuth::workspaceFor($legacy)?->is($workspace))->toBeTrue()
+        ->and(OAuth::workspaceFor(OAuth::resource($workspace))?->is($workspace))->toBeTrue()
+        ->and(OAuth::workspaceFor('https://cloud.'.config('app.domain').'/nope/mcp'))->toBeNull()
+        ->and(OAuth::workspaceFor('https://evil.example/'.$workspace->slug.'/mcp'))->toBeNull();
+
+    $nonce = authorizeRequest($user, $client, $challenge, ['resource' => $legacy]);
+    $code = approve($user, $nonce);
+    $tokens = $this->post('/oauth/token', ['grant_type' => 'authorization_code', 'code' => $code, 'client_id' => $client->client_id, 'redirect_uri' => $client->redirect_uris[0], 'code_verifier' => $verifier, 'resource' => $legacy])
+        ->assertOk()->json();
+
+    $this->withHeaders(['Authorization' => 'Bearer '.$tokens['access_token']])
+        ->postJson($legacy, ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping'])
+        ->assertOk();
+    mcpRequest($workspace, $tokens['access_token'], 'ping')->assertOk();
 });
 
 test('tokens are bound to the workspace approved, and expire', function () {
@@ -385,7 +416,7 @@ test('turning on Google sign-in disconnects members’ AI apps, but not the owne
     $ownerApp = $connect($workspace->owner);
     [$samKey] = McpToken::issueKey($workspace, $sam, 'Laptop', Scopes::ALL);
 
-    $this->actingAs($workspace->owner)->put('https://'.$workspace->host().'/settings/require-google', ['require' => true])->assertSessionHasNoErrors();
+    $this->actingAs($workspace->owner)->put($workspace->url().'/settings/require-google', ['require' => true])->assertSessionHasNoErrors();
 
     expect($samApp->fresh()->revoked_at)->not->toBeNull()
         ->and($ownerApp->fresh()->revoked_at)->toBeNull()

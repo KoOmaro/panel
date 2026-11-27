@@ -30,7 +30,7 @@ function incidentsSetup(): array
     $fleet->workspace_id = $workspace->id;
     $fleet->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host()];
+    return [$workspace, $machine, $workspace->url()];
 }
 
 test('an incident is posted, updated and resolved, and visitors follow it', function () {

@@ -11,7 +11,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function groupsHost(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host();
+    return $workspace->url();
 }
 
 test('services can be grouped, and a service sits in one group at most', function () {

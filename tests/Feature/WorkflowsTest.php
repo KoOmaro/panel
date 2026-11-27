@@ -47,7 +47,7 @@ function flowWorkspace(?Plan $plan = Plan::Pro): array
 
 function flowUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().'/workflows'.$path;
+    return $workspace->url().'/workflows'.$path;
 }
 
 /** @param  list<array{0: string, 1: string, 2: array<string, mixed>, 3?: string, 4?: string}>  $steps */

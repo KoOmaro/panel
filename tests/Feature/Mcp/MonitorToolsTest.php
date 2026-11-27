@@ -120,8 +120,8 @@ test('list_monitors shows status, uptime, alerts and the machine, and filters an
     expect($row)->toMatchArray([
         'id' => $shop->id, 'type' => 'http', 'target' => 'https://shop.example.com/', 'status' => 'up', 'responseMs' => 120,
         'intervalSeconds' => 60, 'paused' => false,
-        'machine' => ['id' => $machine->id, 'name' => 'web-1', 'url' => 'https://'.$workspace->host().'/machines/'.$machine->id],
-        'url' => 'https://'.$workspace->host().'/monitors/'.$shop->id,
+        'machine' => ['id' => $machine->id, 'name' => 'web-1', 'url' => $workspace->url().'/machines/'.$machine->id],
+        'url' => $workspace->url().'/monitors/'.$shop->id,
     ])->and($row['uptime'])->toBe(['last7Days' => 50, 'last30Days' => 50])
         ->and($row['alerts'])->toMatchArray(['enabled' => true, 'muted' => false, 'mutedUntil' => null]);
 

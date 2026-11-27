@@ -12,6 +12,9 @@ final class AuditContext
 {
     public const string SUPPORT = 'ServerOS Support';
 
+    /** Chats people act from (buttons and commands), kept as an entry's via. */
+    public const array CHATS = ['slack', 'discord', 'telegram', 'teams'];
+
     private const string REQUEST_ID = 'audit.request_id';
 
     private const string RECORDED = 'audit.recorded';
@@ -157,6 +160,7 @@ final class AuditContext
         return match (true) {
             in_array($meta['via'] ?? null, ['mcp', 'assistant'], true) => 'mcp',
             ($meta['via'] ?? null) === 'workflow' => 'workflow',
+            in_array($meta['via'] ?? null, self::CHATS, true) => 'chat',
             $request === null => 'system',
             $request->is('api/gateway/*', 'api/daemon/*') => 'machine',
             $request->is('api/*', 'scim/*', 'oauth/token', 'oauth/revoke') => 'api',

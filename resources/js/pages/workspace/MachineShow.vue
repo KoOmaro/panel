@@ -1,55 +1,65 @@
 <script setup lang="ts">
-import { themeColour } from '@/lib/themeColour';
-import { useUpgradeLink } from '@/composables/useUpgradeLink';
 import { trans } from 'laravel-vue-i18n';
-import DiskUsagePanel from '@/components/machines/DiskUsagePanel.vue';
-import DockerPanel from '@/components/machines/DockerPanel.vue';
-import ProviderName from '@/components/machines/ProviderName.vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import {
-    ArrowUpRight,
-    Check,
-    ChevronDown,
-    ChevronRight,
-    Ellipsis,
-    LoaderCircle,
-    Plus,
-    Search,
-} from '@lucide/vue';
-import {
-    SolarCpu as Cpu,
-    SolarCircleCheck as CircleCheck,
-    SolarCircleSlash as CircleSlash,
-    SolarCircleX as CircleX,
-    SolarHardDrive as HardDrive,
-    SolarLayers as Layers,
-    SolarMemoryStick as MemoryStick,
-    SolarRefreshCw as RefreshCw,
-    SolarSquareTerminal as SquareTerminal,
-    SolarShieldCheck as ShieldCheck,
-    SolarCircleArrowUp as CircleArrowUp,
-    SolarSettings as Settings,
-    SolarWrench as Wrench,
-} from '@/lib/solarIcons';
+import { Ellipsis, Plus } from '@lucide/vue';
 import {
     computed,
     defineAsyncComponent,
     onBeforeUnmount,
     onMounted,
     ref,
+    useTemplateRef,
     watch,
 } from 'vue';
-import { appButtonClasses } from '@/lib/appButton';
-import { fixed } from '@/lib/formatting';
-import { toast } from '@/lib/toast';
-import type { Machine } from '@/components/machines/machines';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTab from '@/components/dash/DashTab.vue';
+import DashTabs from '@/components/dash/DashTabs.vue';
+import StatusBadge from '@/components/dash/StatusBadge.vue';
+import type { DashStatus } from '@/components/dash/StatusBadge.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
+import type { MachineCloudServer } from '@/components/integrations/integrations';
+import type { MachineTailnet } from '@/components/integrations/tailscale';
 import FileBrowser from '@/components/machines/FileBrowser.vue';
-import FirewallPanel from '@/components/machines/FirewallPanel.vue';
 import type { FilePlace } from '@/components/machines/FileBrowser.vue';
-import MachineConsole from '@/components/machines/MachineConsole.vue';
+import FirewallPanel from '@/components/machines/FirewallPanel.vue';
 import JobLogDialog from '@/components/machines/JobLogDialog.vue';
+import MachineAccessTab from '@/components/machines/access/MachineAccessTab.vue';
+import type { MachineAccess } from '@/components/machines/access/access';
+import type { DaemonJob } from '@/components/machines/JobLogDialog.vue';
+import MachineBackupsTab from '@/components/machines/MachineBackupsTab.vue';
+import MachineConsole from '@/components/machines/MachineConsole.vue';
+import MachineIssues from '@/components/machines/MachineIssues.vue';
+import MachineOverview from '@/components/machines/MachineOverview.vue';
+import type {
+    MachineLive,
+    MachineOverviewData,
+    MachineTraffic,
+    UsagePoint,
+} from '@/components/machines/MachineOverview.vue';
+import MachineServicesTab from '@/components/machines/MachineServicesTab.vue';
+import type { ScheduledTask } from '@/components/machines/MachineServicesTab.vue';
+import MachineUpdatesTab from '@/components/machines/MachineUpdatesTab.vue';
+import MachineReadme from '@/components/machines/readme/MachineReadme.vue';
+import type { MachineReadmeData } from '@/components/machines/readme/readme';
 import SecurityScan from '@/components/machines/SecurityScan.vue';
+import type {
+    ServiceGroup,
+    ServiceStat,
+} from '@/components/machines/ServicesTable.vue';
 import UpdatesDialog from '@/components/machines/UpdatesDialog.vue';
+import { buildingServices as findBuilding } from '@/components/machines/buildingServices';
+import type { BuildingService } from '@/components/machines/buildingServices';
+import { systemName } from '@/components/machines/machineFormat';
+import { environmentLabels } from '@/components/machines/machines';
+import type { Machine } from '@/components/machines/machines';
+import MaintenanceBanner from '@/components/maintenance/MaintenanceBanner.vue';
+import MachineServerActions from '@/components/machines/server/MachineServerActions.vue';
+import type { ServerAction } from '@/components/machines/server/MachineServerActions.vue';
+import MaintenanceDialog from '@/components/maintenance/MaintenanceDialog.vue';
+import PlannedMaintenance from '@/components/maintenance/PlannedMaintenance.vue';
 import {
     Dialog,
     DialogContent,
@@ -57,7 +67,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import type { DaemonJob } from '@/components/machines/JobLogDialog.vue';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -65,70 +74,26 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { bytes, statusGroup } from '@/components/machines/serviceFormat';
-import ServicesTable from '@/components/machines/ServicesTable.vue';
-import { buildingServices as findBuilding } from '@/components/machines/buildingServices';
-import type { BuildingService } from '@/components/machines/buildingServices';
-import Sparkline from '@/components/machines/Sparkline.vue';
-import TimeSeriesChart from '@/components/machines/TimeSeriesChart.vue';
-import type {
-    ServiceGroup,
-    ServiceStat,
-} from '@/components/machines/ServicesTable.vue';
-import type { ServiceTemplate } from '@/components/workspace/DeployServiceDialog.vue';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
-import MaintenanceBanner from '@/components/maintenance/MaintenanceBanner.vue';
-import MachineIssues from '@/components/machines/MachineIssues.vue';
-import type { HealthIssue } from '@/lib/healthIssues';
-import MaintenanceDialog from '@/components/maintenance/MaintenanceDialog.vue';
-import PlannedMaintenance from '@/components/maintenance/PlannedMaintenance.vue';
-import DeployWorkflowsMenu from '@/components/machines/DeployWorkflowsMenu.vue';
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
+import type { ServiceTemplate } from '@/components/workspace/DeployServiceDialog.vue';
 import { usePathTab } from '@/composables/usePathTab';
+import { useUpgradeLink } from '@/composables/useUpgradeLink';
 import { useWhenVisible } from '@/composables/useWhenVisible';
-import { timeAgo } from '@/lib/timeAgo';
-import type { Component } from 'vue';
-import { jobStatus } from '@/lib/jobStatus';
-import type { Tone } from '@/lib/jobStatus';
+import { describe, errorMessage } from '@/lib/errors';
+import type { HealthIssue } from '@/lib/healthIssues';
+import { toast } from '@/lib/toast';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 import type { Workspace, WorkspaceAccess } from '@/types';
-import { describe, errorMessage, jobReason } from '@/lib/errors';
-
-const upgrade = useUpgradeLink();
 
 const DeployServiceDialog = defineAsyncComponent(
     () => import('@/components/workspace/DeployServiceDialog.vue'),
 );
-
-// ?deploy=coding-agent opens the deploy dialog on that template.
-const deployTemplate = ref<string | null>(null);
-
-type ScheduledTask = {
-    command: string;
-    schedule: string;
-    when: string | null;
-    user: string | null;
-    kind: 'cron' | 'timer';
-    source: string;
-    description: string | null;
-    nextRun: string | null;
-    lastRun: string | null;
-    service: { key: string; name: string } | null;
-    ours: boolean;
-};
-
-type UsagePoint = {
-    ts: number;
-    cpu: number | null;
-    cpuMax: number | null;
-    mem: number | null;
-    memMax: number | null;
-    disk: number | null;
-};
 
 const props = defineProps<{
     workspace: Workspace;
@@ -140,6 +105,10 @@ const props = defineProps<{
     serviceGroups: ServiceGroup[];
     scheduled: ScheduledTask[];
     recent: UsagePoint[];
+    day: UsagePoint[];
+    live: MachineLive;
+    traffic: MachineTraffic | null;
+    overview: MachineOverviewData;
     range: string;
     history?: UsagePoint[];
     files: { places: FilePlace[]; maxWrite: number; maxRead: number };
@@ -149,24 +118,22 @@ const props = defineProps<{
         minutes: number;
     };
     issues?: HealthIssue[];
+    access?: MachineAccess;
+    defaultTab?: 'overview' | 'readme';
+    readme?: MachineReadmeData;
+    cloudServer?: MachineCloudServer | null;
+    tailnet?: MachineTailnet | null;
 }>();
-const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
 
-const consoleOpen = ref(
-    typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).has('console'),
-);
-const consoleContainers = computed(() =>
-    (props.machine.inventory?.services ?? [])
-        .filter(
-            (service) => service.key.startsWith('docker:') && !service.hidden,
-        )
-        .map((service) => ({
-            key: service.key,
-            name: service.label ?? service.app ?? service.found ?? service.name,
-        })),
-);
-const maintenanceOpen = ref(false);
+const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
+const serverActions =
+    useTemplateRef<InstanceType<typeof MachineServerActions>>('serverActions');
+
+function serverAction(action: ServerAction): void {
+    serverActions.value?.open(action);
+}
+const upgrade = useUpgradeLink();
+
 const canManage = computed(
     () =>
         page.props.workspaceAccess?.permissions.includes('manage-machines') ??
@@ -177,6 +144,176 @@ const online = computed(
         props.machine.connection === 'online' ||
         props.machine.connection === 'degraded',
 );
+
+const slug = computed(() => props.workspace.slug);
+const machineBase = computed(
+    () =>
+        onWorkspace(
+            machinesRoutes.show({
+                workspace: slug.value,
+                machine: props.machine.id!,
+            }),
+        ).url,
+);
+const machinesUrl = computed(
+    () => onWorkspace(machinesRoutes.index(slug.value)).url,
+);
+const settingsUrl = computed(
+    () =>
+        onWorkspace(
+            machinesRoutes.settings({
+                workspace: slug.value,
+                machine: props.machine.id!,
+            }),
+        ).url,
+);
+
+type TabKey =
+    | 'overview'
+    | 'readme'
+    | 'services'
+    | 'system-updates'
+    | 'backups'
+    | 'firewall'
+    | 'access'
+    | 'terminal';
+
+const ALIASES: Record<string, TabKey> = {
+    scheduled: 'services',
+    deployments: 'services',
+    usage: 'overview',
+    specs: 'overview',
+    ports: 'firewall',
+    files: 'terminal',
+};
+
+const tab = usePathTab(
+    machineBase.value,
+    [
+        'overview',
+        'readme',
+        'services',
+        'system-updates',
+        'backups',
+        'firewall',
+        'access',
+        'terminal',
+        'scheduled',
+        'deployments',
+        'usage',
+        'specs',
+        'ports',
+        'files',
+    ] as const,
+    props.defaultTab ?? 'overview',
+);
+
+const current = computed<TabKey>(
+    () => ALIASES[tab.value] ?? (tab.value as TabKey),
+);
+
+const tabs = computed<{ key: TabKey; label: string; icon: FilledIconName }[]>(
+    () => [
+        { key: 'overview', label: trans('Overview'), icon: 'monitors-fill' },
+        { key: 'readme', label: trans('Readme'), icon: 'docs-fill' },
+        { key: 'services', label: trans('Services'), icon: 'layers-fill' },
+        {
+            key: 'system-updates',
+            label: trans('Updates'),
+            icon: 'update-fill',
+        },
+        { key: 'backups', label: trans('Backups'), icon: 'activity-fill' },
+        { key: 'firewall', label: trans('Firewall'), icon: 'settings-fill' },
+        { key: 'access', label: trans('Access'), icon: 'key-fill' },
+        { key: 'terminal', label: trans('Terminal'), icon: 'terminal-fill' },
+    ],
+);
+
+function go(key: TabKey | 'updates'): void {
+    tab.value = key === 'updates' ? 'system-updates' : key;
+    document.querySelector('main [data-machine-tabs]')?.scrollIntoView({
+        block: 'nearest',
+    });
+}
+
+watch(
+    tab,
+    (value) => {
+        const target = ALIASES[value];
+        if (!target) return;
+        const anchor = value === 'deployments' || value === 'scheduled';
+        tab.value = target;
+        if (anchor && typeof document !== 'undefined') {
+            requestAnimationFrame(() =>
+                document
+                    .getElementById(value)
+                    ?.scrollIntoView({ block: 'start' }),
+            );
+        }
+    },
+    { immediate: true },
+);
+
+const status = computed<{ status: DashStatus; label: string }>(() => {
+    if (props.machine.maintenance)
+        return { status: 'pending', label: trans('In maintenance') };
+    if (props.machine.setup)
+        return {
+            status: 'deploying',
+            label: {
+                connecting: trans('Connecting'),
+                discovering: trans('Discovering'),
+                securing: trans('Securing'),
+            }[props.machine.setup],
+        };
+    switch (props.machine.connection) {
+        case 'online':
+        case 'demo':
+            return { status: 'live', label: trans('Live') };
+        case 'degraded':
+            return { status: 'pending', label: trans('Delayed') };
+        case 'connecting':
+            return { status: 'deploying', label: trans('Connecting') };
+        default:
+            return { status: 'down', label: trans('Offline') };
+    }
+});
+
+const regionCode = computed(
+    () => props.machine.region ?? props.machine.facts?.hosting?.region ?? null,
+);
+const chips = computed(() =>
+    [
+        { key: 'env', label: environmentLabels[props.machine.environment] },
+        {
+            key: 'provider',
+            label: [
+                props.machine.provider === 'Other'
+                    ? trans('Other')
+                    : props.machine.provider,
+                regionCode.value,
+            ]
+                .filter(Boolean)
+                .join(' · '),
+            logo: props.machine.provider,
+        },
+        { key: 'os', label: systemName(props.machine, true) },
+    ].filter((chip): chip is { key: string; label: string; logo?: string } =>
+        Boolean(chip.label),
+    ),
+);
+
+const consoleContainers = computed(() =>
+    (props.machine.inventory?.services ?? [])
+        .filter(
+            (service) => service.key.startsWith('docker:') && !service.hidden,
+        )
+        .map((service) => ({
+            key: service.key,
+            name: service.label ?? service.app ?? service.found ?? service.name,
+        })),
+);
+
 const removingKeys = computed(
     () =>
         new Set(
@@ -206,6 +343,84 @@ const buildingServices = computed<BuildingService[]>(() =>
         props.machine.inventory?.scanned_at,
     ),
 );
+const visibleServiceCount = computed(
+    () => listedServices.value.filter((service) => !service.hidden).length,
+);
+
+const hasPlan = computed(
+    () =>
+        props.workspace.billing.plan !== null ||
+        props.workspace.billing.selfHosted === true,
+);
+const canDeploy = computed(
+    () =>
+        canManage.value && props.deployEnabled && online.value && hasPlan.value,
+);
+const deployBlocked = computed<string | null>(() => {
+    if (!hasPlan.value) return 'plan';
+    if (!canManage.value)
+        return trans('You need permission to manage machines to deploy here.');
+    if (!props.deployEnabled)
+        return trans('Deploys aren’t set up on this panel yet.');
+    if (!online.value) return trans('The machine is offline.');
+
+    return null;
+});
+
+const showDeploy = ref(false);
+const deployTemplate = ref<string | null>(null);
+const scanning = ref(false);
+const updatesOpen = ref(false);
+const maintenanceOpen = ref(false);
+const metric = ref<'cpu' | 'mem' | 'disk'>('cpu');
+
+const logJobId = ref<string | null>(null);
+const logOpen = ref(false);
+const logJob = computed(
+    () => props.jobs.find((job) => job.id === logJobId.value) ?? null,
+);
+
+function openLog(jobId: string): void {
+    logJobId.value = jobId;
+    logOpen.value = true;
+}
+
+function onRetried(jobId: string): void {
+    logJobId.value = jobId;
+    refresh();
+}
+
+function openLibraryFromLog(): void {
+    logOpen.value = false;
+    showDeploy.value = true;
+}
+
+function onDeployed(): void {
+    tab.value = 'services';
+    refresh();
+}
+
+const loadingHistory = ref(false);
+
+function loadHistory(range: string): void {
+    router.get(
+        window.location.pathname,
+        { range },
+        {
+            only: ['history', 'range'],
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+            onStart: () => (loadingHistory.value = true),
+            onFinish: () => (loadingHistory.value = false),
+        },
+    );
+}
+
+function refresh(): void {
+    router.reload({ only: ['machine', 'jobs', 'overview'] });
+}
+
 const removeInFlight = computed(() =>
     props.jobs.some(
         (job) =>
@@ -222,308 +437,6 @@ watch(
     },
     { immediate: true },
 );
-
-const hasPlan = computed(
-    () =>
-        props.workspace.billing.plan !== null ||
-        props.workspace.billing.selfHosted === true,
-);
-const canDeploy = computed(
-    () =>
-        canManage.value && props.deployEnabled && online.value && hasPlan.value,
-);
-// Why Deploy service is disabled, for its tooltip. The plan has its own
-// message with a link to Billing.
-const deployBlocked = computed<string | null>(() => {
-    if (!hasPlan.value) return 'plan';
-    if (!canManage.value)
-        return trans('You need permission to manage machines to deploy here.');
-    if (!props.deployEnabled)
-        return trans('Deploys aren’t set up on this panel yet.');
-    if (!online.value) return trans('The machine is offline.');
-
-    return null;
-});
-const tab = usePathTab(`/machines/${props.machine.id}`, [
-    'services',
-    'scheduled',
-    'usage',
-    'ports',
-    'files',
-    'specs',
-    'deployments',
-] as const);
-
-const ranges = ['1h', '6h', '24h', '7d', '30d'];
-const loadingHistory = ref(false);
-
-function loadHistory(range = props.range): void {
-    router.get(
-        window.location.pathname,
-        { range },
-        {
-            only: ['history', 'range'],
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
-            onStart: () => (loadingHistory.value = true),
-            onFinish: () => (loadingHistory.value = false),
-        },
-    );
-}
-
-watch(tab, (value) => {
-    if (value === 'usage' && !props.history) loadHistory();
-});
-
-const history = computed(() => props.history ?? []);
-const timestamps = computed(() => history.value.map((p) => p.ts));
-const percent = (v: number) => `${v < 10 ? v.toFixed(1) : Math.round(v)}%`;
-
-function recentPeak(pick: (point: UsagePoint) => number | null): number | null {
-    const values = props.recent
-        .map(pick)
-        .filter((value): value is number => value !== null);
-    return values.length ? Math.max(...values) : null;
-}
-
-const fullestDisk = computed(() => props.machine.disks?.[0] ?? null);
-
-const otherDisks = computed(() => {
-    const more = (props.machine.disks?.length ?? 0) - 1;
-    if (more < 1) return '';
-    return (
-        ' · ' +
-        trans(more === 1 ? '+:count disk' : '+:count disks', {
-            count: String(more),
-        })
-    );
-});
-
-const chartTiles = computed(() => {
-    const cpuPeak = recentPeak((p) => p.cpuMax);
-    const memPeak = recentPeak((p) => p.memMax);
-    const diskPeak = recentPeak((p) => p.disk);
-    const disk = fullestDisk.value;
-
-    return [
-        {
-            label: trans('CPU'),
-            icon: Cpu,
-            value: `${props.machine.cpu}%`,
-            detail: trans('right now'),
-            tone: 'text-(--ds-blue)',
-            values: props.recent.map((p) => p.cpu),
-            floor: 10,
-            max: 100,
-            peak: cpuPeak === null ? null : percent(cpuPeak),
-        },
-        {
-            label: trans('Memory used'),
-            icon: MemoryStick,
-            value: props.machine.memory,
-            detail: trans('of :total', {
-                total: formatBytes(props.machine.facts?.memory_bytes),
-            }),
-            tone: 'text-(--ds-green)',
-            values: props.recent.map((p) => p.mem),
-            floor: 0,
-            max: props.machine.facts?.memory_bytes || undefined,
-            peak: memPeak === null ? null : bytes(memPeak),
-        },
-        {
-            label: trans('Disk'),
-            icon: HardDrive,
-            value:
-                props.machine.diskPercent === null ||
-                props.machine.diskPercent === undefined
-                    ? '—'
-                    : `${props.machine.diskPercent}%`,
-            detail: disk
-                ? trans(':value free on :mount', {
-                      value: String(bytes(Math.max(0, disk.total - disk.used))),
-                      mount: String(disk.mount),
-                  }) + otherDisks.value
-                : trans('no disk readings'),
-            tone: 'text-(--ds-amber)',
-            values: props.recent.map((p) => p.disk),
-            floor: 10,
-            max: 100,
-            peak: diskPeak === null ? null : `${diskPeak}%`,
-        },
-    ];
-});
-
-const serviceCounts = computed(() => {
-    const services = props.machine.inventory?.services ?? [];
-    return (
-        [
-            ['running', trans('Running').toLowerCase(), 'bg-(--ds-green)'],
-            ['stopped', trans('Stopped').toLowerCase(), 'bg-(--ds-text-faint)'],
-            ['problems', trans('with problems'), 'bg-(--ds-red)'],
-        ] as const
-    ).map(([group, label, color]) => {
-        const count = services.filter(
-            (service) => statusGroup(service) === group,
-        ).length;
-        return {
-            group,
-            label,
-            color,
-            count,
-            share: services.length ? (count / services.length) * 100 : 0,
-        };
-    });
-});
-
-type JobFilter = 'all' | 'active' | 'done' | 'failed';
-type JobSort = 'newest' | 'oldest' | 'service';
-
-const jobFilter = ref<JobFilter>('all');
-
-const logJobId = ref<string | null>(null);
-const logOpen = ref(false);
-const logJob = computed(
-    () => props.jobs.find((job) => job.id === logJobId.value) ?? null,
-);
-
-const jobTone: Record<Tone, string> = {
-    green: 'text-(--ds-green)',
-    red: 'text-(--ds-red)',
-    amber: 'text-(--ds-amber)',
-    blue: 'text-(--ds-blue)',
-    neutral: 'text-(--ds-text-faint)',
-};
-
-function jobIcon(job: DaemonJob): Component {
-    const { tone, busy } = jobStatus(job.state);
-    if (busy) return LoaderCircle;
-    if (tone === 'green') return CircleCheck;
-    if (tone === 'red') return CircleX;
-    return CircleSlash;
-}
-
-function jobDetail(job: DaemonJob): string {
-    if (job.error) return job.explanation?.cause ?? jobReason(job.error, '');
-    if (job.state === 'succeeded' && job.result?.container) {
-        return trans('Container: :container · port :port', {
-            container: String(job.result.container ?? ''),
-            port: String(job.result.port ?? ''),
-        });
-    }
-
-    return '';
-}
-
-function openLog(job: DaemonJob): void {
-    logJobId.value = job.id;
-    logOpen.value = true;
-}
-
-function openLogById(jobId: string): void {
-    logJobId.value = jobId;
-    logOpen.value = true;
-}
-
-function onRetried(jobId: string): void {
-    logJobId.value = jobId;
-    refresh();
-}
-
-function openLibraryFromLog(): void {
-    logOpen.value = false;
-    showDeploy.value = true;
-}
-const jobSearch = ref('');
-const jobSort = ref<JobSort>('newest');
-
-const FAILED_STATES = ['failed', 'refused', 'timed_out', 'cancelled'];
-
-function jobGroup(state: string): Exclude<JobFilter, 'all'> {
-    if (state === 'succeeded') return 'done';
-    if (FAILED_STATES.includes(state)) return 'failed';
-
-    return 'active';
-}
-
-const deployJobs = computed(() =>
-    props.jobs.filter((job) => job.kind !== 'service_exec'),
-);
-
-const jobTabs = computed(() =>
-    (
-        [
-            ['all', trans('All')],
-            ['active', trans('In progress')],
-            ['done', trans('Done')],
-            ['failed', trans('Failed')],
-        ] as const
-    ).map(([value, label]) => ({
-        value,
-        label,
-        count:
-            value === 'all'
-                ? deployJobs.value.length
-                : deployJobs.value.filter(
-                      (job) => jobGroup(job.state) === value,
-                  ).length,
-    })),
-);
-
-const jobSortOptions: { value: JobSort; label: string }[] = [
-    { value: 'newest', label: trans('Newest') },
-    { value: 'oldest', label: trans('Oldest') },
-    { value: 'service', label: trans('Service') },
-];
-
-const jobSortLabel = computed(
-    () =>
-        jobSortOptions.find((option) => option.value === jobSort.value)
-            ?.label ?? trans('Newest'),
-);
-
-const visibleJobs = computed(() => {
-    const needle = jobSearch.value.trim().toLowerCase();
-    const time = (job: DaemonJob) =>
-        job.createdAt ? Date.parse(job.createdAt) : 0;
-
-    return deployJobs.value
-        .filter(
-            (job) =>
-                jobFilter.value === 'all' ||
-                jobGroup(job.state) === jobFilter.value,
-        )
-        .filter(
-            (job) =>
-                !needle || (job.service ?? '').toLowerCase().includes(needle),
-        )
-        .sort((a, b) =>
-            jobSort.value === 'service'
-                ? (a.service ?? '').localeCompare(b.service ?? '')
-                : jobSort.value === 'oldest'
-                  ? time(a) - time(b)
-                  : time(b) - time(a),
-        );
-});
-const showDeploy = ref(false);
-const scanning = ref(false);
-const updatesOpen = ref(false);
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
-
-function formatBytes(bytes: number | undefined): string {
-    if (!bytes || bytes < 0) return trans('Unknown');
-    return `${fixed(bytes / 1024 ** 3)} GiB`;
-}
-
-function formatDate(timestamp: number | undefined): string {
-    return timestamp
-        ? new Date(timestamp * 1000).toLocaleString()
-        : trans('Not scanned yet');
-}
-
-function refresh(): void {
-    router.reload({ only: ['machine', 'jobs'] });
-}
 
 const refreshing = ref(false);
 let refreshTries = 0;
@@ -542,17 +455,25 @@ async function refreshNow(): Promise<void> {
 
     let note: string | null = null;
     try {
-        const response = await fetch(`/machines/${props.machine.id}/refresh`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'X-CSRF-TOKEN':
-                    document.querySelector<HTMLMetaElement>(
-                        'meta[name="csrf-token"]',
-                    )?.content ?? '',
+        const response = await fetch(
+            onWorkspace(
+                machinesRoutes.refresh({
+                    workspace: slug.value,
+                    machine: props.machine.id,
+                }),
+            ).url,
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN':
+                        document.querySelector<HTMLMetaElement>(
+                            'meta[name="csrf-token"]',
+                        )?.content ?? '',
+                },
             },
-        });
+        );
         const json = await response.json().catch(() => ({}));
         note = response.ok
             ? (json.note ?? null)
@@ -565,6 +486,7 @@ async function refreshNow(): Promise<void> {
         await reloadOnce();
         refreshing.value = false;
         toast.error(note);
+
         return;
     }
 
@@ -594,250 +516,210 @@ const jobsMoving = computed(() =>
     ),
 );
 let ticks = 0;
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const whenVisible = useWhenVisible();
 
-function reloadHistory(): void {
-    if (tab.value === 'services') {
-        router.reload({ only: ['recent'] });
-    }
-    if (tab.value === 'usage') {
-        router.reload({ only: ['history'] });
-    }
+const READING_EVERY = 60_000;
+let readingSeenAt = Date.now();
+let readingMoved = false;
+watch(
+    () => props.live?.at,
+    () => {
+        readingSeenAt = Date.now();
+        readingMoved = true;
+    },
+);
+watch(current, (key) => {
+    if (key !== 'overview') return;
+    readingSeenAt = Date.now();
+    readingMoved = false;
+});
+
+function readingDue(): boolean {
+    const waited = Date.now() - readingSeenAt;
+    if (!online.value || waited > 2 * READING_EVERY) return ticks % 6 === 0;
+
+    return !readingMoved || waited >= READING_EVERY - 5_000;
 }
 
 function tick(): void {
     ticks += 1;
-    if (jobsMoving.value || ticks % 3 === 0) {
-        refresh();
+    const only = new Set<string>();
+    if (current.value === 'overview' && readingDue()) {
+        only.add('live');
+        only.add('traffic');
     }
-    if (ticks % 12 === 0) {
-        reloadHistory();
+    if (jobsMoving.value || ticks % 3 === 0) {
+        ['machine', 'jobs', 'overview'].forEach((key) => only.add(key));
+    }
+    if (ticks % 12 === 0 && current.value === 'overview') {
+        only.add('day');
+        if (props.range !== '24h' && props.history) only.add('history');
+    }
+    if (only.size && !refreshing.value && !loadingHistory.value) {
+        router.reload({ only: [...only] });
     }
 }
 
 function catchUp(): void {
     ticks = 0;
-    refresh();
-    reloadHistory();
+    router.reload({
+        only: ['machine', 'jobs', 'overview', 'live', 'traffic', 'day'],
+    });
 }
 
 onMounted(() => {
     refreshTimer = setInterval(() => {
-        if (document.visibilityState === 'visible') {
-            tick();
-        } else {
-            whenVisible(catchUp);
-        }
+        if (document.visibilityState === 'visible') tick();
+        else whenVisible(catchUp);
     }, 5000);
 
-    if (
-        new URLSearchParams(window.location.search).has('deploy') &&
-        canDeploy.value
-    ) {
-        deployTemplate.value =
-            new URLSearchParams(window.location.search).get('deploy') || null;
+    const query = new URLSearchParams(window.location.search);
+    if (query.has('console')) tab.value = 'terminal';
+    if (query.has('deploy') && canDeploy.value) {
+        deployTemplate.value = query.get('deploy') || null;
         showDeploy.value = true;
     }
-
-    const job = new URLSearchParams(window.location.search).get('job');
+    const job = query.get('job');
     if (job) {
-        tab.value = 'deployments';
-        logJobId.value = job;
-        logOpen.value = true;
+        tab.value = 'services';
+        openLog(job);
     }
 });
+
 onBeforeUnmount(() => {
     clearTimeout(refreshPoll);
     clearInterval(removePoll);
-    if (refreshTimer) clearInterval(refreshTimer);
+    clearInterval(refreshTimer);
 });
-
-function onDeployed(): void {
-    tab.value = 'deployments';
-    refresh();
-}
-
-const diskRows = computed(() => {
-    const facts = (props.machine.facts?.disks ?? []).map((disk) => ({
-        key: `${disk.device}-${disk.mount}`,
-        mount: disk.mount,
-        label: `${disk.mount} · ${disk.device} · ${disk.fs_type}`,
-        total: disk.total_bytes,
-    }));
-    const known = new Set(facts.map((disk) => disk.mount));
-    const live = (props.machine.disks ?? [])
-        .filter((disk) => !known.has(disk.mount))
-        .map((disk) => ({
-            key: disk.mount,
-            mount: disk.mount,
-            label: disk.mount,
-            total: disk.total,
-        }));
-
-    return [...facts, ...live];
-});
-
-function usage(mount: string): { percent: number; free: number } | null {
-    const disk = props.machine.disks?.find((d) => d.mount === mount);
-    if (!disk || disk.total <= 0) return null;
-
-    return {
-        percent: Math.min(100, Math.floor((disk.used / disk.total) * 100)),
-        free: Math.max(0, disk.total - disk.used),
-    };
-}
 </script>
 
 <template>
     <Head :title="machine.name" />
-    <WorkspacePage :title="machine.name">
-        <template #title>
-            <div class="flex min-w-0 flex-wrap items-center gap-3">
-                <img
-                    v-if="machine.iconUrl"
-                    :src="machine.iconUrl"
-                    alt=""
-                    class="size-9 shrink-0 rounded-lg border border-(--ds-border-strong) object-cover"
-                />
-                <h1
-                    class="truncate text-[21px]/7 font-semibold tracking-[-0.01em]"
-                >
-                    {{ machine.name }}
-                </h1>
-                <span
-                    class="flex h-5 items-center rounded-full px-2 text-xs/4 font-semibold"
-                    :class="
-                        online
-                            ? 'bg-(--ds-green)/15 text-(--ds-green)'
-                            : 'bg-(--ds-active) text-(--ds-text-muted)'
-                    "
-                >
-                    {{ ' ' + $t(`Daemon ${machine.connection ?? 'offline'}`) }}
-                </span>
-            </div>
-        </template>
-        <template #description>
-            <span class="font-ui-mono text-[13px]">
-                {{ machine.ip }} ·
-                {{
-                    machine.provider === 'Other'
-                        ? $t('Other')
-                        : machine.provider
-                }}<span v-if="machine.daemonVersion">
-                    {{
-                        ' ' +
-                        $t('· daemon :daemonVersion', {
-                            daemonVersion: machine.daemonVersion,
-                        })
-                    }}</span
-                >
-            </span>
-        </template>
 
-        <template #tabs>
-            <div class="max-w-full overflow-x-auto">
-                <div
-                    class="ds-segments"
-                    role="group"
-                    :aria-label="$t('Machine sections')"
-                >
-                    <button
-                        v-for="item in [
-                            'services',
-                            'scheduled',
-                            'usage',
-                            'ports',
-                            'files',
-                            'specs',
-                            'deployments',
-                        ] as const"
-                        :key="item"
-                        type="button"
-                        class="cursor-pointer capitalize"
-                        :aria-pressed="tab === item"
-                        @click="tab = item"
-                    >
-                        {{ $t(item.charAt(0).toUpperCase() + item.slice(1)) }}
-                    </button>
-                </div>
-            </div>
-        </template>
-
+    <DashHeader
+        :crumbs="[
+            { label: $t('Machines'), href: machinesUrl },
+            {
+                label: machine.name,
+                logo: machine.iconUrl ? undefined : machine.provider,
+                image: machine.iconUrl,
+                href:
+                    current === 'access' || current === 'readme'
+                        ? machineBase
+                        : undefined,
+            },
+            ...(current === 'access' ? [{ label: $t('Access') }] : []),
+            ...(current === 'readme' ? [{ label: $t('Readme') }] : []),
+        ]"
+    >
         <template #actions>
-            <button
-                v-if="canManage"
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                @click="consoleOpen = true"
-            >
-                <SquareTerminal
-                    class="size-3.5 opacity-60"
-                    :stroke-width="1.75"
-                />
-                {{ $t('Console') }}
-            </button>
-            <button
-                type="button"
-                class="ds-raised-button cursor-pointer px-2!"
-                :aria-busy="refreshing || undefined"
-                :aria-label="$t('Refresh services')"
-                :title="$t('Refresh services')"
-                @click="refreshNow"
-            >
-                <RefreshCw
-                    class="size-4 opacity-70"
-                    :class="{ 'mi-spin': refreshing }"
-                    :stroke-width="1.75"
-                />
-            </button>
-
             <DropdownMenu v-if="machine.id">
                 <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer px-2!"
+                    <DashButton
+                        :icon="Ellipsis"
                         :aria-label="$t('More actions')"
                         :title="$t('More actions')"
-                    >
-                        <Ellipsis class="size-4" />
-                    </button>
+                    />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                     class="ds-modal min-w-52 font-ui"
                     align="end"
                 >
+                    <DropdownMenuItem @select="refreshNow">
+                        <FilledIcon name="history" />
+                        {{ $t('Scan services again') }}
+                    </DropdownMenuItem>
                     <template v-if="canManage">
                         <DropdownMenuItem @select="scanning = true">
-                            <ShieldCheck class="size-4" :stroke-width="1.75" />
-                            {{ $t('Security scan') + ' ' }}
+                            <FilledIcon name="lock-fill" />
+                            {{ $t('Security scan') }}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             v-if="machine.uid"
                             @select="updatesOpen = true"
                         >
-                            <CircleArrowUp
-                                class="size-4"
-                                :stroke-width="1.75"
-                            />
-                            {{ $t('System updates') + ' ' }}
+                            <FilledIcon name="update-fill" />
+                            {{ $t('System updates') }}
                         </DropdownMenuItem>
                         <DropdownMenuItem @select="maintenanceOpen = true">
-                            <Wrench class="size-4" :stroke-width="1.75" />
-                            {{ $t('Maintenance') + ' ' }}
+                            <FilledIcon name="sliders" />
+                            {{ $t('Maintenance') }}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
                     </template>
-                    <DropdownMenuItem
-                        @select="
-                            router.visit(`/machines/${machine.id}/settings`)
-                        "
-                    >
-                        <Settings class="size-4" :stroke-width="1.75" />
-                        {{ $t('Settings') + ' ' }}
+                    <template v-if="canManage && cloudServer">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            v-if="cloudServer.can.includes('resize')"
+                            @select="serverAction('resize')"
+                        >
+                            <FilledIcon name="layers" />
+                            {{ $t('Resize') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            v-if="cloudServer.can.includes('snapshots')"
+                            @select="serverAction('snapshots')"
+                        >
+                            <FilledIcon name="archive" />
+                            {{ $t('Snapshots') }}
+                        </DropdownMenuItem>
+                        <template v-if="cloudServer.can.includes('power')">
+                            <DropdownMenuItem @select="serverAction('reboot')">
+                                <FilledIcon name="history" />
+                                {{
+                                    $t('Restart through :provider', {
+                                        provider: cloudServer.integration.name,
+                                    })
+                                }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                @select="serverAction('power_cycle')"
+                            >
+                                <FilledIcon name="activity-fill" />
+                                {{ $t('Power cycle') }}
+                            </DropdownMenuItem>
+                        </template>
+                        <DropdownMenuItem
+                            v-if="cloudServer.can.includes('delete_servers')"
+                            class="text-status-down"
+                            @select="serverAction('delete')"
+                        >
+                            <FilledIcon name="box" />
+                            {{
+                                $t('Delete :provider server', {
+                                    provider: cloudServer.integration.name,
+                                })
+                            }}
+                        </DropdownMenuItem>
+                    </template>
+                    <template v-if="canManage && tailnet">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem as-child>
+                            <Link :href="`${settingsUrl}#tailscale`">
+                                <FilledIcon name="globe-fill" />
+                                {{
+                                    tailnet.device
+                                        ? $t('Remove from tailnet')
+                                        : $t('Add to tailnet')
+                                }}
+                            </Link>
+                        </DropdownMenuItem>
+                    </template>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem as-child>
+                        <Link :href="settingsUrl">
+                            <FilledIcon name="settings-fill" />
+                            {{ $t('Settings') }}
+                        </Link>
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
-
+            <DashButton
+                v-if="canManage"
+                icon="terminal-fill"
+                :label="$t('Terminal')"
+                @click="go('terminal')"
+            />
             <TooltipProvider :delay-duration="100">
                 <Tooltip :disabled="deployBlocked === null">
                     <TooltipTrigger as-child>
@@ -845,18 +727,13 @@ function usage(mount: string): { percent: number; free: number } | null {
                             class="inline-flex"
                             :tabindex="deployBlocked === null ? undefined : 0"
                         >
-                            <button
-                                type="button"
-                                :class="appButtonClasses('primary', 'md')"
+                            <DashButton
+                                variant="primary"
+                                :icon="Plus"
+                                :label="$t('Deploy service')"
                                 :disabled="!canDeploy"
                                 @click="showDeploy = true"
-                            >
-                                <Plus
-                                    class="mi-plus size-3.5"
-                                    :stroke-width="2"
-                                />
-                                {{ $t('Deploy service') + ' ' }}
-                            </button>
+                            />
                         </span>
                     </TooltipTrigger>
                     <TooltipContent
@@ -868,7 +745,6 @@ function usage(mount: string): { percent: number; free: number } | null {
                             deployBlocked
                         }}</template>
                         <template v-else>{{
-                            ' ' +
                             $t(
                                 'Your plan has ended, so deploys are paused. Everything already running keeps running.',
                             )
@@ -883,451 +759,214 @@ function usage(mount: string): { percent: number; free: number } | null {
                 </Tooltip>
             </TooltipProvider>
         </template>
+    </DashHeader>
 
-        <div class="flex flex-col gap-5">
-            <MaintenanceBanner
-                v-if="machine.maintenance && machine.id"
-                :until="machine.maintenance.until"
-                :reason="machine.maintenance.reason"
-                :end-url="`/machines/${machine.id}/maintenance`"
-                :can-manage="canManage"
+    <div class="flex min-h-full flex-col">
+        <div class="flex flex-wrap items-center gap-3 px-6 pt-5 pb-4">
+            <img
+                v-if="machine.iconUrl"
+                :src="machine.iconUrl"
+                alt=""
+                class="size-7 shrink-0 rounded-[7px] border-[0.5px] border-edge-card object-cover"
             />
-            <MachineIssues v-if="issues?.length" :issues="issues" />
-            <PlannedMaintenance
-                v-if="machine.id && machine.plannedMaintenance?.length"
-                :machine-id="machine.id"
-                :windows="machine.plannedMaintenance"
-                :can-manage="canManage"
-            />
-            <div
-                v-if="!online"
-                class="rounded-2xl bg-(--ds-amber)/8 px-5 py-3.5 text-sm text-amber-800 ring-1 ring-(--ds-amber)/25 dark:text-amber-200"
+            <h1
+                class="min-w-0 truncate text-[20px]/7 font-medium tracking-[-0.02em] text-fg-primary"
             >
-                {{
-                    ' ' +
-                    $t(
-                        'The daemon is offline. This page shows its last discovery scan; reconnect it to deploy or get fresh results.',
-                    ) +
-                    ' '
-                }}
-            </div>
-            <div
-                v-else-if="!deployEnabled"
-                class="ds-tile px-5 py-3.5 text-sm text-(--ds-text-secondary)"
+                {{ machine.name }}
+            </h1>
+            <StatusBadge :status="status.status" :label="status.label" />
+            <span class="grow" />
+            <span
+                v-for="chip in chips"
+                :key="chip.key"
+                class="flex h-[26px] items-center gap-1.5 rounded-full border-[0.5px] border-[#dcdcdc] bg-[#f4f4f4] px-2.5 text-[12px]/4 font-medium tracking-[-0.005em] whitespace-nowrap text-fg-secondary dark:border-[#303030] dark:bg-[#202020]"
             >
-                {{
-                    ' ' +
-                    $t(
-                        'Deployments are not configured on this panel yet. Services and listening ports remain visible below.',
-                    ) +
-                    ' '
-                }}
-            </div>
+                <BrandLogo v-if="chip.logo" :name="chip.logo" :size="12" />
+                {{ chip.label }}
+            </span>
+        </div>
 
-            <ul
-                v-if="tab === 'services'"
-                class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-                :aria-label="$t('Usage')"
-            >
-                <li
-                    v-for="tile in chartTiles"
-                    :key="tile.label"
-                    class="min-w-0"
-                >
-                    <button
-                        type="button"
-                        class="ds-tile flex size-full cursor-pointer items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-(--ds-row-hover)"
-                        :title="
-                            $t('See :toLowerCase history', {
-                                toLowerCase: String(tile.label.toLowerCase()),
-                            })
-                        "
-                        @click="tab = 'usage'"
-                    >
-                        <div class="flex w-28 shrink-0 flex-col gap-1">
-                            <h2
-                                class="flex items-center gap-1.5 text-[13px]/4 font-medium text-(--ds-text-muted)"
-                            >
-                                <component
-                                    :is="tile.icon"
-                                    class="size-3.5 opacity-70"
-                                    :stroke-width="2"
-                                    aria-hidden="true"
-                                />
-                                {{ tile.label }}
-                            </h2>
-                            <p
-                                class="text-2xl/8 font-medium tracking-[-0.005em] tabular-nums"
-                            >
-                                {{ tile.value }}
-                            </p>
-                            <p
-                                class="truncate text-xs/4 text-(--ds-text-faint)"
-                                :title="tile.detail"
-                            >
-                                {{ tile.detail }}
-                            </p>
-                        </div>
-                        <div
-                            class="flex min-w-0 grow flex-col gap-1 self-stretch"
-                        >
-                            <span
-                                class="text-right text-[11px]/3 text-(--ds-text-faint) tabular-nums"
-                                >{{
-                                    tile.peak
-                                        ? $t('1h peak :peak', {
-                                              peak: String(tile.peak),
-                                          })
-                                        : $t('Last hour')
-                                }}</span
-                            >
-                            <div class="min-h-0 grow" :class="tile.tone">
-                                <Sparkline
-                                    :values="tile.values"
-                                    :floor="tile.floor"
-                                    :max="tile.max"
-                                />
-                            </div>
-                        </div>
-                    </button>
-                </li>
-                <li class="ds-tile flex min-w-0 items-center gap-4 px-4 py-3.5">
-                    <div class="flex w-28 shrink-0 flex-col gap-1">
-                        <h2
-                            class="flex items-center gap-1.5 text-[13px]/4 font-medium text-(--ds-text-muted)"
-                        >
-                            <Layers
-                                class="size-3.5 opacity-70"
-                                :stroke-width="2"
-                                aria-hidden="true"
-                            />
-                            {{ $t('Services') + ' ' }}
-                        </h2>
-                        <p
-                            class="text-2xl/8 font-medium tracking-[-0.005em] tabular-nums"
-                        >
-                            {{ machine.inventory?.services?.length ?? 0 }}
-                        </p>
-                        <p class="truncate text-xs/4 text-(--ds-text-faint)">
-                            {{
-                                $t(':value listening ports', {
-                                    value: String(
-                                        machine.inventory?.listeners?.length ??
-                                            0,
-                                    ),
-                                }) + ' '
-                            }}
-                        </p>
-                    </div>
-                    <div class="flex min-w-0 grow flex-col gap-2">
-                        <div
-                            class="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full bg-(--ds-active)"
-                            role="img"
-                            :aria-label="
-                                serviceCounts
-                                    .map((s) => `${s.count} ${s.label}`)
-                                    .join(', ')
-                            "
-                        >
-                            <span
-                                v-for="segment in serviceCounts.filter(
-                                    (s) => s.count,
-                                )"
-                                :key="segment.group"
-                                class="h-full"
-                                :class="segment.color"
-                                :style="{ width: `${segment.share}%` }"
-                            />
-                        </div>
-                        <p
-                            class="flex flex-wrap justify-end gap-x-2.5 gap-y-0.5 text-[11px]/4 text-(--ds-text-faint) tabular-nums"
-                        >
-                            <span
-                                v-for="segment in serviceCounts"
-                                :key="segment.group"
-                                class="flex items-center gap-1"
-                            >
-                                <span
-                                    class="size-1.5 rounded-full"
-                                    :class="segment.color"
-                                />
-                                {{ segment.count }} {{ segment.label }}
-                            </span>
-                        </p>
-                    </div>
-                </li>
-            </ul>
-
-            <section v-if="tab === 'services'" class="space-y-3">
-                <div class="flex items-center justify-between">
-                    <h2 class="font-medium">
-                        {{ $t('Running and discovered services') }}
-                    </h2>
-                    <span class="text-xs text-(--ds-text-muted)">{{
-                        $t('Last scan: :value', {
-                            value: formatDate(machine.inventory?.scanned_at),
+        <DashTabs data-machine-tabs>
+            <span v-for="item in tabs" :key="item.key" class="relative">
+                <DashTab
+                    :label="item.label"
+                    :icon="item.icon"
+                    :active="current === item.key"
+                    @click="go(item.key)"
+                />
+                <span
+                    v-if="
+                        item.key === 'system-updates' && overview.updates.count
+                    "
+                    class="pointer-events-none absolute top-[11.5px] left-[20.5px] size-[9px] rounded-full border-[1.5px] border-surface-main bg-status-deploying"
+                    :aria-label="
+                        $t(':count updates waiting', {
+                            count: String(overview.updates.count),
                         })
-                    }}</span>
-                </div>
-                <p
-                    v-if="machine.inventory && !machine.inventory.complete"
-                    class="text-sm text-(--ds-amber-strong)"
-                >
-                    {{
-                        ' ' +
-                        $t(
-                            'The last scan was incomplete; some services may be missing.',
-                        ) +
-                        ' '
-                    }}
-                </p>
-                <ServicesTable
-                    v-if="listedServices.length || buildingServices.length"
-                    :services="listedServices"
-                    :building="buildingServices"
-                    :stats="machine.serviceStats ?? {}"
-                    :machine-id="machine.id!"
-                    :groups="serviceGroups"
-                    :can-manage="canManage"
-                    @open-log="openLogById"
+                    "
                 />
-                <p
-                    v-else
-                    class="ds-tile px-4 py-3.5 text-[13.5px]/5 text-(--ds-text-muted)"
-                >
-                    {{
-                        machine.inventory
-                            ? $t(
-                                  'No named services were found in the last scan.',
-                              )
-                            : $t(
-                                  'Waiting for the daemon’s first discovery scan.',
-                              )
-                    }}
-                </p>
-            </section>
+            </span>
+            <DashTab
+                v-if="machine.id"
+                :label="$t('Settings')"
+                icon="settings-fill"
+                :href="settingsUrl"
+            />
+        </DashTabs>
 
-            <section v-else-if="tab === 'usage'" class="space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                    <h2 class="font-medium">{{ $t('Usage history') }}</h2>
-                    <div
-                        class="ds-segments ds-segments--sm"
-                        role="group"
-                        :aria-label="$t('Time range')"
-                    >
-                        <button
-                            v-for="option in ranges"
-                            :key="option"
-                            type="button"
-                            class="cursor-pointer"
-                            :aria-pressed="range === option"
-                            :disabled="loadingHistory"
-                            @click="loadHistory(option)"
-                        >
-                            {{ option }}
-                        </button>
-                    </div>
-                </div>
-                <div class="grid gap-4 lg:grid-cols-2">
-                    <TimeSeriesChart
-                        :title="$t('CPU')"
-                        :timestamps="timestamps"
-                        :series="[
-                            {
-                                label: 'CPU',
-                                color: themeColour('--ds-chart', '#60A5FA'),
-                                values: history.map((p) => p.cpu),
-                                peaks: history.map((p) => p.cpuMax),
-                            },
-                        ]"
-                        :format="percent"
-                        :min-max="1"
-                        :max="100"
-                    />
-                    <TimeSeriesChart
-                        :title="$t('Memory')"
-                        :timestamps="timestamps"
-                        :series="[
-                            {
-                                label: $t('Memory'),
-                                color: '#34D399',
-                                values: history.map((p) => p.mem),
-                                peaks: history.map((p) => p.memMax),
-                            },
-                        ]"
-                        :format="bytes"
-                        :min-max="1024 ** 3"
-                        :max="machine.facts?.memory_bytes || undefined"
-                    />
-                    <TimeSeriesChart
-                        class="lg:col-span-2"
-                        :title="$t('Fullest disk')"
-                        :timestamps="timestamps"
-                        :series="[
-                            {
-                                label: $t('Disk'),
-                                color: '#FBBF24',
-                                values: history.map((p) => p.disk),
-                            },
-                        ]"
-                        :format="percent"
-                        :min-max="10"
-                        :max="100"
-                    />
-                </div>
-                <p class="text-xs text-(--ds-text-faint)">
-                    {{
-                        ' ' +
-                        $t(
-                            'Lines are averages; the shaded band above each one reaches the highest reading in that stretch. History is kept for 30 days.',
-                        ) +
-                        ' '
-                    }}
-                </p>
-            </section>
-
-            <section v-else-if="tab === 'scheduled'" class="space-y-3">
-                <div
-                    class="flex flex-wrap items-baseline justify-between gap-2"
-                >
-                    <h2 class="font-medium">{{ $t('Scheduled tasks') }}</h2>
-                    <span class="text-xs text-(--ds-text-muted)">{{
-                        $t('Cron jobs and systemd timers, from the last scan')
-                    }}</span>
-                </div>
-                <div
-                    v-if="scheduled.length"
-                    class="ds-tile overflow-x-auto"
-                    role="table"
-                    :aria-label="$t('Scheduled tasks')"
-                >
-                    <div
-                        class="ds-tile-head hidden h-9.5 grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_6rem_minmax(0,1.2fr)] items-center gap-x-4 border-b border-(--ds-divider) px-4 text-xs/4 font-medium text-(--ds-text-muted) md:grid"
-                        role="row"
-                    >
-                        <span role="columnheader">{{ $t('Task') }}</span>
-                        <span role="columnheader">{{ $t('Runs') }}</span>
-                        <span role="columnheader">{{ $t('As') }}</span>
-                        <span role="columnheader">{{
-                            $t('Last and next')
-                        }}</span>
-                    </div>
-                    <div
-                        v-for="(task, index) in scheduled"
-                        :key="`${task.source}-${task.command}-${index}`"
-                        class="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-(--ds-divider) px-4 py-3 text-[13px]/5 last:border-b-0 md:grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_6rem_minmax(0,1.2fr)] md:items-center"
-                        role="row"
-                    >
-                        <span class="flex min-w-0 flex-col gap-0.5" role="cell">
-                            <span
-                                class="truncate font-ui-mono text-xs"
-                                :title="task.command"
-                                >{{ task.command }}</span
-                            >
-                            <span
-                                class="truncate text-xs text-(--ds-text-muted)"
-                            >
-                                {{
-                                    task.description ??
-                                    (task.kind === 'timer'
-                                        ? task.source
-                                        : task.source.replace(
-                                              /^crontab:/,
-                                              $t('crontab of') + ' ',
-                                          ))
-                                }}
-                                <template v-if="task.service">
-                                    ·
-                                    <Link
-                                        :href="`/machines/${machine.id}/services/${task.service.key}`"
-                                        class="font-medium text-(--ds-text-secondary) hover:underline hover:underline-offset-4"
-                                        >{{ task.service.name }}</Link
-                                    >
-                                </template>
-                                <template v-if="task.ours">
-                                    {{
-                                        ' ' + $t('· set up by ServerOS')
-                                    }}</template
-                                >
-                            </span>
-                        </span>
-                        <span class="flex min-w-0 flex-col gap-0.5" role="cell">
-                            <span
-                                v-if="task.when"
-                                class="first-letter:uppercase"
-                                >{{ task.when }}</span
-                            >
-                            <span
-                                class="truncate font-ui-mono text-xs"
-                                :class="
-                                    task.when
-                                        ? 'text-(--ds-text-faint)'
-                                        : 'text-(--ds-text-secondary)'
-                                "
-                                :title="task.schedule"
-                                >{{ task.schedule }}</span
-                            >
-                        </span>
-                        <span
-                            class="truncate text-(--ds-text-secondary)"
-                            role="cell"
-                            >{{ task.user ?? '—' }}</span
-                        >
-                        <span
-                            class="flex flex-col gap-0.5 text-xs text-(--ds-text-muted)"
-                            role="cell"
-                        >
-                            <template v-if="task.lastRun || task.nextRun">
-                                <span v-if="task.lastRun">{{
-                                    $t('Last ran :value', {
-                                        value: timeAgo(task.lastRun),
-                                    })
-                                }}</span>
-                                <span v-if="task.nextRun">{{
-                                    $t('Next :value', {
-                                        value: timeAgo(task.nextRun),
-                                    })
-                                }}</span>
-                            </template>
-                            <span v-else class="text-(--ds-text-faint)">{{
-                                task.kind === 'cron'
-                                    ? $t('Cron doesn’t record runs')
-                                    : $t('Not scheduled to run')
-                            }}</span>
-                        </span>
-                    </div>
-                </div>
-                <p
-                    v-else
-                    class="ds-tile px-4 py-3.5 text-[13.5px]/5 text-(--ds-text-muted)"
-                >
-                    {{
-                        machine.inventory
-                            ? $t(
-                                  'No cron jobs or timers were found in the last scan.',
-                              )
-                            : $t(
-                                  'Waiting for the daemon’s first discovery scan.',
-                              )
-                    }}
-                </p>
-            </section>
-
-            <section v-else-if="tab === 'ports'" class="space-y-3">
-                <h2 class="font-medium">{{ $t('Firewall') }}</h2>
-                <FirewallPanel
-                    v-if="machine.id"
+        <MachineOverview
+            v-if="current === 'overview'"
+            v-model:metric="metric"
+            class="grow"
+            :machine="machine"
+            :workspace-slug="workspace.slug"
+            :live="live"
+            :traffic="traffic"
+            :day="day"
+            :history="history"
+            :range="range"
+            :loading-range="loadingHistory"
+            :overview="overview"
+            :services="visibleServiceCount"
+            :can-manage="canManage"
+            :online="online"
+            @tab="go"
+            :cloud-server="canManage ? cloudServer : null"
+            :tailnet="canManage ? tailnet : null"
+            :settings-url="settingsUrl"
+            @range="loadHistory"
+            @server="serverAction"
+        >
+            <template #notices>
+                <MaintenanceBanner
+                    v-if="machine.maintenance && machine.id"
+                    :until="machine.maintenance.until"
+                    :reason="machine.maintenance.reason"
+                    :end-url="
+                        workspacePath(`/machines/${machine.id}/maintenance`)
+                    "
+                    :can-manage="canManage"
+                />
+                <MachineIssues v-if="issues?.length" :issues="issues" />
+                <PlannedMaintenance
+                    v-if="machine.id && machine.plannedMaintenance?.length"
                     :machine-id="machine.id"
-                    :machine-name="machine.name"
-                    :firewall="machine.firewall ?? null"
-                    :warnings="machine.inventory?.warnings ?? []"
+                    :windows="machine.plannedMaintenance"
                     :can-manage="canManage"
-                    :online="online"
                 />
-            </section>
+                <p
+                    v-if="
+                        machine.connection === 'offline' ||
+                        machine.connection === 'connecting'
+                    "
+                    class="dash-card px-[18px] py-3 text-[13px]/5 text-fg-secondary"
+                >
+                    {{
+                        machine.connection === 'offline'
+                            ? $t(
+                                  'The daemon is offline. This page shows what it last reported; reconnect it to deploy or get fresh readings.',
+                              )
+                            : $t(
+                                  'The daemon is connecting. Readings show up here once it reports in.',
+                              )
+                    }}
+                </p>
+            </template>
+        </MachineOverview>
 
-            <section v-else-if="tab === 'files'" class="space-y-3">
-                <h2 class="font-medium">{{ $t('Files') }}</h2>
+        <MachineReadme
+            v-else-if="current === 'readme' && machine.id"
+            class="grow"
+            :readme="readme"
+            :machine-id="machine.id"
+            :machine-name="machine.name"
+            :workspace-slug="workspace.slug"
+            :can-manage="canManage"
+            @updates="updatesOpen = true"
+        />
+
+        <MachineServicesTab
+            v-else-if="current === 'services'"
+            :machine="machine"
+            :services="listedServices"
+            :building="buildingServices"
+            :jobs="jobs"
+            :service-groups="serviceGroups"
+            :scheduled="scheduled"
+            :deploy-enabled="deployEnabled"
+            :deploy-workflows="deployWorkflows"
+            :can-manage="canManage"
+            :refreshing="refreshing"
+            @refresh="refreshNow"
+            @open-log="openLog"
+        />
+
+        <MachineUpdatesTab
+            v-else-if="current === 'system-updates'"
+            :updates="overview.updates"
+            :can-manage="canManage"
+            :connected="!!machine.uid"
+            @review="updatesOpen = true"
+            @scan="scanning = true"
+        />
+
+        <MachineBackupsTab
+            v-else-if="current === 'backups' && machine.id"
+            :machine-id="machine.id"
+            :workspace-slug="workspace.slug"
+            :backup="overview.backup"
+            :backups="overview.backups"
+            :can-manage="canManage"
+            @changed="refresh"
+        />
+
+        <div v-else-if="current === 'firewall' && machine.id" class="px-6 py-4">
+            <FirewallPanel
+                :machine-id="machine.id"
+                :machine-name="machine.name"
+                :firewall="machine.firewall ?? null"
+                :warnings="machine.inventory?.warnings ?? []"
+                :can-manage="canManage"
+                :online="online"
+            />
+        </div>
+
+        <MachineAccessTab
+            v-else-if="current === 'access' && machine.id && access"
+            class="grow"
+            :access="access"
+            :workspace-slug="workspace.slug"
+            :workspace-name="workspace.name"
+            :machine-id="machine.id"
+            :machine-name="machine.name"
+            @tab="go"
+        />
+
+        <div
+            v-else-if="current === 'terminal'"
+            class="flex flex-col gap-6 px-6 py-4"
+        >
+            <MachineConsole
+                v-if="canManage"
+                inline
+                :machine-id="machine.id ?? 0"
+                :machine-name="machine.name"
+                :containers="consoleContainers"
+                :jobs="jobs"
+                :console-lock="consoleLock"
+            />
+            <p
+                v-else
+                class="dash-card px-[18px] py-3 text-[13px]/5 text-fg-muted"
+            >
+                {{ $t('The terminal needs permission to manage machines.') }}
+            </p>
+            <section class="flex flex-col gap-3" :aria-label="$t('Files')">
+                <h2
+                    class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
+                >
+                    {{ $t('Files') }}
+                </h2>
                 <FileBrowser
                     :machine-id="machine.id ?? 0"
                     :places="files.places"
@@ -1338,439 +977,64 @@ function usage(mount: string): { percent: number; free: number } | null {
                     empty-hint="ServerOS can open the folders of services it deployed or adopted, and there aren’t any on this machine yet. Deploy or adopt a service to browse its files here."
                 />
             </section>
-
-            <section v-else-if="tab === 'specs'" class="space-y-3">
-                <h2 class="font-medium">{{ $t('Machine specs') }}</h2>
-                <dl class="ds-tile grid gap-3 p-5 text-sm sm:grid-cols-3">
-                    <div>
-                        <dt class="text-(--ds-text-muted)">
-                            {{ $t('Provider') }}
-                        </dt>
-                        <dd>
-                            <ProviderName
-                                :name="
-                                    machine.facts?.hosting?.provider ||
-                                    machine.provider
-                                "
-                            />
-                        </dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">
-                            {{ $t('Region') }}
-                        </dt>
-                        <dd>
-                            {{
-                                machine.facts?.hosting?.region || $t('Unknown')
-                            }}
-                        </dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">
-                            {{ ' ' + $t('Zone / datacenter') + ' ' }}
-                        </dt>
-                        <dd>
-                            {{ machine.facts?.hosting?.zone || $t('Unknown') }}
-                        </dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">
-                            {{ $t('VPS plan') }}
-                        </dt>
-                        <dd>
-                            {{
-                                machine.facts?.hosting?.instance_type ||
-                                $t('Unknown')
-                            }}
-                        </dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">{{ $t('OS') }}</dt>
-                        <dd>
-                            {{ machine.facts?.os || $t('Unknown') }}
-                            {{ machine.facts?.os_version }}
-                        </dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">
-                            {{ $t('Kernel') }}
-                        </dt>
-                        <dd>{{ machine.facts?.kernel || $t('Unknown') }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">
-                            {{ $t('Architecture') }}
-                        </dt>
-                        <dd>{{ machine.facts?.arch || $t('Unknown') }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">{{ $t('CPU') }}</dt>
-                        <dd>
-                            {{
-                                $t(':valueValue vCPU · :value2', {
-                                    valueValue: String(
-                                        machine.facts?.cpu_cores ??
-                                            $t('Unknown'),
-                                    ),
-                                    value2:
-                                        machine.facts?.cpu_model ||
-                                        $t('Unknown model'),
-                                })
-                            }}
-                        </dd>
-                    </div>
-                    <div>
-                        <dt class="text-(--ds-text-muted)">{{ $t('RAM') }}</dt>
-                        <dd>{{ formatBytes(machine.facts?.memory_bytes) }}</dd>
-                    </div>
-                </dl>
-                <h3 class="pt-2 text-sm font-medium">
-                    {{ $t('Mounted disks') }}
-                </h3>
-                <div
-                    v-if="diskRows.length"
-                    class="ds-tile divide-y-2 divide-black/5 text-sm dark:divide-black/30"
-                >
-                    <div
-                        v-for="disk in diskRows"
-                        :key="disk.key"
-                        class="flex justify-between gap-3 px-4 py-2"
-                    >
-                        <span class="min-w-0 truncate">{{ disk.label }}</span
-                        ><span
-                            v-if="usage(disk.mount)"
-                            class="flex shrink-0 items-center gap-2.5 tabular-nums"
-                            :title="
-                                $t(':percent% used', {
-                                    percent: String(usage(disk.mount)!.percent),
-                                })
-                            "
-                        >
-                            <span
-                                class="h-1.5 w-20 overflow-hidden rounded-full bg-(--ds-active)"
-                                aria-hidden="true"
-                            >
-                                <span
-                                    class="block h-full rounded-full"
-                                    :class="
-                                        usage(disk.mount)!.percent >= 95
-                                            ? 'bg-(--ds-red)'
-                                            : usage(disk.mount)!.percent >= 85
-                                              ? 'bg-(--ds-amber)'
-                                              : 'bg-(--ds-green)'
-                                    "
-                                    :style="{
-                                        width: `${usage(disk.mount)!.percent}%`,
-                                    }"
-                                />
-                            </span>
-                            {{
-                                $t(':valueValue free of :value2', {
-                                    valueValue: formatBytes(
-                                        usage(disk.mount)!.free,
-                                    ),
-                                    value2: formatBytes(disk.total),
-                                })
-                            }}
-                        </span>
-                        <span v-else class="shrink-0">{{
-                            formatBytes(disk.total)
-                        }}</span>
-                    </div>
-                </div>
-                <p v-else class="text-sm text-(--ds-text-muted)">
-                    {{ ' ' + $t('No disk facts available.') + ' ' }}
-                </p>
-                <DiskUsagePanel
-                    :machine-id="machine.id!"
-                    :can-manage="canManage"
-                    :online="online"
-                />
-                <template v-if="consoleContainers.length && canManage">
-                    <h3 class="pt-2 text-sm font-medium">
-                        {{ $t('Docker images and volumes') }}
-                    </h3>
-                    <DockerPanel
-                        :machine-id="machine.id!"
-                        :can-manage="canManage"
-                        :online="online"
-                    />
-                </template>
-                <h3 class="pt-2 text-sm font-medium">
-                    {{ $t('Network interfaces') }}
-                </h3>
-                <div
-                    v-if="machine.facts?.interfaces?.length"
-                    class="ds-tile divide-y-2 divide-black/5 text-sm dark:divide-black/30"
-                >
-                    <div
-                        v-for="network in machine.facts.interfaces"
-                        :key="network.name"
-                        class="px-4 py-2"
-                    >
-                        {{ network.name }} ·
-                        {{ network.addresses.join(', ') || $t('No address') }}
-                    </div>
-                </div>
-                <p v-else class="text-sm text-(--ds-text-muted)">
-                    {{ ' ' + $t('No network facts available.') + ' ' }}
-                </p>
-            </section>
-
-            <section v-else class="space-y-3">
-                <h2 class="text-[15px]/6 font-semibold tracking-[-0.01em]">
-                    {{ $t('Deployments') }}
-                </h2>
-                <div
-                    v-if="deployJobs.length"
-                    class="flex flex-wrap items-center gap-2"
-                >
-                    <div class="max-w-full overflow-x-auto">
-                        <div
-                            class="ds-segments"
-                            role="group"
-                            :aria-label="$t('Filter by status')"
-                        >
-                            <button
-                                v-for="option in jobTabs"
-                                :key="option.value"
-                                type="button"
-                                class="cursor-pointer gap-1.5"
-                                :aria-pressed="jobFilter === option.value"
-                                @click="jobFilter = option.value"
-                            >
-                                {{ option.label }}
-                                <span
-                                    class="text-xs/4 tabular-nums"
-                                    :class="
-                                        jobFilter === option.value
-                                            ? 'text-(--ds-text-muted)'
-                                            : 'text-(--ds-text-faint)'
-                                    "
-                                >
-                                    {{ option.count }}
-                                </span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="ml-auto flex flex-wrap items-center gap-2">
-                        <label
-                            class="ds-raised-button w-full cursor-text focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-(--ds-ring) sm:w-64"
-                        >
-                            <Search
-                                class="size-3.5 shrink-0 text-(--ds-text-muted)"
-                                :stroke-width="1.6"
-                            />
-                            <span class="sr-only">{{
-                                $t('Search deployments')
-                            }}</span>
-                            <input
-                                v-model="jobSearch"
-                                type="search"
-                                :placeholder="$t('Search by service')"
-                                class="h-full min-w-0 grow bg-transparent text-[13px]/4 text-(--ds-text) outline-none placeholder:text-(--ds-text-faint) [&::-webkit-search-cancel-button]:hidden"
-                            />
-                        </label>
-
-                        <DropdownMenu>
-                            <DropdownMenuTrigger as-child>
-                                <button
-                                    type="button"
-                                    class="ds-raised-button cursor-pointer text-[13px]!"
-                                >
-                                    <span class="text-(--ds-text-muted)">
-                                        {{ ' ' + $t('Sort') + ' ' }}
-                                    </span>
-                                    <span class="font-medium">
-                                        {{ jobSortLabel }}
-                                    </span>
-                                    <ChevronDown
-                                        class="size-2.5 text-(--ds-text-muted)"
-                                        :stroke-width="2"
-                                    />
-                                </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                                class="ds-modal min-w-40 font-ui"
-                                align="end"
-                            >
-                                <DropdownMenuItem
-                                    v-for="option in jobSortOptions"
-                                    :key="option.value"
-                                    @select="jobSort = option.value"
-                                >
-                                    {{ option.label }}
-                                    <Check
-                                        v-if="jobSort === option.value"
-                                        class="ml-auto size-3.5"
-                                    />
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        <DeployWorkflowsMenu
-                            v-if="canManage && deployWorkflows.count === 0"
-                            :available="deployWorkflows.available"
-                        />
-                    </div>
-                </div>
-                <ul
-                    v-if="visibleJobs.length"
-                    class="ds-tile ds-tile-rows flex flex-col"
-                >
-                    <li
-                        v-for="job in visibleJobs"
-                        :key="job.id"
-                        class="ds-tile-row"
-                    >
-                        <button
-                            type="button"
-                            class="group flex min-h-11 w-full cursor-pointer items-center gap-3 px-4 py-2 text-left text-[13.5px]/5 transition-colors hover:bg-(--ds-row-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring)"
-                            :aria-label="
-                                job.service
-                                    ? $t('View the log for :service', {
-                                          service: job.service,
-                                      })
-                                    : $t('View the log for this deploy')
-                            "
-                            @click="openLog(job)"
-                        >
-                            <component
-                                :is="jobIcon(job)"
-                                class="size-4 shrink-0"
-                                :class="[
-                                    jobTone[jobStatus(job.state).tone],
-                                    {
-                                        'animate-spin': jobStatus(job.state)
-                                            .busy,
-                                    },
-                                ]"
-                                :stroke-width="2"
-                                aria-hidden="true"
-                            />
-                            <span class="shrink-0 font-medium">
-                                {{ job.service ?? $t('Deploy') }}
-                            </span>
-                            <span
-                                class="min-w-0 truncate text-[13px] text-(--ds-text-faint)"
-                            >
-                                {{ jobDetail(job) }}
-                            </span>
-                            <span
-                                class="ml-auto flex shrink-0 items-center gap-3 text-[13px] text-(--ds-text-muted) tabular-nums"
-                            >
-                                <span
-                                    class="hidden sm:inline"
-                                    :class="jobTone[jobStatus(job.state).tone]"
-                                    >{{
-                                        jobStatus(
-                                            job.state,
-                                            job.phase,
-                                            job.progress,
-                                        ).label
-                                    }}</span
-                                >
-                                <span
-                                    class="hidden w-24 text-right md:inline"
-                                    :title="
-                                        job.createdAt
-                                            ? new Date(
-                                                  job.createdAt,
-                                              ).toLocaleString()
-                                            : undefined
-                                    "
-                                    >{{ timeAgo(job.createdAt) }}</span
-                                >
-                                <ChevronRight
-                                    class="size-3.5 text-(--ds-text-faint) transition-transform group-hover:translate-x-0.5"
-                                    :stroke-width="1.75"
-                                    aria-hidden="true"
-                                />
-                            </span>
-                        </button>
-                    </li>
-                </ul>
-                <p
-                    v-else-if="deployJobs.length"
-                    class="ds-tile px-4 py-3.5 text-[13.5px]/5 text-(--ds-text-muted)"
-                >
-                    {{ ' ' + $t('No deployments match these filters.') + ' ' }}
-                </p>
-                <p
-                    v-else
-                    class="ds-tile px-4 py-3.5 text-[13.5px]/5 text-(--ds-text-muted)"
-                >
-                    {{
-                        ' ' +
-                        $t(
-                            'No deployments yet. Deploy a service from the library to start one.',
-                        ) +
-                        ' '
-                    }}
-                </p>
-            </section>
         </div>
-        <Dialog v-model:open="scanning">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-xl"
-            >
-                <DialogHeader>
-                    <DialogTitle>{{ $t('Security scan') }}</DialogTitle>
-                    <DialogDescription>
-                        {{
-                            ' ' +
-                            $t(
-                                'What the daemon sees on :name: ports open to the internet, waiting security updates, services and the system.',
-                                { name: machine.name },
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </DialogHeader>
-                <SecurityScan
-                    v-if="scanning && machine.id"
-                    :machine-id="machine.id"
-                />
-            </DialogContent>
-        </Dialog>
-        <UpdatesDialog
-            v-if="machine.id && canManage"
-            v-model:open="updatesOpen"
-            :machine-id="machine.id"
-            :machine-name="machine.name"
-        />
-        <JobLogDialog
-            v-if="machine.id"
-            v-model:open="logOpen"
-            :job="logJob"
-            :machine-id="machine.id"
-            :can-manage="canManage"
-            @retried="onRetried"
-            @changed="refresh"
-            @open-library="openLibraryFromLog"
-        />
-        <DeployServiceDialog
-            v-if="machine.id"
-            v-model:open="showDeploy"
-            :templates="templates"
-            :machine-id="machine.id"
-            :start-with="deployTemplate"
-            @deployed="onDeployed"
-        />
-        <MaintenanceDialog
-            v-if="machine.id"
-            v-model:open="maintenanceOpen"
-            :machine-id="machine.id"
-            :machine-name="machine.name"
-        />
-        <MachineConsole
-            v-model:open="consoleOpen"
-            :machine-id="machine.id ?? 0"
-            :machine-name="machine.name"
-            :containers="consoleContainers"
-            :jobs="jobs"
-            :console-lock="consoleLock"
-        />
-    </WorkspacePage>
+    </div>
+
+    <Dialog v-model:open="scanning">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-xl"
+        >
+            <DialogHeader>
+                <DialogTitle>{{ $t('Security scan') }}</DialogTitle>
+                <DialogDescription>
+                    {{
+                        $t(
+                            'What the daemon sees on :name: ports open to the internet, waiting security updates, services and the system.',
+                            { name: machine.name },
+                        )
+                    }}
+                </DialogDescription>
+            </DialogHeader>
+            <SecurityScan
+                v-if="scanning && machine.id"
+                :machine-id="machine.id"
+            />
+        </DialogContent>
+    </Dialog>
+    <UpdatesDialog
+        v-if="machine.id && canManage"
+        v-model:open="updatesOpen"
+        :machine-id="machine.id"
+        :machine-name="machine.name"
+    />
+    <JobLogDialog
+        v-if="machine.id"
+        v-model:open="logOpen"
+        :job="logJob"
+        :machine-id="machine.id"
+        :can-manage="canManage"
+        @retried="onRetried"
+        @changed="refresh"
+        @open-library="openLibraryFromLog"
+    />
+    <DeployServiceDialog
+        v-if="machine.id"
+        v-model:open="showDeploy"
+        :templates="templates"
+        :machine-id="machine.id"
+        :start-with="deployTemplate"
+        @deployed="onDeployed"
+    />
+    <MaintenanceDialog
+        v-if="machine.id"
+        v-model:open="maintenanceOpen"
+        :machine-id="machine.id"
+        :machine-name="machine.name"
+    />
+    <MachineServerActions
+        v-if="machine.id && canManage && cloudServer"
+        ref="serverActions"
+        :machine="{ id: machine.id, name: machine.name }"
+        :cloud="cloudServer"
+    />
 </template>

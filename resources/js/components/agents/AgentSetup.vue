@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import { Check, SquareTerminal, X } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import AiBrandIcon from '@/components/workspace/AiBrandIcon.vue';
 import type { AiBrand } from '@/lib/aiBrands';
 import { useIsDark } from '@/composables/useAppearance';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 import AgentSky from './AgentSky.vue';
 
 export type Setup = {
@@ -23,6 +25,11 @@ const props = defineProps<{
     agent: string;
     agentName: string;
 }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
+const agentsHref = computed(
+    () => onWorkspace(agentsRoutes.index(page.props.workspace.slug)).url,
+);
 
 // The agent's own mark, in its colour; OpenCode has none, so a terminal.
 const brand = computed<{ id: AiBrand; colour: string } | null>(() =>
@@ -209,7 +216,7 @@ const words = computed(() =>
             >
                 {{ setup.error }}
                 <Link
-                    href="/agents"
+                    :href="agentsHref"
                     class="ml-1 font-medium text-white underline decoration-white/40 underline-offset-4 hover:decoration-white"
                     >{{ $t('Back to Agents') }}</Link
                 >

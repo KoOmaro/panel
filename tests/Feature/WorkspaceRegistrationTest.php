@@ -113,7 +113,7 @@ test('signing up celebrates the trial once, on the first workspace page', functi
     $user->markEmailAsVerified();
     $this->actingAs($user->fresh());
     $workspace = $user->workspaces()->sole();
-    $home = 'https://'.$workspace->host().'/';
+    $home = $workspace->url().'/';
 
     $this->get($home)->assertRedirect($home.'welcome');
     $this->get($home.'welcome')->assertInertia(fn ($page) => $page->where('celebrate', false));

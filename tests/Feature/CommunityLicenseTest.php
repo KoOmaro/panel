@@ -47,7 +47,7 @@ function communityLicenseInstall(string $edition, bool $packageLicensePage = fal
 
 function communityLicenseUrl(Workspace $workspace, string $path = '/settings/license'): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 /** @return list<string> */

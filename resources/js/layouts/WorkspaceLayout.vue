@@ -20,14 +20,14 @@ import {
 import NotchToaster from '@/components/workspace/NotchToaster.vue';
 import type AssistantPanelComponent from '@/components/workspace/AssistantPanel.vue';
 import WorkspacePageSkeleton from '@/components/workspace/WorkspacePageSkeleton.vue';
-import WorkspaceSidebar from '@/components/workspace/WorkspaceSidebar.vue';
 import AgentsSidebar from '@/components/agents/AgentsSidebar.vue';
-import WorkspaceNavBar from '@/components/workspace/WorkspaceNavBar.vue';
+import AppHeader from '@/components/workspace/shell/AppHeader.vue';
+import AppSidebar from '@/components/workspace/shell/AppSidebar.vue';
 import ThemeDraftBar from '@/components/workspace/ThemeDraftBar.vue';
 import { useAssistant } from '@/composables/useAssistant';
+import { useCommandPalette } from '@/composables/useCommandPalette';
+import { useDashShell } from '@/composables/useDashShell';
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch';
-import { useIsDark } from '@/composables/useAppearance';
-import { useNavLayout } from '@/composables/useNavLayout';
 import { usePanelUpdates } from '@/composables/usePanelUpdates';
 
 const AssistantPanel = defineAsyncComponent(
@@ -43,27 +43,25 @@ const WhatsNewDialog = defineAsyncComponent(
 const subscriptionNotice = useSubscriptionNotice();
 usePanelUpdates();
 
+const NO_SIDEBAR = ['workspace/WorkflowEditor'];
+const OWN_HEADER = ['workspace/AgentTaskShow', 'workspace/Agents'];
+
 const page = usePage();
-const isDark = useIsDark();
+const shell = useDashShell();
 const { switchingTo } = useWorkspaceSwitch();
+const { open: searching } = useCommandPalette();
 const mobileOpen = ref(false);
-const searching = ref(false);
 
-const { layout } = useNavLayout();
+const inAgents = computed(() => page.component.startsWith('workspace/Agent'));
 
-// Pages that bring their own header row and fill the height, like an agent
-// task's chat and changes, skip the bar on wide screens with the sidebar.
-const fullHeight = computed(
+const sidebarMode = computed(
     () =>
-        layout.value === 'sidebar' &&
-        ['workspace/AgentTaskShow', 'workspace/Agents'].includes(
-            page.component,
-        ),
+        shell.sidebar.value ??
+        (NO_SIDEBAR.includes(page.component) ? 'none' : 'app'),
 );
 
-// Agents is its own side of ServerOS, with its own sidebar. Going between
-// the two, the sidebar slides the way the switch points.
-const inAgents = computed(() => page.component.startsWith('workspace/Agent'));
+const ownHeader = computed(() => OWN_HEADER.includes(page.component));
+
 const COLLAPSED_KEY = 'workspace-sidebar-collapsed';
 const collapsed = ref(false);
 
@@ -74,6 +72,7 @@ function toggleCollapsed(): void {
         window.localStorage.setItem(COLLAPSED_KEY, collapsed.value ? '1' : '0');
     } catch {}
 }
+
 const {
     open: assistantOpen,
     expanded: assistantExpanded,
@@ -112,6 +111,12 @@ watch(assistantOpen, (open) => {
     }
 });
 
+watch(searching, (open) => {
+    if (open) {
+        mobileOpen.value = false;
+    }
+});
+
 onMounted(() => {
     window.addEventListener('keydown', onShortcut);
     desktopQuery = window.matchMedia('(min-width: 64rem)');
@@ -127,11 +132,6 @@ onBeforeUnmount(() => {
     desktopQuery?.removeEventListener('change', syncDesktop);
 });
 
-function openSearch(): void {
-    mobileOpen.value = false;
-    searching.value = true;
-}
-
 watch(
     () => page.url,
     () => {
@@ -146,97 +146,97 @@ watch(
         :class="
             subscriptionNotice?.tone === 'urgent'
                 ? 'bg-(--ds-amber-bg)'
-                : 'bg-(--ds-panel)'
+                : 'bg-surface-sidebar'
         "
     >
         <SubscriptionBanner />
         <div
-            class="relative flex min-h-0 flex-1 overflow-hidden bg-(--ds-panel) font-ui text-(--ds-text) antialiased"
+            class="relative flex min-h-0 flex-1 overflow-hidden bg-surface-main font-ui text-fg-primary antialiased"
         >
             <a
                 href="#main"
-                class="sr-only z-50 rounded-[6px] bg-(--ds-hover) px-3 py-1.5 text-xs focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:outline-2 focus:outline-(--ds-ring)"
+                class="sr-only z-50 rounded-[6px] bg-surface-raised px-3 py-1.5 text-xs focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:outline-2 focus:outline-(--ds-ring)"
             >
                 {{ ' ' + $t('Skip to content') + ' ' }}
             </a>
 
-            <div
-                class="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-(--ds-frame) lg:bg-(--ds-panel) lg:p-2"
+            <aside
+                v-show="sidebarMode !== 'none'"
+                data-theme-part="sidebar"
+                class="relative hidden shrink-0 border-r-[0.5px] border-edge bg-surface-sidebar transition-[width] duration-200 ease-out motion-reduce:transition-none lg:block"
+                :class="
+                    collapsed && sidebarMode === 'app' ? 'w-14' : 'w-[224px]'
+                "
             >
-                <aside
-                    v-if="layout === 'sidebar'"
-                    data-theme-part="sidebar"
-                    class="hidden shrink-0 transition-[width] duration-200 ease-out motion-reduce:transition-none lg:block"
-                    :class="collapsed ? 'w-14' : 'w-[228px]'"
-                >
-                    <div class="relative h-full overflow-hidden">
-                        <Transition
-                            :name="
-                                inAgents ? 'side-to-agents' : 'side-to-servers'
-                            "
-                        >
-                            <AgentsSidebar
-                                v-if="inAgents"
-                                key="agents"
-                                class="absolute inset-0"
-                                :collapsed="collapsed"
-                                collapsible
-                                @toggle="toggleCollapsed"
-                            />
-                            <WorkspaceSidebar
-                                v-else
-                                key="servers"
-                                class="absolute inset-0"
-                                :collapsed="collapsed"
-                                collapsible
-                                @toggle="toggleCollapsed"
-                                @search="openSearch"
-                            />
-                        </Transition>
-                    </div>
-                </aside>
-
                 <div
-                    data-theme-part="content"
-                    class="relative isolate flex min-h-0 min-w-0 flex-1 flex-col bg-(--ds-frame) lg:overflow-hidden lg:rounded-[14px] lg:shadow-[0_0_0_1px_var(--ds-border)] lg:dark:shadow-none"
-                    :class="{ 'lg:ml-[3px]': layout === 'sidebar' }"
+                    v-show="sidebarMode === 'custom'"
+                    id="dash-sidebar-custom"
+                    class="h-full overflow-hidden"
+                />
+                <div
+                    v-if="sidebarMode === 'app'"
+                    class="relative h-full overflow-hidden"
                 >
-                    <WorkspaceNavBar
-                        data-theme-part="topbar"
-                        :class="{ 'lg:hidden': fullHeight }"
-                        :sidebar="layout === 'sidebar'"
-                        @search="openSearch"
-                        @menu="mobileOpen = true"
-                    />
-
-                    <main
-                        id="main"
-                        data-theme-part="main"
-                        class="relative isolate flex min-h-0 min-w-0 grow flex-col overflow-hidden"
+                    <Transition
+                        :name="inAgents ? 'side-to-agents' : 'side-to-servers'"
                     >
-                        <div
-                            class="assistant-page-glow pointer-events-none absolute inset-0 z-20 rounded-[inherit]"
-                            :class="{
-                                'is-on':
-                                    assistantActivity === 'working' ||
-                                    assistantActivity === 'waiting',
-                            }"
-                            :style="{
-                                '--assistant-page-glow':
-                                    assistantActivity === 'waiting'
-                                        ? '245 158 11'
-                                        : '0 229 214',
-                            }"
-                            aria-hidden="true"
+                        <AgentsSidebar
+                            v-if="inAgents"
+                            key="agents"
+                            class="absolute inset-0"
+                            :collapsed="collapsed"
+                            collapsible
+                            @toggle="toggleCollapsed"
                         />
-                        <div
-                            class="min-h-0 grow overflow-y-auto overscroll-contain"
-                        >
-                            <WorkspacePageSkeleton v-if="switchingTo" />
-                            <slot v-else />
-                        </div>
-                    </main>
+                        <AppSidebar
+                            v-else
+                            key="servers"
+                            class="absolute inset-0"
+                            :collapsed="collapsed"
+                            collapsible
+                            @toggle="toggleCollapsed"
+                        />
+                    </Transition>
                 </div>
+            </aside>
+
+            <div
+                data-theme-part="content"
+                class="relative isolate flex min-h-0 min-w-0 flex-1 flex-col bg-surface-main"
+            >
+                <AppHeader
+                    data-theme-part="topbar"
+                    :class="{ 'lg:hidden': ownHeader }"
+                    @menu="mobileOpen = true"
+                />
+
+                <main
+                    id="main"
+                    data-theme-part="main"
+                    class="relative isolate flex min-h-0 min-w-0 grow flex-col overflow-hidden"
+                >
+                    <div
+                        class="assistant-page-glow pointer-events-none absolute inset-0 z-20 rounded-[inherit]"
+                        :class="{
+                            'is-on':
+                                assistantActivity === 'working' ||
+                                assistantActivity === 'waiting',
+                        }"
+                        :style="{
+                            '--assistant-page-glow':
+                                assistantActivity === 'waiting'
+                                    ? '245 158 11'
+                                    : '0 229 214',
+                        }"
+                        aria-hidden="true"
+                    />
+                    <div
+                        class="min-h-0 grow overflow-y-auto overscroll-contain"
+                    >
+                        <WorkspacePageSkeleton v-if="switchingTo" />
+                        <slot v-else />
+                    </div>
+                </main>
             </div>
 
             <div
@@ -260,7 +260,7 @@ watch(
                 @keydown.esc="assistantOpen = false"
             >
                 <div
-                    class="h-full overflow-hidden border-l border-(--ds-border) bg-(--ds-frame)"
+                    class="h-full overflow-hidden border-l-[0.5px] border-edge bg-surface-main"
                     :class="
                         assistantExpanded ? 'w-full min-w-[400px]' : 'w-[400px]'
                     "
@@ -275,7 +275,7 @@ watch(
             <Sheet v-model:open="mobileOpen">
                 <SheetContent
                     side="left"
-                    class="w-64 gap-0 border-(--ds-border) bg-(--ds-frame) px-0 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] font-ui text-(--ds-text) [&>button]:hidden"
+                    class="w-[264px] gap-0 border-edge bg-surface-sidebar p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] font-ui text-fg-primary [&>button]:hidden"
                 >
                     <SheetTitle class="sr-only">{{
                         $t('Navigation')
@@ -292,14 +292,7 @@ watch(
                         closable
                         @close="mobileOpen = false"
                     />
-                    <WorkspaceSidebar
-                        v-else
-                        closable
-                        @close="mobileOpen = false"
-                        @search="openSearch"
-                        @assistant="mobileOpen = false"
-                        @whats-new="mobileOpen = false"
-                    />
+                    <AppSidebar v-else closable @close="mobileOpen = false" />
                 </SheetContent>
             </Sheet>
 
@@ -310,7 +303,7 @@ watch(
                 <SheetContent
                     side="right"
                     data-assistant-sheet
-                    class="w-full gap-0 border-(--ds-border) bg-(--ds-panel) p-0 sm:max-w-[420px] [&>button]:hidden"
+                    class="w-full gap-0 border-edge bg-surface-main p-0 sm:max-w-[420px] [&>button]:hidden"
                 >
                     <SheetTitle class="sr-only">{{ $t('Ask AI') }}</SheetTitle>
                     <SheetDescription class="sr-only">
@@ -338,7 +331,6 @@ watch(
 </template>
 
 <style scoped>
-/* Servers on the left, Agents on the right: the sidebar slides that way. */
 .side-to-agents-enter-active,
 .side-to-agents-leave-active,
 .side-to-servers-enter-active,

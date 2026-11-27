@@ -3,6 +3,7 @@
 namespace App\Support\Monitors;
 
 use App\Models\Workspace;
+use App\Support\Integrations\Telegram\TelegramWebhooks;
 
 final class AlertKinds
 {
@@ -47,7 +48,7 @@ final class AlertKinds
      * The alert settings a page shows. The webhook's address only to people
      * who may change it; the Telegram bot's token never, only that it's set.
      *
-     * @return array{email: bool, webhook: string|null, webhookSet: bool, telegram: array{chat: string|null, set: bool}, muted: list<string>}
+     * @return array{email: bool, webhook: string|null, webhookSet: bool, telegram: array{chat: string|null, set: bool}, telegramBot: array{state: string, username: string|null, error: string|null}|null, muted: list<string>}
      */
     public static function props(Workspace $workspace, bool $manager): array
     {
@@ -59,6 +60,7 @@ final class AlertKinds
                 'chat' => $manager ? $workspace->alert_telegram_chat : null,
                 'set' => TelegramAlerts::configured($workspace),
             ],
+            'telegramBot' => $manager ? TelegramWebhooks::props($workspace) : null,
             'muted' => self::muted($workspace),
         ];
     }

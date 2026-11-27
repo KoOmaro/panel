@@ -22,6 +22,7 @@ use App\Support\DaemonJobQueue;
 use App\Support\Edition;
 use App\Support\Extensions\Extensions;
 use App\Support\GitHub\GitHubApp;
+use App\Support\Integrations\N8n\N8nStep;
 use App\Support\Monitors\HostResolver;
 use App\Support\Monitors\MonitorAlerts;
 use App\Support\Monitors\MonitorRunner;
@@ -38,7 +39,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use RuntimeException;
 use Throwable;
 
-/** @phpstan-type StepResult array{state: string, message?: string, port?: string, jobs?: list<string>, until?: int, deadline?: int, timeout?: int, summary?: string, pr?: string|null, model?: string|null, phase?: string|null} */
+/** @phpstan-type StepResult array{state: string, message?: string, port?: string, jobs?: list<string>, until?: int, deadline?: int, timeout?: int, summary?: string, pr?: string|null, model?: string|null, phase?: string|null, expired?: string, response?: mixed, status?: int} */
 class WorkflowEngine
 {
     public const MAX_STEPS = 50;
@@ -214,7 +215,7 @@ class WorkflowEngine
                         $this->resume($run, $node);
                         $changed = true;
                     } elseif (($step['state'] ?? null) === 'running' && ($step['startedAt'] ?? 0) < now()->subMinutes($minutes = (int) ($step['timeout'] ?? self::JOB_TIMEOUT_MINUTES))->getTimestamp()) {
-                        $this->settle($run, $node, ['state' => 'failed', 'message' => "The machine didn’t report back within {$minutes} minutes."]);
+                        $this->settle($run, $node, ['state' => 'failed', 'message' => is_string($step['expired'] ?? null) ? $step['expired'] : "The machine didn’t report back within {$minutes} minutes."]);
                         $changed = true;
                     }
                 }
@@ -271,6 +272,7 @@ class WorkflowEngine
             'promote' => $this->promote($run, $node, $rules),
             'check_monitor' => $this->checkMonitor($run, $rules, now()->getTimestamp() + 60 * max(1, min(30, (int) ($rules['timeout'] ?? 5)))),
             'http' => $this->http($run, $rules),
+            'n8n' => app(N8nStep::class)->start($run, $node, $rules),
             'alert' => $this->alert($run, $rules),
             'wait' => ['state' => 'waiting', 'until' => now()->getTimestamp() + 60 * max(1, min(1440, (int) ($rules['minutes'] ?? 1))), 'message' => 'Waiting '.max(1, (int) ($rules['minutes'] ?? 1)).' min'],
             'branch' => $this->branch($run, $rules),
@@ -355,7 +357,7 @@ class WorkflowEngine
                 $this->alerts->notify($workflow->workspace, 'workflow.failed', "{$workflow->name} failed", array_values(array_filter([
                     $step['message'] ?? null,
                     'Started by: '.$run->trigger['summary'],
-                ])), 'https://'.$workflow->workspace->host()."/workflows/{$workflow->id}?run={$run->id}", true, 'Open the run');
+                ])), $workflow->workspace->url("/workflows/{$workflow->id}?run={$run->id}"), true, 'Open the run');
             }
         }
     }
@@ -582,6 +584,40 @@ class WorkflowEngine
             $outcome['note'] !== null => $outcome['note'].$by,
             default => "The agent finished{$by}",
         }];
+    }
+
+    /**
+     * Settles a step that waited on something outside the run (n8n's answer
+     * or its callback), if it's still waiting in that phase, and moves the
+     * run on. False when the step had already finished or moved on.
+     *
+     * @param  StepResult  $result
+     */
+    public function finishStep(int $runId, string $nodeId, string $phase, array $result): bool
+    {
+        $run = WorkflowRun::query()->find($runId);
+        $node = $run === null ? null : $this->node($run, $nodeId);
+        if ($run === null || $node === null) {
+            return false;
+        }
+
+        $done = DB::transaction(function () use ($run, $node, $nodeId, $phase, $result): bool {
+            $locked = WorkflowRun::query()->lockForUpdate()->findOrFail($run->id);
+            $run->setRawAttributes($locked->getAttributes(), true);
+            $step = $run->steps[$nodeId] ?? null;
+            if ($run->finished() || ($step['state'] ?? null) !== 'running' || ($step['phase'] ?? null) !== $phase) {
+                return false;
+            }
+            $this->settle($run, $node, [...$result, 'phase' => null]);
+            $run->save();
+
+            return true;
+        });
+        if ($done) {
+            $this->advance($run);
+        }
+
+        return $done;
     }
 
     public function agentPullRequest(int $runId, string $nodeId, string $jobId): void
@@ -822,7 +858,7 @@ class WorkflowEngine
 
         if ($to !== 'emails') {
             $this->alerts->notify($workspace, 'workflow.alert', $subject, array_values(array_filter([$message, "From the workflow “{$workflow->name}”."])),
-                'https://'.$workspace->host()."/workflows/{$workflow->id}?run={$run->id}", $bad, 'Open the run',
+                $workspace->url("/workflows/{$workflow->id}?run={$run->id}"), $bad, 'Open the run',
                 ['workflow' => ['id' => $workflow->id, 'name' => $workflow->name, 'run' => $run->id]]);
         }
         if ($emails !== []) {
@@ -890,6 +926,13 @@ class WorkflowEngine
                 $inside = $from <= $to ? ($now >= $from && $now < $to) : ($now >= $from || $now < $to);
 
                 return [$inside, "It’s {$now} UTC"];
+            })(),
+            'n8n_field' => (function () use ($run, $rules) {
+                $field = (string) ($rules['field'] ?? '');
+                $actual = data_get(WorkflowText::lastN8nResponse($run), $field);
+                $actual = is_scalar($actual) ? (string) $actual : json_encode($actual);
+
+                return [$actual === (string) ($rules['value'] ?? ''), "n8n’s {$field} is “".mb_substr((string) $actual, 0, 60).'”'];
             })(),
             'trigger_field' => (function () use ($run, $rules) {
                 $field = (string) ($rules['field'] ?? '');

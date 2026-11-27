@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Notification;
 
 function ceilingUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function ceilingJoin(Workspace $workspace, string $role = 'viewer', ?WorkspaceCustomRole $custom = null): User

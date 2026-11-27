@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { SelectMenu } from '@/components/ui/select';
+import { workspacePath } from '@/lib/workspaceRoute';
 import { computed, onMounted, watch } from 'vue';
 import { EVENTS, FROM_TRIGGER } from './kinds';
 import type { Options, WorkflowNode } from './kinds';
@@ -132,7 +133,9 @@ const hint = 'text-[12px]/4 text-(--wf-faint)';
                 'No machine has a coding agent yet. On a machine, choose Deploy, then the Coding agent template, and add your Anthropic or OpenAI key. It shows up here once it’s running.',
             )
         }}
-        <a href="/machines" class="underline">{{ $t('Open Machines') }}</a>
+        <a :href="workspacePath('/machines')" class="underline">{{
+            $t('Open Machines')
+        }}</a>
     </p>
 
     <div class="flex flex-col gap-1.5">

@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Storage;
 
 function auditHost(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host();
+    return $workspace->url();
 }
 
 /** @return list<string> */

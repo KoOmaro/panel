@@ -20,7 +20,7 @@ test('the machines page lists only the workspace machines', function () {
     Machine::factory()->create(['name' => 'someone-elses']);
 
     $this->actingAs($workspace->owner)
-        ->get('https://'.$workspace->host().'/machines')
+        ->get($workspace->url().'/machines')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Machines')
@@ -43,6 +43,7 @@ test('the machines page lists only the workspace machines', function () {
                 'groupId' => null,
                 'iconUrl' => null,
                 'lastBackup' => '21m ago',
+                'lastBackupAt' => $workspace->machines()->first()->last_backup_at->toIso8601String(),
                 'uid' => null,
                 'connection' => 'demo',
                 'daemonVersion' => null,
@@ -61,6 +62,6 @@ test('outsiders cannot list a workspace machines', function () {
     $workspace = Workspace::factory()->create();
 
     $this->actingAs(User::factory()->create())
-        ->get('https://'.$workspace->host().'/machines')
+        ->get($workspace->url().'/machines')
         ->assertForbidden();
 });

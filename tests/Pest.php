@@ -36,7 +36,7 @@ function mcpKey(Workspace $workspace, ?User $user = null, array $scopes = Scopes
 function mcpRequest(Workspace $workspace, string $key, string $method, array $params = [], int|string $id = 1): TestResponse
 {
     return test()->withHeaders(['Authorization' => "Bearer {$key}"])
-        ->postJson('https://'.$workspace->host().'/mcp', ['jsonrpc' => '2.0', 'id' => $id, 'method' => $method, 'params' => (object) $params]);
+        ->postJson($workspace->url().'/mcp', ['jsonrpc' => '2.0', 'id' => $id, 'method' => $method, 'params' => (object) $params]);
 }
 
 /**

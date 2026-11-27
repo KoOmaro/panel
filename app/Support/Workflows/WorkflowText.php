@@ -6,7 +6,7 @@ use App\Models\WorkflowRun;
 
 final class WorkflowText
 {
-    private const PLACEHOLDER = '/\{\{\s*([a-z_]+(?:\.[A-Za-z0-9_.-]+)?)\s*\}\}/';
+    private const PLACEHOLDER = '/\{\{\s*([a-z_][a-z0-9_]*(?:\.[A-Za-z0-9_.-]+)?)\s*\}\}/';
 
     public static function render(string $text, WorkflowRun $run, bool $encode = false): string
     {
@@ -75,20 +75,40 @@ final class WorkflowText
             'trigger' => $run->trigger['summary'] ?? '',
             'machine' => (string) ($data['machine'] ?? ''),
             'service' => (string) ($data['service'] ?? ''),
-            'run_url' => 'https://'.$workflow->workspace->host()."/workflows/{$workflow->id}?run={$run->id}",
+            'run_url' => $workflow->workspace->url("/workflows/{$workflow->id}?run={$run->id}"),
         ];
         $agent = self::lastAgent($run);
         $values['agent.summary'] = $agent['summary'] ?? '';
         $values['agent.pr'] = $agent['pr'] ?? '';
 
-        return function (string $key) use ($values, $data): string {
-            $value = str_starts_with($key, 'data.') ? data_get($data, substr($key, 5)) : ($values[$key] ?? null);
+        $n8n = fn () => self::lastN8nResponse($run);
+
+        return function (string $key) use ($values, $data, $n8n): string {
+            $value = match (true) {
+                str_starts_with($key, 'data.') => data_get($data, substr($key, 5)),
+                $key === 'n8n' => $n8n(),
+                str_starts_with($key, 'n8n.') => data_get($n8n(), substr($key, 4)),
+                default => $values[$key] ?? null,
+            };
             if ($value === null) {
                 return '';
             }
 
             return is_scalar($value) ? (string) $value : (json_encode($value) ?: '');
         };
+    }
+
+    /** What the latest finished n8n step got back from n8n. */
+    public static function lastN8nResponse(WorkflowRun $run): mixed
+    {
+        $steps = collect($run->graph['nodes'] ?? [])->where('kind', 'n8n')->pluck('id')->all();
+        $last = collect($run->steps ?? [])
+            ->only($steps)
+            ->filter(fn (array $step) => isset($step['finishedAt']) && array_key_exists('response', $step))
+            ->sortBy('finishedAt')
+            ->last();
+
+        return $last['response'] ?? null;
     }
 
     /** @return array{summary?: string, pr?: string|null} */
@@ -119,6 +139,7 @@ final class WorkflowText
             'promote' => 'Promote',
             'check_monitor' => 'Check monitor',
             'http' => 'HTTP request',
+            'n8n' => 'Run n8n workflow',
             'alert' => 'Send alert',
             'wait' => 'Wait',
             'branch' => 'If',

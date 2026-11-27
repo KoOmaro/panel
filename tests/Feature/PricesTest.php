@@ -12,7 +12,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function pricesWelcomeUrl(Workspace $workspace): string
 {
-    return 'https://'.$workspace->host().'/welcome';
+    return $workspace->url().'/welcome';
 }
 
 test('without prices the panel shows plans and usage with no price', function () {

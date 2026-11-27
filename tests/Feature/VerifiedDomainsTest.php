@@ -16,7 +16,7 @@ beforeEach(function () {
 
 function vdHost(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function vdSecurity(Workspace $workspace, ?User $user = null): TestResponse

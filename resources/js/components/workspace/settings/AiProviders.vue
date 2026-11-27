@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { router, useForm } from '@inertiajs/vue3';
+import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ArrowUpRight } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { useSelfHosted } from '@/composables/useSelfHosted';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
 import AiBrandIcon from '@/components/workspace/AiBrandIcon.vue';
 import Tile from '@/components/workspace/Tile.vue';
 import {
@@ -14,9 +15,11 @@ import {
 import { appButtonClasses } from '@/lib/appButton';
 import type { AiBrand } from '@/lib/aiBrands';
 import { SolarPlug as Plug, SolarSparkles as Sparkles } from '@/lib/solarIcons';
+import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
+import aiRoutes from '@/routes/workspace/settings/ai';
 
 export type AiProvider = {
-    provider: 'anthropic' | 'openai' | 'custom';
+    provider: 'anthropic' | 'openai' | 'custom' | 'openrouter' | 'ollama';
     label: string;
     defaultModel: string;
     connected: boolean;
@@ -25,13 +28,35 @@ export type AiProvider = {
     baseUrl: string | null;
     by: string | null;
     connectedAt: string | null;
+    accountId?: number | null;
+    fallbacks?: string[];
 };
+
+const ORDER: AiProvider['provider'][] = [
+    'anthropic',
+    'openai',
+    'openrouter',
+    'ollama',
+    'custom',
+];
 
 const props = defineProps<{
     providers: AiProvider[];
     agentUses: string;
     canManage: boolean;
 }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
+
+const listed = computed(() =>
+    [...props.providers].sort(
+        (a, b) => ORDER.indexOf(a.provider) - ORDER.indexOf(b.provider),
+    ),
+);
+const logos: Partial<Record<AiProvider['provider'], string>> = {
+    openrouter: 'openrouter',
+    ollama: 'ollama',
+};
 
 const brands: Partial<Record<AiProvider['provider'], AiBrand>> = {
     anthropic: 'claude',
@@ -68,7 +93,24 @@ const about: Record<
         placeholder: 'sk-or-v1-…',
         model: 'Model',
     },
+    openrouter: {
+        name: 'OpenRouter',
+        uses: 'Ask AI, server fixes and OpenCode',
+        keysUrl: 'https://openrouter.ai/settings/keys',
+        placeholder: 'sk-or-v1-…',
+        model: 'Default model',
+    },
+    ollama: {
+        name: 'Ollama',
+        uses: 'Ask AI, server fixes and OpenCode on your models',
+        keysUrl: null,
+        placeholder: 'Optional',
+        model: 'Default model',
+    },
 };
+
+const addressed = (p: AiProvider | null): boolean =>
+    p?.provider === 'custom' || p?.provider === 'ollama';
 
 function host(url: string | null): string {
     try {
@@ -106,11 +148,19 @@ function save(): void {
     const p = current.value;
     if (!p) return;
     form.transform((data) =>
-        p.provider === 'custom' ? data : { key: data.key, model: data.model },
-    ).put(`/settings/ai/${p.provider}`, {
-        preserveScroll: true,
-        onSuccess: () => (openFor.value = null),
-    });
+        addressed(p) ? data : { key: data.key, model: data.model },
+    ).put(
+        onWorkspace(
+            aiRoutes.update({
+                workspace: page.props.workspace.slug,
+                provider: p.provider,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (openFor.value = null),
+        },
+    );
 }
 
 function removeKey(): void {
@@ -121,10 +171,18 @@ function removeKey(): void {
 
         return;
     }
-    router.delete(`/settings/ai/${p.provider}`, {
-        preserveScroll: true,
-        onSuccess: () => (openFor.value = null),
-    });
+    router.delete(
+        onWorkspace(
+            aiRoutes.destroy({
+                workspace: page.props.workspace.slug,
+                provider: p.provider,
+            }),
+        ).url,
+        {
+            preserveScroll: true,
+            onSuccess: () => (openFor.value = null),
+        },
+    );
 }
 
 function added(p: AiProvider): string {
@@ -156,7 +214,7 @@ const field =
     >
         <ul>
             <li
-                v-for="(p, i) in providers"
+                v-for="(p, i) in listed"
                 :key="p.provider"
                 :class="{ 'border-t border-(--ds-divider)': i > 0 }"
             >
@@ -174,6 +232,11 @@ const field =
                             v-if="brands[p.provider]"
                             :brand="brands[p.provider]!"
                             class="size-[18px]"
+                        />
+                        <BrandLogo
+                            v-else-if="logos[p.provider]"
+                            :name="logos[p.provider]"
+                            :size="18"
                         />
                         <Plug
                             v-else
@@ -256,6 +319,11 @@ const field =
                             :brand="brands[current.provider]!"
                             class="size-6"
                         />
+                        <BrandLogo
+                            v-else-if="logos[current.provider]"
+                            :name="logos[current.provider]"
+                            :size="24"
+                        />
                         <Plug
                             v-else
                             class="size-6 text-(--ds-text-muted)"
@@ -305,12 +373,16 @@ const field =
 
                 <div class="flex flex-col gap-4 px-6 pb-6">
                     <label
-                        v-if="current.provider === 'custom'"
+                        v-if="addressed(current)"
                         class="flex flex-col gap-1.5"
                     >
                         <span
                             class="text-[12px]/5 font-medium text-(--ds-text-muted)"
-                            >{{ $t('API address') }}</span
+                            >{{
+                                current.provider === 'ollama'
+                                    ? $t('Address')
+                                    : $t('API address')
+                            }}</span
                         >
                         <input
                             v-model="form.url"
@@ -319,7 +391,11 @@ const field =
                             autocomplete="off"
                             spellcheck="false"
                             :class="field"
-                            placeholder="https://openrouter.ai/api/v1"
+                            :placeholder="
+                                current.provider === 'ollama'
+                                    ? 'https://ollama.example.com'
+                                    : 'https://openrouter.ai/api/v1'
+                            "
                             required
                             :autofocus="!current.connected"
                         />
@@ -332,9 +408,13 @@ const field =
                             v-else
                             class="text-[12px]/4 text-(--ds-text-faint)"
                             >{{
-                                $t(
-                                    'Any API that works like OpenAI’s: OpenRouter, DeepSeek, Groq, Ollama and more.',
-                                )
+                                current.provider === 'ollama'
+                                    ? $t(
+                                          'Where Ollama listens. ServerOS lists its models from /api/tags to check it.',
+                                      )
+                                    : $t(
+                                          'Any API that works like OpenAI’s: DeepSeek, Groq, a vLLM server and more.',
+                                      )
                             }}<template v-if="selfHosted">
                                 {{
                                     $t(
@@ -349,9 +429,11 @@ const field =
                             class="flex items-center justify-between text-[12px]/5 font-medium text-(--ds-text-muted)"
                         >
                             {{
-                                current.connected
-                                    ? $t('Replace the key')
-                                    : $t('API key')
+                                current.provider === 'ollama'
+                                    ? $t('Token, if a proxy asks for one')
+                                    : current.connected
+                                      ? $t('Replace the key')
+                                      : $t('API key')
                             }}
                             <a
                                 v-if="about[current.provider].keysUrl"
@@ -376,10 +458,12 @@ const field =
                                     ? $t('Leave empty to keep it')
                                     : about[current.provider].placeholder
                             "
-                            :required="!current.connected"
-                            :autofocus="
+                            :required="
                                 !current.connected &&
-                                current.provider !== 'custom'
+                                current.provider !== 'ollama'
+                            "
+                            :autofocus="
+                                !current.connected && !addressed(current)
                             "
                         />
                         <span
@@ -399,7 +483,10 @@ const field =
                             spellcheck="false"
                             :class="field"
                             :placeholder="
-                                current.defaultModel || 'deepseek/deepseek-chat'
+                                current.defaultModel ||
+                                (current.provider === 'ollama'
+                                    ? $t('The first model it lists')
+                                    : 'deepseek/deepseek-chat')
                             "
                             :required="current.provider === 'custom'"
                         />
@@ -409,16 +496,32 @@ const field =
                             >{{ form.errors.model }}</span
                         >
                     </label>
+                    <ul
+                        v-if="confirmingRemove && current.fallbacks?.length"
+                        class="flex flex-col gap-1 rounded-[8px] border-[0.5px] border-[rgba(240,148,60,0.25)] bg-[rgba(240,148,60,0.07)] px-3 py-2.5 text-[12.5px]/[18px] text-(--ds-text)"
+                        role="alert"
+                    >
+                        <li v-for="line in current.fallbacks" :key="line">
+                            {{ line }}
+                        </li>
+                    </ul>
+                    <Link
+                        v-if="current.accountId"
+                        :href="
+                            workspacePath(`/integrations/${current.accountId}`)
+                        "
+                        class="inline-flex items-center gap-0.5 self-start text-[12.5px]/5 text-(--ds-text-muted) hover:text-(--ds-text)"
+                        >{{ $t('Its models, token use and a test prompt')
+                        }}<ArrowUpRight class="size-3"
+                    /></Link>
                     <p class="text-[12px]/4 text-(--ds-text-faint)">
                         {{
                             $t(
                                 'Checked with :name before it’s saved, then kept encrypted. It’s never shown again.',
                                 {
-                                    name:
-                                        current.provider === 'custom'
-                                            ? host(form.url) ||
-                                              $t('the provider')
-                                            : about[current.provider].name,
+                                    name: addressed(current)
+                                        ? host(form.url) || $t('the provider')
+                                        : about[current.provider].name,
                                 },
                             )
                         }}

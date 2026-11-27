@@ -4,12 +4,10 @@ import { computed } from 'vue';
 import { SolarLayoutDashboard as LayoutDashboard } from '@/lib/solarIcons';
 import Tile from '@/components/workspace/Tile.vue';
 import { useAppearance } from '@/composables/useAppearance';
-import { useNavLayout } from '@/composables/useNavLayout';
 import { forcedAppearance } from '@/lib/workspaceTheme';
 import type { WorkspaceTheme } from '@/lib/workspaceTheme';
 
 const { appearance, updateAppearance } = useAppearance();
-const { layout, setLayout } = useNavLayout();
 const page = usePage<{ workspaceTheme?: WorkspaceTheme | null }>();
 const forced = computed(() =>
     forcedAppearance(page.props.workspaceTheme?.css ?? null),
@@ -21,13 +19,12 @@ const forced = computed(() =>
 
     <Tile
         id="appearance"
-        :title="$t('Appearance')"
-        :description="$t('How the dashboard looks for you.')"
+        :title="$t('Theme')"
+        :description="$t('How the dashboard looks for you, on this device.')"
         :icon="LayoutDashboard"
     >
         <div class="flex flex-col gap-6">
             <div class="flex flex-col gap-2">
-                <span class="text-[13px]/5 font-medium">{{ $t('Theme') }}</span>
                 <div
                     class="ds-segments self-start"
                     role="group"
@@ -57,37 +54,6 @@ const forced = computed(() =>
                             : $t(
                                   'This workspace’s theme is made for light mode, so the dashboard stays light here.',
                               )
-                    }}
-                </span>
-            </div>
-            <div class="flex flex-col gap-2">
-                <span class="text-[13px]/5 font-medium">{{
-                    $t('Navigation')
-                }}</span>
-                <div
-                    class="ds-segments self-start"
-                    role="group"
-                    :aria-label="$t('Navigation')"
-                >
-                    <button
-                        v-for="[value, label] in [
-                            ['top', 'Top bar'],
-                            ['sidebar', 'Sidebar'],
-                        ] as const"
-                        :key="value"
-                        type="button"
-                        class="cursor-pointer"
-                        :aria-pressed="layout === value"
-                        @click="setLayout(value)"
-                    >
-                        {{ $t(label) }}
-                    </button>
-                </div>
-                <span class="text-xs/4 text-(--ds-text-muted)">
-                    {{
-                        $t(
-                            'Where the dashboard’s sections go: tabs along the top, or a sidebar down the left. Phones always use the menu.',
-                        )
                     }}
                 </span>
             </div>

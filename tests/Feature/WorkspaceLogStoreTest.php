@@ -11,7 +11,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 function logStorageUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->subdomain().'/settings/log-storage'.$path;
+    return $workspace->url().'/settings/log-storage'.$path;
 }
 
 function logStorageForm(array $overrides = []): array

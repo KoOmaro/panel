@@ -3,6 +3,7 @@
 use App\Enums\Plan;
 use App\Models\Activity;
 use App\Models\ImpersonationSession;
+use App\Models\Machine;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Support\Activity\ActivityGroups;
@@ -38,7 +39,7 @@ function shownActions(Workspace $workspace, array $query = [], ?User $as = null)
 {
     $actions = [];
     test()->actingAs($as ?? $workspace->owner)
-        ->get('https://'.$workspace->host().'/activity'.($query ? '?'.http_build_query($query) : ''))
+        ->get($workspace->url().'/activity'.($query ? '?'.http_build_query($query) : ''))
         ->assertOk()
         ->assertInertia(function (Assert $page) use (&$actions) {
             $actions = array_column($page->toArray()['props']['entries'], 'action');
@@ -62,7 +63,7 @@ test('Activity filters by person, including people who left and accounts that ar
     logged($workspace, 'machine.offline');
 
     $people = [];
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(function (Assert $page) use (&$people) {
             $people = $page->toArray()['props']['people'];
         });
@@ -78,7 +79,7 @@ test('Activity filters by person, including people who left and accounts that ar
         ->and(shownActions($workspace, ['who' => 'system']))->toBe(['machine.offline'])
         ->and(shownActions($workspace, ['who' => 'people']))->toHaveCount(5);
 
-    $this->get('https://'.$workspace->host().'/activity?person='.User::factory()->create()->id)->assertSessionHasErrors('person');
+    $this->get($workspace->url().'/activity?person='.User::factory()->create()->id)->assertSessionHasErrors('person');
 });
 
 test('Activity filters by kind of action and by day in the reader’s time zone', function () {
@@ -100,7 +101,7 @@ test('Activity filters by kind of action and by day in the reader’s time zone'
         ->and(shownActions($workspace, ['from' => '2026-05-08', 'to' => '2026-05-08']))->toBe(['backup_destination.add', 'service.restart'])
         ->and(shownActions($workspace, ['to' => '2026-04-30']))->toBe(['plan.changed']);
 
-    $this->get('https://'.$workspace->host().'/activity?from=2026-05-08&to=2026-05-01')->assertSessionHasErrors('to');
+    $this->get($workspace->url().'/activity?from=2026-05-08&to=2026-05-01')->assertSessionHasErrors('to');
 });
 
 test('every action the app records is in a group', function () {
@@ -124,7 +125,7 @@ test('owners and admins see where an entry came from, never staff’s own IP or 
     logged($workspace, 'service.restart', ['user_id' => $workspace->owner_id, 'source' => 'web', 'ip' => '203.0.113.4', 'user_agent' => CHROME_MAC, 'request_id' => 'abcdef12-3456']);
     loggedBySupport($workspace, 'console.unlock', ['source' => 'web', 'ip' => '198.51.100.9', 'user_agent' => 'StaffBrowser/1.0', 'request_id' => 'feed0000-1111']);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page
             ->where('canExport', true)
             ->where('entries.0.user.name', 'ServerOS Support')
@@ -132,11 +133,11 @@ test('owners and admins see where an entry came from, never staff’s own IP or 
             ->where('entries.1.origin.device', 'Chrome on macOS')
             ->where('entries.1.origin.ip', '203.0.113.4'));
 
-    $page = $this->actingAs($viewer)->get('https://'.$workspace->host().'/activity');
+    $page = $this->actingAs($viewer)->get($workspace->url().'/activity');
     $page->assertInertia(fn (Assert $p) => $p->where('canExport', false)->where('entries.0.origin', null)->where('entries.1.origin', null));
     expect($page->getContent())->not->toContain('203.0.113.4')->not->toContain('198.51.100.9');
 
-    $csv = $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity/export')->streamedContent();
+    $csv = $this->actingAs($workspace->owner)->get($workspace->url().'/activity/export')->streamedContent();
     expect($csv)
         ->toContain('203.0.113.4')->toContain(CHROME_MAC)->toContain('abcdef12-3456')
         ->toContain('"ServerOS Support",,yes,web,,console.unlock')
@@ -148,16 +149,16 @@ test('the export takes the filters on screen, and says so in the log', function 
     logged($workspace, 'service.restart', ['user_id' => $workspace->owner_id]);
     logged($workspace, 'backup.run', ['user_id' => $workspace->owner_id]);
 
-    $csv = $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/activity/export?group=backups&tz=Europe/Berlin')->streamedContent();
+    $csv = $this->actingAs($workspace->owner)->get($workspace->url().'/activity/export?group=backups&tz=Europe/Berlin')->streamedContent();
     expect($csv)->toContain('backup.run')->not->toContain('service.restart');
 
-    $this->get('https://'.$workspace->host().'/activity?group=security')
+    $this->get($workspace->url().'/activity?group=security')
         ->assertInertia(fn (Assert $page) => $page
             ->where('entries.0.action', 'activity.export')
             ->where('entries.0.verb', 'exported the activity log')
             ->where('entries.0.after', 'with filters'));
 
-    $this->get('https://'.$workspace->host().'/activity/export')->streamedContent();
+    $this->get($workspace->url().'/activity/export')->streamedContent();
     expect(Activity::query()->where('action', 'activity.export')->latest('id')->first()->meta)->toBeNull();
 });
 
@@ -182,7 +183,7 @@ test('activity is kept as long as the workspace’s plan says', function () {
         ->and($kept($pro))->toBe(['30', '100'])
         ->and($kept($business))->toBe(['30', '100', '200']);
 
-    $this->actingAs($business->owner)->get('https://'.$business->host().'/activity')
+    $this->actingAs($business->owner)->get($business->url().'/activity')
         ->assertInertia(fn (Assert $page) => $page->where('keepDays', 365));
     expect(mcpCall($pro, mcpKey($pro), 'get_activity')['data']['keepDays'])->toBe(180);
 });
@@ -207,4 +208,40 @@ test('get_activity finds ServerOS Support, kinds of action, and people whose acc
         ->and(array_column($entries(['person' => 'ZED@example.com']), 'action'))->toBe(['workflow.add'])
         ->and(array_column($entries(['person' => 'zed']), 'action'))->toBe(['workflow.add'])
         ->and(mcpCall($workspace, $key, 'get_activity', ['person' => 'Nobody'])['error'])->toBeTrue();
+});
+
+test('Activity search finds words from what happened, who did it and the machine', function () {
+    $workspace = Workspace::factory()->create();
+    $grace = User::factory()->create(['name' => 'Grace']);
+    $machine = Machine::factory()->for($workspace)->create(['name' => 'db-1']);
+
+    logged($workspace, 'service.restart', ['subject' => 'shop']);
+    logged($workspace, 'service.stop', ['subject' => 'queue', 'user_id' => $grace->id, 'actor_name' => 'Grace']);
+    logged($workspace, 'backup.run', ['subject' => 'postgres', 'machine_id' => $machine->id]);
+    logged($workspace, 'monitor.add', ['subject' => 'Docs']);
+
+    expect(shownActions($workspace, ['q' => 'restarted']))->toBe(['service.restart'])
+        ->and(shownActions($workspace, ['q' => 'stopped']))->toBe(['service.stop'])
+        ->and(shownActions($workspace, ['q' => 'grace']))->toBe(['service.stop'])
+        ->and(shownActions($workspace, ['q' => 'db-1']))->toBe(['backup.run'])
+        ->and(shownActions($workspace, ['q' => 'docs']))->toBe(['monitor.add'])
+        ->and(shownActions($workspace, ['q' => 'nothing here']))->toBe([]);
+
+    test()->actingAs($workspace->owner)->get($workspace->url().'/activity?q=docs')
+        ->assertInertia(fn (Assert $page) => $page->where('filters.q', 'docs'));
+});
+
+test('Activity says where each entry came from, naming the workflow that did it', function () {
+    $workspace = Workspace::factory()->create();
+
+    logged($workspace, 'service.restart', ['subject' => 'api', 'source' => 'workflow', 'meta' => ['via' => 'workflow', 'workflow' => 'Restart on outage']]);
+    logged($workspace, 'updates.rollout', ['user_id' => $workspace->owner_id, 'source' => 'mcp', 'meta' => ['via' => 'mcp', 'client' => 'Claude', 'machines' => 3]]);
+    loggedBySupport($workspace, 'machine.reboot');
+
+    test()->actingAs($workspace->owner)->get($workspace->url().'/activity')
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('entries.0.via', ['source' => 'support', 'client' => null, 'workflow' => null])
+            ->where('entries.1.via', ['source' => 'mcp', 'client' => 'Claude', 'workflow' => null])
+            ->where('entries.2.via', ['source' => 'workflow', 'client' => null, 'workflow' => 'Restart on outage'])
+            ->where('entries.2.user', null));
 });

@@ -25,7 +25,7 @@ function httpsMachine(string $version = '0.1.1-pre.41'): array
         'facts' => ['docker_version' => '27.0.1'],
     ])->save();
 
-    return [$workspace, 'https://'.$workspace->host().'/machines/'.$machine->id];
+    return [$workspace, $workspace->url().'/machines/'.$machine->id];
 }
 
 /** @return array<string, mixed>|null */

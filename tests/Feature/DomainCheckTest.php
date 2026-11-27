@@ -28,7 +28,7 @@ function domainCheck(): array
     $workspace = Workspace::factory()->create();
     $machine = Machine::factory()->for($workspace)->create(['ip_address' => '203.0.113.7']);
 
-    return [$workspace, 'https://'.$workspace->host().'/machines/'.$machine->id.'/domain-check'];
+    return [$workspace, $workspace->url().'/machines/'.$machine->id.'/domain-check'];
 }
 
 test('a domain is ready once its A record points at the machine', function () {

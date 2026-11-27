@@ -40,7 +40,7 @@ function lsrLine(string $connection, Machine $machine, string $message, array $o
 
 function lsrUrl(Workspace $workspace, string $path = '/logs'): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 function lsrBreak(WorkspaceLogStore $store): void

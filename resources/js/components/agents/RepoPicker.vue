@@ -8,6 +8,8 @@ import {
     PopoverTrigger,
 } from 'reka-ui';
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import githubRoutes from '@/routes/workspace/github';
 import GitHubMark from './GitHubMark.vue';
 
 export type Repository = {
@@ -22,7 +24,10 @@ const emit = defineEmits<{
     pick: [repo: string, defaultBranch: string | null];
 }>();
 
-const page = usePage<{ githubApp: boolean }>();
+const page = usePage<{ githubApp: boolean; workspace: { slug: string } }>();
+const connectHref = computed(
+    () => onWorkspace(githubRoutes.connect(page.props.workspace.slug)).url,
+);
 
 const open = ref(false);
 const search = ref('');
@@ -37,10 +42,14 @@ async function load(): Promise<void> {
     if (github.value || loading.value || !page.props.githubApp) return;
     loading.value = true;
     try {
-        const response = await fetch('/github/repositories', {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' },
-        });
+        const response = await fetch(
+            onWorkspace(githubRoutes.repositories(page.props.workspace.slug))
+                .url,
+            {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            },
+        );
         if (response.ok) github.value = await response.json();
     } catch {
     } finally {
@@ -222,7 +231,7 @@ const row =
 
                     <a
                         v-else-if="page.props.githubApp"
-                        href="/settings/github/connect"
+                        :href="connectHref"
                         class="m-1 flex items-center gap-3 rounded-[10px] border border-(--ds-border) p-3 text-left transition-colors hover:bg-(--ds-hover)"
                     >
                         <GitHubMark class="size-5 shrink-0" />

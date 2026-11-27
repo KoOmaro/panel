@@ -12,7 +12,7 @@ test('pages share the workspaces the user belongs to', function () {
     Workspace::factory()->create(['name' => 'Someone else', 'slug' => 'elsewhere']);
 
     $this->actingAs($user)
-        ->get('https://'.$northwind->host().'/')
+        ->get($northwind->url().'/')
         ->assertInertia(fn (Assert $page) => $page
             ->has('workspaces', 2)
             ->where('workspaces.0', [
@@ -21,7 +21,7 @@ test('pages share the workspaces the user belongs to', function () {
                 'slug' => 'acme',
                 'host' => $acme->host(),
                 'url' => $acme->url(),
-                'switchUrl' => 'https://acme.'.config('app.domain').'/switch',
+                'switchUrl' => 'https://cloud.'.config('app.domain').'/acme/switch',
                 'logoUrl' => null,
                 'pinnedAt' => null,
             ])
@@ -77,7 +77,7 @@ test('switching lands on the workspace home with a toast', function () {
     $workspace = Workspace::factory()->create(['name' => 'Acme', 'slug' => 'acme']);
 
     $this->actingAs($workspace->owner)
-        ->get('https://acme.'.config('app.domain').'/switch')
+        ->get('https://cloud.'.config('app.domain').'/acme/switch')
         ->assertRedirect($workspace->url());
 
     $this->actingAs($workspace->owner)
@@ -89,6 +89,6 @@ test('you can only switch into workspaces you belong to', function () {
     Workspace::factory()->create(['slug' => 'acme']);
 
     $this->actingAs(User::factory()->create())
-        ->get('https://acme.'.config('app.domain').'/switch')
+        ->get('https://cloud.'.config('app.domain').'/acme/switch')
         ->assertForbidden();
 });

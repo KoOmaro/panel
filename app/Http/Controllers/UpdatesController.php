@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\MachineResource;
 use App\Models\Activity;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\MachineGroup;
 use App\Models\MachinePackageUpdate;
+use App\Models\MachineVulnerability;
 use App\Models\PackageRollout;
+use App\Models\Vulnerability;
 use App\Models\Workspace;
 use App\Support\Audit\Audited;
 use App\Support\DaemonJobQueue;
@@ -24,24 +27,32 @@ use Inertia\Response;
 
 class UpdatesController extends Controller
 {
+    /** Packages that usually only take effect after the machine restarts: a guess from the name, not a reading. */
+    private const string RESTART_PATTERN = '/^(linux-(image|modules|headers|generic|virtual|kvm|aws|azure|gcp|oracle|lowlatency)|kernel(-core|-modules)?$|libc6$|glibc$|dbus$|dbus-broker$|intel-microcode$|amd64-microcode$|linux-firmware$)/';
+
     public function index(Request $request, Workspace $workspace): Response
     {
-        $machines = $workspace->machines()->whereNotNull('uid')->orderBy('name')->get();
-        $rows = MachinePackageUpdate::query()->whereIn('machine_id', $machines->pluck('id'))
+        $machines = $workspace->machines()->orderBy('name')->get();
+        $ids = $machines->pluck('id');
+        $rows = MachinePackageUpdate::query()->whereIn('machine_id', $ids)
             ->orderBy('name')->get(['machine_id', 'name', 'installed', 'candidate', 'security']);
+        $findings = MachineVulnerability::query()->whereIn('machine_id', $ids)->whereNull('resolved_at')->with('vulnerability')->get();
         $checking = DaemonJob::query()
-            ->whereIn('machine_id', $machines->pluck('id'))->whereIn('kind', PackageUpdates::KINDS)
+            ->whereIn('machine_id', $ids)->whereIn('kind', PackageUpdates::KINDS)
             ->whereIn('state', ['queued', 'running'])->where('updated_at', '>=', now()->subMinutes(DaemonJob::STALE_AFTER_MINUTES))
             ->pluck('machine_id')->unique()->values();
+        $packages = self::packages($machines, $rows, $findings);
 
         return Inertia::render('workspace/Updates', [
             'workspace' => $workspace->toPageProps(),
             'summary' => self::summary($machines, $rows),
+            'security' => self::security($rows, $findings, $machines),
             'machines' => $machines->map(fn (Machine $machine) => self::machine($machine))->values()->all(),
-            'packages' => self::packages($machines, $rows),
+            'packages' => $packages,
             'checking' => $checking->all(),
             'rollouts' => PackageRollout::query()->where('workspace_id', $workspace->id)->with('creator:id,name')
-                ->latest('id')->limit(30)->get()->map(fn (PackageRollout $r) => PackageRollouts::summary($r))->all(),
+                ->latest()->latest('id')->limit(30)->get()->map(fn (PackageRollout $r) => PackageRollouts::summary($r))->all(),
+            'rollout' => self::current($workspace),
             'groups' => $workspace->machineGroups()->orderBy('name')->get()
                 ->map(fn (MachineGroup $group) => ['id' => $group->id, 'name' => $group->name, 'machineIds' => $machines->where('machine_group_id', $group->id)->pluck('id')->values()->all()])
                 ->filter(fn (array $group) => $group['machineIds'] !== [])->values()->all(),
@@ -49,6 +60,20 @@ class UpdatesController extends Controller
             'commandsEnabled' => (bool) config('daemon.commands_enabled'),
             'view' => in_array($request->query('view'), ['packages', 'machines', 'containers', 'rollouts'], true) ? $request->query('view') : null,
         ]);
+    }
+
+    /**
+     * The rollout the summary card follows: one still going, else the newest.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function current(Workspace $workspace): ?array
+    {
+        $rollout = PackageRollout::query()->where('workspace_id', $workspace->id)
+            ->orderByRaw("case when state in ('running', 'pending', 'paused') then 0 else 1 end")
+            ->latest('id')->first();
+
+        return $rollout === null ? null : PackageRollouts::detail($rollout);
     }
 
     #[Audited]
@@ -142,6 +167,7 @@ class UpdatesController extends Controller
             'total' => $machines->count(),
             'unchecked' => $machines->count() - $checked->count(),
             'rebootRequired' => $machines->where('reboot_required', true)->count(),
+            'held' => $machines->flatMap(fn (Machine $machine) => $machine->held_packages ?? [])->unique()->count(),
             'checkedAt' => $checked->min('updates_checked_at')?->toIso8601String(),
             'newestCheck' => $checked->max('updates_checked_at')?->toIso8601String(),
         ];
@@ -158,6 +184,7 @@ class UpdatesController extends Controller
             'os' => PackageUpdates::osName($machine),
             'release' => PackageUpdates::releaseKey($machine),
             'online' => $machine->isOnline(),
+            'connection' => MachineResource::connection($machine),
             'groupId' => $machine->machine_group_id,
             'updates' => $machine->updates_count,
             'security' => $machine->security_updates_count,
@@ -173,9 +200,10 @@ class UpdatesController extends Controller
     /**
      * @param  Collection<int, Machine>  $machines
      * @param  Collection<int, MachinePackageUpdate>  $rows
+     * @param  Collection<int, MachineVulnerability>|null  $findings
      * @return list<array<string, mixed>>
      */
-    public static function packages(Collection $machines, Collection $rows): array
+    public static function packages(Collection $machines, Collection $rows, ?Collection $findings = null): array
     {
         $byId = $machines->keyBy('id');
         $held = [];
@@ -184,8 +212,9 @@ class UpdatesController extends Controller
                 $held[$name][] = $machine->id;
             }
         }
+        $fixes = self::fixesByPackage($findings ?? collect());
 
-        $packages = $rows->groupBy('name')->map(function (Collection $group, string $name) use ($byId, $held) {
+        $packages = $rows->groupBy('name')->map(function (Collection $group, string $name) use ($byId, $held, $fixes) {
             $versions = $group->groupBy(fn (MachinePackageUpdate $row) => $row->candidate.'|'.PackageUpdates::releaseKey($byId[$row->machine_id]))
                 ->map(fn (Collection $same) => [
                     'version' => $same->first()->candidate,
@@ -202,15 +231,117 @@ class UpdatesController extends Controller
                 'versions' => $versions,
                 'installed' => $group->pluck('installed')->filter()->unique()->values()->all(),
                 'heldOn' => $held[$name] ?? [],
+                'on' => $group->unique('machine_id')->map(fn (MachinePackageUpdate $row) => [
+                    'id' => $row->machine_id,
+                    'installed' => $row->installed,
+                    'candidate' => $row->candidate,
+                ])->values()->all(),
+                'restartAfterInstall' => preg_match(self::RESTART_PATTERN, $name) === 1,
+                'fixes' => self::fixes(array_values($fixes[$name] ?? [])),
             ];
         });
 
         foreach ($held as $name => $ids) {
             if (! $packages->has($name)) {
-                $packages->put($name, ['name' => $name, 'security' => false, 'machineIds' => [], 'versions' => [], 'installed' => [], 'heldOn' => $ids]);
+                $packages->put($name, ['name' => $name, 'security' => false, 'machineIds' => [], 'versions' => [], 'installed' => [], 'heldOn' => $ids, 'on' => [], 'restartAfterInstall' => false, 'fixes' => null]);
             }
         }
 
-        return array_values($packages->sortBy([fn ($a, $b) => $b['security'] <=> $a['security'], fn ($a, $b) => count($b['machineIds']) <=> count($a['machineIds']), fn ($a, $b) => strcmp($a['name'], $b['name'])])->all());
+        return array_values($packages->sortBy([
+            fn ($a, $b) => $b['security'] <=> $a['security'],
+            fn ($a, $b) => self::worst($a['fixes']) <=> self::worst($b['fixes']),
+            fn ($a, $b) => count($b['machineIds']) <=> count($a['machineIds']),
+            fn ($a, $b) => strcmp($a['name'], $b['name']),
+        ])->all());
+    }
+
+    /**
+     * Each known vulnerability under every package name it covers.
+     *
+     * @param  Collection<int, MachineVulnerability>  $findings
+     * @return array<string, array<int, Vulnerability>>
+     */
+    private static function fixesByPackage(Collection $findings): array
+    {
+        $by = [];
+        foreach ($findings as $finding) {
+            foreach (array_unique([$finding->source, ...($finding->packages ?? [])]) as $name) {
+                $by[$name][$finding->vulnerability_id] = $finding->vulnerability;
+            }
+        }
+
+        return $by;
+    }
+
+    /**
+     * @param  list<Vulnerability>  $vulnerabilities
+     * @return array{severity: string, count: int, exploited: int, epss: float|null, cves: list<array<string, mixed>>}|null
+     */
+    private static function fixes(array $vulnerabilities): ?array
+    {
+        if ($vulnerabilities === []) {
+            return null;
+        }
+        usort($vulnerabilities, fn (Vulnerability $a, Vulnerability $b) => [$a->rank(), -($a->cvss ?? 0), $a->cve] <=> [$b->rank(), -($b->cvss ?? 0), $b->cve]);
+        $order = array_flip(Vulnerability::SEVERITIES);
+        $worst = min(array_map(fn (Vulnerability $v) => $order[$v->severity] ?? 9, $vulnerabilities));
+        $epss = array_filter(array_map(fn (Vulnerability $v) => $v->epss, $vulnerabilities), fn (?float $e) => $e !== null);
+
+        return [
+            'severity' => Vulnerability::SEVERITIES[$worst] ?? 'unknown',
+            'count' => count($vulnerabilities),
+            'exploited' => count(array_filter($vulnerabilities, fn (Vulnerability $v) => $v->exploited)),
+            'epss' => $epss === [] ? null : max($epss),
+            'cves' => array_map(fn (Vulnerability $v) => [
+                'cve' => $v->cve,
+                'title' => $v->title,
+                'severity' => $v->severity,
+                'cvss' => $v->cvss,
+                'epss' => $v->epss,
+                'exploited' => $v->exploited,
+                'url' => $v->url(),
+            ], array_slice($vulnerabilities, 0, 12)),
+        ];
+    }
+
+    /** @param  array{severity: string}|null  $fixes */
+    private static function worst(?array $fixes): int
+    {
+        return $fixes === null ? 9 : (int) (array_flip(Vulnerability::SEVERITIES)[$fixes['severity']] ?? 9);
+    }
+
+    /**
+     * Known vulnerabilities the waiting updates fix, by severity.
+     *
+     * @param  Collection<int, MachinePackageUpdate>  $rows
+     * @param  Collection<int, MachineVulnerability>  $findings
+     * @param  Collection<int, Machine>  $machines
+     * @return array<string, mixed>
+     */
+    private static function security(Collection $rows, Collection $findings, Collection $machines): array
+    {
+        $security = $rows->where('security', true);
+        $vulnerabilities = $findings->pluck('vulnerability')->unique('id');
+        $fixes = self::fixesByPackage($findings);
+        $names = $rows->map(fn (MachinePackageUpdate $row) => $row->name)->unique()->values();
+        $levels = [];
+        foreach (['critical', 'high', 'medium', 'low'] as $severity) {
+            $named = $names->filter(fn (string $name) => collect($fixes[$name] ?? [])
+                ->contains(fn (Vulnerability $v) => $v->severity === $severity))->values()->all();
+            $levels[$severity] = [
+                'cves' => $vulnerabilities->where('severity', $severity)->count(),
+                'exploited' => $vulnerabilities->where('severity', $severity)->where('exploited', true)->count(),
+                'packages' => $named,
+            ];
+        }
+
+        return [
+            'updates' => $security->count(),
+            'packages' => $security->pluck('name')->unique()->count(),
+            'cves' => $vulnerabilities->count(),
+            'exploited' => $vulnerabilities->where('exploited', true)->count(),
+            'levels' => $levels,
+            'scannedAt' => $machines->max('vulns_scanned_at')?->toIso8601String(),
+        ];
     }
 }

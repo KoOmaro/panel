@@ -8,11 +8,13 @@ import {
     PopoverTrigger,
 } from 'reka-ui';
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import githubRoutes from '@/routes/workspace/github';
 
 const props = defineProps<{ repo: string; branch: string }>();
 const emit = defineEmits<{ pick: [branch: string] }>();
 
-const page = usePage<{ githubApp: boolean }>();
+const page = usePage<{ githubApp: boolean; workspace: { slug: string } }>();
 
 const open = ref(false);
 const search = ref('');
@@ -28,7 +30,13 @@ async function load(): Promise<void> {
     const repo = props.repo;
     try {
         const response = await fetch(
-            `/github/repositories/${owner}/${name}/branches`,
+            onWorkspace(
+                githubRoutes.branches({
+                    workspace: page.props.workspace.slug,
+                    owner,
+                    repo: name,
+                }),
+            ).url,
             {
                 credentials: 'same-origin',
                 headers: { Accept: 'application/json' },

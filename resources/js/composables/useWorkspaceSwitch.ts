@@ -9,8 +9,14 @@ const switchingTo = ref<WorkspaceSummary | null>(null);
 export function useWorkspaceSwitch() {
     function switchTo(workspace: WorkspaceSummary): void {
         switchingTo.value = workspace;
+        const sameHost =
+            new URL(workspace.switchUrl, window.location.href).origin ===
+            window.location.origin;
         window.setTimeout(
-            () => window.location.assign(workspace.switchUrl),
+            () =>
+                sameHost
+                    ? router.visit(workspace.switchUrl)
+                    : window.location.assign(workspace.switchUrl),
             SKELETON_MS,
         );
     }

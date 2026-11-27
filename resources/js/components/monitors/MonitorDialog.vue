@@ -6,6 +6,7 @@ import { trans } from 'laravel-vue-i18n';
 import { computed, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { every, intervals } from '@/components/monitors/monitors';
+import { workspacePath } from '@/lib/workspaceRoute';
 import type { MachineOption, Monitor } from '@/components/monitors/monitors';
 import {
     Dialog,
@@ -117,9 +118,9 @@ function submit(): void {
     };
 
     if (props.monitor) {
-        form.put(`/monitors/${props.monitor.id}`, options);
+        form.put(workspacePath(`/monitors/${props.monitor.id}`), options);
     } else {
-        form.post('/monitors', options);
+        form.post(workspacePath('/monitors'), options);
     }
 }
 

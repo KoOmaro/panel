@@ -45,7 +45,7 @@ function monitorWorkspace(?Plan $plan = Plan::Pro): Workspace
 
 function monitorsUrl(Workspace $workspace, string $path = '/monitors'): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 /** @param  array<string, mixed>  $overrides */
@@ -221,8 +221,8 @@ test('the monitors pages show status, uptime and history', function () {
     $this->actingAs($workspace->owner)->get(monitorsUrl($workspace, "/monitors/{$monitor->id}"))
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/MonitorShow')
-            ->where('uptime.day', 100)
-            ->has('chart.timestamps', 144)
+            ->where('figures.uptime30', 100)
+            ->has('chart.bars', 96)
             ->has('checks', 1)
             ->has('days', 90));
 
@@ -325,7 +325,7 @@ test('a service that stops or keeps restarting alerts, but not one stopped on pu
     expect($watch())->toBe(1)->and($watch())->toBe(0);
     Notification::assertSentTo($workspace->owner, MonitorAlert::class, fn (MonitorAlert $n) => $n->subject === 'shop stopped on web-1');
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/')
         ->assertInertia(fn ($page) => $page->where('issues.0.title', 'shop stopped on web-1')->where('issues.0.action', 'See its logs'));
 
     $set([$svc('docker:aaa', 'shop', 'running'), $svc('docker:ddd', 'worker', 'running')], ['docker:aaa' => $stat(), 'docker:ddd' => $stat(0)]);

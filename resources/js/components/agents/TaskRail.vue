@@ -1,13 +1,26 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import { PanelLeftClose, Search, SquarePen } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
 import { taskStatus, toneDot } from './agentTasks';
 import type { TaskRow } from './agentTasks';
 
 const props = defineProps<{ tasks: TaskRow[]; current: number }>();
 const emit = defineEmits<{ close: [] }>();
+
+const page = usePage<{ workspace: { slug: string } }>();
+const agentsHref = computed(
+    () => onWorkspace(agentsRoutes.index(page.props.workspace.slug)).url,
+);
+
+function taskHref(id: number): string {
+    return onWorkspace(
+        agentsRoutes.show({ workspace: page.props.workspace.slug, task: id }),
+    ).url;
+}
 
 const search = ref('');
 
@@ -47,7 +60,7 @@ const row =
     >
         <div class="flex h-14 shrink-0 items-center gap-1 px-2.5">
             <Link
-                href="/agents"
+                :href="agentsHref"
                 :class="[
                     row,
                     'flex-1 font-medium text-(--ds-text) hover:bg-(--ds-hover)',
@@ -94,7 +107,7 @@ const row =
                 <Link
                     v-for="task in group.tasks"
                     :key="task.id"
-                    :href="`/agents/${task.id}`"
+                    :href="taskHref(task.id)"
                     :class="[
                         row,
                         task.id === current

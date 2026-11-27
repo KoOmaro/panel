@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\WorkspaceDomain;
 use App\Support\Domains\CustomDomains;
+use App\Support\Workspaces\Dashboard;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -35,8 +36,11 @@ class ResolveCustomDomain
             self::rewrite($request, (string) config('app.domain'), $statusPath.(in_array($rest, ['', '/'], true) ? '' : $rest));
         } elseif ($target['purpose'] === WorkspaceDomain::STATUS || str_starts_with($path, '/status/')) {
             self::rewrite($request, (string) config('app.domain'));
+        } elseif (Dashboard::routes($request, $target['slug'], $path)) {
+            self::rewrite($request, Dashboard::host(), '/'.$target['slug'].($path === '/' ? '' : $path));
         } else {
-            self::rewrite($request, $target['slug'].'.'.config('app.domain'));
+            abort_if(! in_array(Dashboard::workspaceAt($request, $path), [null, $target['slug']], true), 404);
+            self::rewrite($request, Dashboard::host());
         }
 
         return $next($request);

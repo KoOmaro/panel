@@ -33,7 +33,7 @@ final class FixEvidence
                 'cpu_percent' => $machine->cpu_percent,
                 'memory_used_mb' => $machine->memory_used_mb,
                 'disk_percent' => $machine->disk_percent,
-                'disks' => $machine->disks,
+                'disks' => $machine->volumes() ?: null,
                 'os' => $machine->facts['os'] ?? null,
             ], fn ($v) => $v !== null),
             'service' => $service === null ? null : self::service($service),

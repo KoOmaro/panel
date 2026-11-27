@@ -29,7 +29,7 @@ test('you can’t delete your account while you own a workspace others are in', 
     expect($user->fresh())->not->toBeNull()
         ->and($workspace->fresh())->not->toBeNull();
 
-    $this->actingAs($user)->get('https://'.$workspace->host().'/settings/profile')
+    $this->actingAs($user)->get($workspace->url().'/settings/profile')
         ->assertInertia(fn (Assert $page) => $page
             ->where('deleteAccount.blocking', ['Acme'])
             ->where('deleteAccount.hasPassword', true));

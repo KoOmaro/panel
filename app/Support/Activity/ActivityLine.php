@@ -22,7 +22,15 @@ final class ActivityLine
         };
 
         match ($a->action) {
-            'service.deploy' => $set(($meta['retry'] ?? false) ? 'deployed again' : 'deployed', isset($meta['upload']) ? $t('from :file', ['file' => $meta['upload']]) : null),
+            'service.deploy' => $set(($meta['retry'] ?? false) ? 'deployed again' : (($meta['no_cache'] ?? false) ? 'rebuilt from scratch' : 'deployed'), match (true) {
+                isset($meta['upload']) => $t('from :file', ['file' => $meta['upload']]),
+                ($meta['trigger'] ?? null) === 'push' => $t('after a push to GitHub'),
+                ($meta['trigger'] ?? null) === 'hook' => $t('from its deploy hook'),
+                is_string($meta['trigger'] ?? null) && str_starts_with($meta['trigger'], 'hook:') => $t('from a :provider push to its deploy hook', ['provider' => match (substr($meta['trigger'], 5)) {
+                    'github' => 'GitHub', 'gitlab' => 'GitLab', 'gitea' => 'Gitea', 'bitbucket' => 'Bitbucket', default => substr($meta['trigger'], 5),
+                }]),
+                default => null,
+            }),
             'service.rollback' => $set('rolled back', trim((isset($meta['commit']) && $meta['commit'] !== '' ? $t('to :commit', ['commit' => $meta['commit']]) : '').(($meta['data'] ?? false) ? $t(', with its data') : '')) ?: null, 'warn'),
             'service.start' => $set('started'),
             'service.stop' => $set('stopped', null, 'warn'),
@@ -64,6 +72,7 @@ final class ActivityLine
             }),
             'machine.packages_add' => $set($t('installed :packages on', ['packages' => implode(', ', array_slice(array_map('strval', (array) ($meta['packages'] ?? [])), 0, 6))]), null, 'warn'),
             'machine.reboot' => $set('restarted', null, 'warn'),
+            'machine.docker_install' => $set('installed Docker on'),
             'machine.docker_prune' => $set('cleaned up Docker on', trim(implode(', ', array_filter([
                 (int) ($meta['images'] ?? 0) > 0 ? $t((int) $meta['images'] === 1 ? '1 image' : ':count images', ['count' => (string) $meta['images']]) : null,
                 (int) ($meta['volumes'] ?? 0) > 0 ? $t((int) $meta['volumes'] === 1 ? '1 volume' : ':count volumes', ['count' => (string) $meta['volumes']]) : null,
@@ -79,7 +88,36 @@ final class ActivityLine
                 ? $set($t('stopped counting the log file :name on', ['name' => (string) ($meta['name'] ?? '')]))
                 : $set($t('started counting the log file :name on', ['name' => (string) ($meta['name'] ?? '')])),
             'machine.tunnel' => $set(($meta['action'] ?? null) === 'up' ? 'put a Cloudflare Tunnel on' : 'took the Cloudflare Tunnel off', null, 'warn'),
+            'machine.tailnet_join' => $set('started putting', isset($meta['tailnet']) ? $t('on the :tailnet tailnet', ['tailnet' => (string) $meta['tailnet']]) : $t('on the tailnet')),
+            'machine.tailnet_key' => $set('made a one-off Tailscale key for', isset($meta['tailnet']) ? $t('to join :tailnet by hand', ['tailnet' => (string) $meta['tailnet']]) : null),
+            'machine.tailnet_leave' => $set('took', isset($meta['tailnet']) ? $t('off the :tailnet tailnet', ['tailnet' => (string) $meta['tailnet']]) : $t('off the tailnet'), 'warn'),
+            'machine.ssh_access.give' => $set('gave SSH access to', trim(implode(', ', array_filter([
+                isset($meta['login']) ? $t('as :login', ['login' => (string) $meta['login']]) : null,
+                isset($meta['expires']) ? $t('until :date', ['date' => (string) $meta['expires']]) : null,
+                ($meta['waiting_key'] ?? false) ? $t('waiting for their key') : null,
+            ]))) ?: null, 'warn'),
+            'machine.ssh_access.request' => $set('asked for SSH access to', isset($meta['login']) ? $t('as :login', ['login' => (string) $meta['login']]) : null),
+            'machine.ssh_access.key' => $set('added their SSH key to'),
+            'machine.ssh_access.withdraw' => $set('withdrew their request for SSH access to'),
+            'machine.ssh_access.approve' => $set('approved SSH access for', isset($meta['login']) ? $t('as :login', ['login' => (string) $meta['login']]) : null, 'warn'),
+            'machine.ssh_access.decline' => $set('turned down SSH access for'),
+            'machine.ssh_access.retry' => $set('tried again to give SSH access to'),
+            'machine.ssh_access.revoke' => $set('removed SSH access for'),
+            'machine.ssh_access.revoke_all' => $set('removed everyone’s SSH access to', isset($meta['count']) ? $t((int) $meta['count'] === 1 ? '(1 person)' : '(:count people)', ['count' => (string) $meta['count']]) : null, 'warn'),
+            'machine.ssh_access.failed' => $set('didn’t get SSH access', null, 'bad'),
+            'machine.ssh_access.end' => $set('lost SSH access'),
             'machine.remove' => $set('removed the machine', null, 'bad'),
+            'machine.readme_write' => $set('asked ServerOS to write the readme again for'),
+            'machine.server_create' => $set('made the server', trim(implode(' ', array_filter([
+                isset($meta['provider']) ? $t('at :provider', ['provider' => (string) $meta['provider']]) : null,
+                isset($meta['type'], $meta['location']) ? $t('(:type in :location)', ['type' => (string) $meta['type'], 'location' => (string) $meta['location']]) : null,
+            ]))) ?: null),
+            'machine.server_resize' => $set('started resizing', isset($meta['to']) ? $t(isset($meta['from']) ? 'from :from to :to' : 'to :to', ['from' => (string) ($meta['from'] ?? ''), 'to' => (string) $meta['to']]) : null, 'warn'),
+            'machine.server_reboot' => $set('restarted', isset($meta['provider']) ? $t('through :provider', ['provider' => (string) $meta['provider']]) : null, 'warn'),
+            'machine.server_power_cycle' => $set('power cycled', isset($meta['provider']) ? $t('through :provider', ['provider' => (string) $meta['provider']]) : null, 'warn'),
+            'machine.server_delete' => $set('deleted the server of', isset($meta['provider']) ? $t(($meta['kept'] ?? false) ? 'at :provider, and kept the machine' : 'at :provider, and removed the machine', ['provider' => (string) $meta['provider']]) : null, 'bad'),
+            'machine.snapshot_create' => $set('took a snapshot of', isset($meta['name']) ? $t('(:name)', ['name' => (string) $meta['name']]) : null),
+            'machine.snapshot_delete' => $set('deleted a snapshot of', isset($meta['name']) ? $t('(:name)', ['name' => (string) $meta['name']]) : null, 'warn'),
             'machine.data_clear' => $set(match (array_keys(array_intersect_key($meta, array_flip(['logs', 'metrics', 'services'])))) {
                 ['logs'] => isset($meta['skipped_services'])
                     ? $t((int) $meta['skipped_services'] === 1 ? 'deleted logs from 1 skipped service on' : 'deleted logs from :count skipped services on', ['count' => (string) $meta['skipped_services']])
@@ -202,12 +240,15 @@ final class ActivityLine
                 ? $set('renamed a service group to', $t('(was :name)', ['name' => $meta['from']]))
                 : $set('changed which services are in the group'),
             'service_group.delete' => $set('deleted the service group', null, 'warn'),
+            'billing.receipts' => $set('changed where billing receipts go'),
             'cloud.order' => $set('ordered the Cloud server', isset($meta['size']) ? $t('(:size)', ['size' => $meta['size']]) : null),
             'cloud.delete' => $set('deleted the Cloud server', null, 'warn'),
             'cloud.suspend' => $set('was stopped for a payment', null, 'bad'),
             'cloud.resume' => $set('was paid for and started again', null, 'good'),
             'cloud.throttle' => $set('used its transfer for the month and was slowed down', null, 'warn'),
             'cloud.end' => $set('was deleted when its cancelled subscription ran out', null, 'warn'),
+            'cloud.cancel' => $set('cancelled the Cloud server', isset($meta['until']) ? $t('(runs until :date)', ['date' => $meta['until']]) : null, 'warn'),
+            'cloud.keep' => $set('kept the Cloud server running'),
             'project.create' => $set('created the project'),
             'project.delete' => $set('deleted the project', null, 'warn'),
             'project.link' => $set('connected', $t('in a project')),
@@ -228,6 +269,9 @@ final class ActivityLine
             'project.preview_update' => $set('updated the preview for pull request', isset($meta['commit']) ? $t('to :commit', ['commit' => $meta['commit']]) : null),
             'project.preview_closed' => $set('removed the preview for pull request', null, 'warn'),
             'project.preview_skipped' => $set('skipped a preview for pull request', $meta['reason'] ?? null, 'warn'),
+            'github.code_repository' => $set('chose where the workspace’s code goes:', isset($meta['branch']) ? $t('on :branch', ['branch' => (string) $meta['branch']]) : null),
+            'github.machine_readme' => $set('added a machine’s readme to', isset($meta['number']) ? $t('as pull request #:number', ['number' => (string) $meta['number']]) : null),
+            'github.code_pull_request' => $set(($meta['updated'] ?? false) ? 'updated the workspace’s code in' : 'sent the workspace’s code to', isset($meta['number']) ? $t('as pull request #:number', ['number' => (string) $meta['number']]) : null),
             'member.join' => ($meta['via'] ?? null) === 'scim'
                 ? $set('added', isset($meta['role']) ? $t('to the workspace as :role', ['role' => $t($meta['role'])]) : 'to the workspace', 'good')
                 : $set('joined the workspace', match (true) {
@@ -278,7 +322,7 @@ final class ActivityLine
             'job.abandon' => $set($t('gave up on the stuck :kind job for', ['kind' => str_replace('_', ' ', (string) ($meta['kind'] ?? ''))]), null, 'warn'),
             'app.settings' => match (true) {
                 ($meta['deploy_on_push'] ?? null) === true => $set('turned on deploying each push for', $t('to :branch', ['branch' => (string) ($meta['push_branch'] ?? 'main')])),
-                ($meta['deploy_on_push'] ?? null) === false => $set('turned off deploying each push for', null, 'warn'),
+                ($meta['deploy_on_push'] ?? null) === false => $set('turned off deploying each push for', ($meta['reason'] ?? null) === 'upload' ? 'since new code was uploaded' : null, 'warn'),
                 isset($meta['push_branch']) => $set('changed the branch that deploys', $t('to :branch', ['branch' => (string) $meta['push_branch']])),
                 ($meta['push_only_newest'] ?? null) === true => $set('set only the newest push to build for'),
                 ($meta['push_only_newest'] ?? null) === false => $set('set every push to build for'),
@@ -298,15 +342,69 @@ final class ActivityLine
                 default => $set('changed the maintenance page for'),
             },
             'app.deploy_key' => $set('made a deploy key for', 'to fetch its private repository'),
+            'app.build' => $set('changed how it builds and runs', isset($meta['changed']) && is_array($meta['changed']) ? $t('(:what)', ['what' => implode(', ', array_map(fn ($field) => str_replace('_', ' ', (string) $field), $meta['changed']))]) : null),
+            'app.hook' => match (true) {
+                ($meta['revoked'] ?? false) === true => $set('turned off the deploy hook for', null, 'warn'),
+                ($meta['regenerated'] ?? false) === true => $set('made a new deploy hook for', 'so the old address stops working'),
+                default => $set('made a deploy hook for'),
+            },
+            'app.schedules' => $set('changed the scheduled commands of'),
+            'app.schedule_skipped' => $set('didn’t run a scheduled command in', $t(':schedule: :reason', ['schedule' => (string) ($meta['schedule'] ?? ''), 'reason' => rtrim((string) ($meta['reason'] ?? ''), '.')]), 'warn'),
+            'app.dns_point' => $set($t('pointed :domain at', ['domain' => (string) ($meta['domain'] ?? '')]), ($meta['change'] ?? null) === 'took_over' ? 'through Cloudflare, in place of the record that was there' : 'through Cloudflare'),
+            'app.dns_remove' => ($meta['deleted'] ?? false)
+                ? $set($t('removed the Cloudflare record for :domain from', ['domain' => (string) ($meta['domain'] ?? '')]), null, 'warn')
+                : $set($t('stopped managing the Cloudflare record for :domain of', ['domain' => (string) ($meta['domain'] ?? '')])),
+            'app.dns_proxied' => $set($t(($meta['proxied'] ?? false) ? 'turned on Cloudflare’s proxy for :domain of' : 'turned off Cloudflare’s proxy for :domain of', ['domain' => (string) ($meta['domain'] ?? '')])),
+            'app.cache_purge' => $set('purged Cloudflare’s cache for'),
+            'app.cache_purge_setting' => $set(($meta['on'] ?? false) ? 'turned on purging Cloudflare’s cache after each deploy of' : 'turned off purging Cloudflare’s cache after each deploy of'),
             'app.limits' => ($meta['cpus'] ?? null) === null && ($meta['memory_mb'] ?? null) === null
                 ? $set('took the CPU and memory limits off')
                 : $set('limited', $t('to :limits', ['limits' => implode(', ', array_filter([
                     isset($meta['cpus']) ? $meta['cpus'].' '.((float) $meta['cpus'] === 1.0 ? 'CPU' : 'CPUs') : null,
                     isset($meta['memory_mb']) ? $meta['memory_mb'].' MB' : null,
                 ]))])),
+            'app.image_push_setting' => match (true) {
+                ($meta['new_address'] ?? false) === true => $set('made a new webhook address for', isset($meta['image']) ? $t('(:image)', ['image' => (string) $meta['image']]) : null, 'warn'),
+                ($meta['on'] ?? false) === true => $set('turned on redeploying when a new image is pushed for', isset($meta['image']) ? $t('(:image)', ['image' => (string) $meta['image']]) : null),
+                default => $set('turned off redeploying when a new image is pushed for', null, 'warn'),
+            },
+            'app.image_pushed' => $set('redeployed', $t('because a new image of :image was pushed (:digest)', ['image' => (string) ($meta['image'] ?? ''), 'digest' => (string) ($meta['digest'] ?? '')])),
             'registry.add' => $set('added a login for the registry', isset($meta['username']) ? $t('as :username', ['username' => (string) $meta['username']]) : null),
             'registry.update' => $set('changed the login for the registry', isset($meta['username']) ? $t('to :username', ['username' => (string) $meta['username']]) : null),
             'registry.remove' => $set('removed the login for the registry', null, 'warn'),
+            'integration.connect' => $set('connected', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null, 'good'),
+            'integration.reconnect' => $set('connected', isset($meta['provider']) ? $t('again (:provider)', ['provider' => (string) $meta['provider']]) : 'again', 'good'),
+            'integration.rename' => $set('renamed an account to', isset($meta['from']) ? $t('(was :name)', ['name' => (string) $meta['from']]) : null),
+            'integration.tailscale_tags' => $set('changed the tags for new machines on', ($meta['tags'] ?? '') !== '' ? $t('to :tags', ['tags' => (string) $meta['tags']]) : $t('to none')),
+            'integration.check' => ($meta['ok'] ?? false) ? $set('checked', 'and it works again', 'good') : $set('checked', 'and it was turned down', 'bad'),
+            'integration.disconnect' => $set('disconnected', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null, 'warn'),
+            'integration.routing' => $set('changed what goes to', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null),
+            'integration.regions' => $set('changed the regions ServerOS looks in for', isset($meta['regions']) ? $t('to :regions', ['regions' => (string) $meta['regions']]) : null),
+            'integration.test' => ($meta['ok'] ?? false) ? $set('sent a test event to', null, 'good') : $set('sent a test event to', 'and it didn’t go through', 'bad'),
+            'integration.retry' => $set('sent again what failed to go to'),
+            'integration.storage_setup' => ($meta['ok'] ?? true)
+                ? $set('set up backups in the bucket', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null, 'good')
+                : $set('made the bucket', $t('but couldn’t finish setting up backups in it'), 'bad'),
+            'integration.storage_retry' => ($meta['ok'] ?? true)
+                ? $set('finished setting up backups in the bucket', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null, 'good')
+                : $set('tried again to set up backups in the bucket', $t('and it didn’t work'), 'bad'),
+            'integration.storage_keys' => $set('added an access key for the bucket', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null, 'good'),
+            'integration.storage_retention' => $set('changed how long backups stay in', isset($meta['keep_days'])
+                ? $t('to :days days', ['days' => (int) $meta['keep_days']])
+                : $t('to keep every backup')),
+            'integration.incident_open' => $set('opened', $t('in :provider', ['provider' => (string) ($meta['provider'] ?? '')]), 'warn'),
+            'integration.incident_resolve' => $set('closed', $t('in :provider', ['provider' => (string) ($meta['provider'] ?? '')]), 'good'),
+            'integration.n8n_activate' => $set('turned on', 'in n8n', 'good'),
+            'integration.n8n_starter' => $set('made', ($meta['key'] ?? false) ? 'in n8n, with a read-only API key' : 'in n8n', 'good'),
+            'integration.grafana_push' => $set('started sending metrics to', isset($meta['host']) ? $t('through :host', ['host' => (string) $meta['host']]) : null, 'good'),
+            'integration.grafana_push_update' => $set('changed where metrics go for', isset($meta['host']) ? $t('to :host', ['host' => (string) $meta['host']]) : null),
+            'integration.grafana_push_stop' => $set('stopped sending metrics to', null, 'warn'),
+            'integration.grafana_dashboard' => $set('made the workspace dashboard in', isset($meta['datasource']) ? $t('reading :source', ['source' => (string) $meta['datasource']]) : null, 'good'),
+            'integration.grafana_dashboard_update' => $set('updated the workspace dashboard in', isset($meta['datasource']) ? $t('reading :source', ['source' => (string) $meta['datasource']]) : null),
+            'integration.metrics_token' => $set('made the metrics token', isset($meta['account']) ? $t('for :account', ['account' => (string) $meta['account']]) : null),
+            'integration.metrics_token_revoke' => $set('revoked the metrics token', isset($meta['account']) ? $t('of :account', ['account' => (string) $meta['account']]) : null, 'warn'),
+            'app.sentry' => $set('linked', $t('to the Sentry project :project', ['project' => (string) ($meta['project'] ?? '')])),
+            'app.sentry_off' => $set('unlinked', 'from Sentry', 'warn'),
             'app.push_replaced' => $set('skipped an older push to', $t(':commit, since :newer came after it', ['commit' => (string) ($meta['commit'] ?? ''), 'newer' => (string) ($meta['newer'] ?? '')])),
             'app.push_skipped' => $set('didn’t deploy a push to', $t(':commit to :branch: :reason', ['commit' => (string) ($meta['commit'] ?? ''), 'branch' => (string) ($meta['branch'] ?? ''), 'reason' => rtrim((string) ($meta['reason'] ?? ''), '.')]), 'warn'),
             'backup_destination.update' => $set('changed the backup destination', isset($meta['from']) ? $t('(was :name)', ['name' => $meta['from']]) : null),
@@ -337,6 +435,18 @@ final class ActivityLine
             'scim.group_delete' => $set('deleted the group', null, 'warn'),
             'member.leave' => $set('left the workspace'),
             'alerts.update' => $set('changed where alerts go'),
+            'alerts.chat_link' => $set(match ($meta['channel'] ?? null) {
+                'telegram' => 'linked their Telegram account',
+                'discord' => 'linked their Discord account',
+                'slack' => 'linked their Slack account',
+                default => 'linked their chat account',
+            }, null, 'good'),
+            'alerts.chat_unlink' => $set(match ($meta['channel'] ?? null) {
+                'telegram' => 'unlinked their Telegram account',
+                'discord' => 'unlinked their Discord account',
+                'slack' => 'unlinked their Slack account',
+                default => 'unlinked their chat account',
+            }, null, 'warn'),
             'mcp.key_create' => $set('created the MCP key'),
             'api.key_create' => $set('created the API key'),
             'domain.add' => $set('connected the domain'),
@@ -392,6 +502,8 @@ final class ActivityLine
             'ai.connect' => $set('connected their own AI key:', null, 'warn'),
             'ai.update' => $set('changed their AI key for'),
             'ai.disconnect' => $set('removed their AI key for', null, 'warn'),
+            'ai.models' => $set('changed the model for', isset($meta['model']) ? $t('to :model', ['model' => (string) $meta['model']]) : $t('back to the first key connected')),
+            'ai.test' => ($meta['ok'] ?? false) ? $set('sent a test prompt to', isset($meta['model']) ? $t('(:model)', ['model' => (string) $meta['model']]) : null, 'good') : $set('sent a test prompt to', 'and it didn’t answer', 'bad'),
             'fix.start' => $set('asked the agent to look into'),
             'fix.approve' => $set('approved the agent’s fix', $t((int) ($meta['steps'] ?? 0) === 1 ? ':count step' : ':count steps', ['count' => (int) ($meta['steps'] ?? 0)]), 'warn'),
             'fix.decline' => $set('turned down the agent’s fix'),
@@ -409,9 +521,13 @@ final class ActivityLine
             $out['detail'] = $meta['error'] ?? null;
         } elseif ($a->action === 'monitor.down') {
             $out['detail'] = $meta['cause'] ?? null;
+        } elseif ($a->action === 'machine.ssh_access.failed') {
+            $out['detail'] = $meta['error'] ?? null;
+        } elseif ($a->action === 'machine.ssh_access.end') {
+            $out['detail'] = $t(($meta['reason'] ?? null) === 'left' ? 'They left the workspace.' : 'Their access expired.');
         }
 
-        if (! $a->byPerson() && in_array($a->action, ['machine.offline', 'machine.online', 'machine.disk_full', 'monitor.down', 'monitor.up', 'backup.failed', 'backup.restore_failed', 'machine.connect', 'service.down', 'service.up', 'service.crash_loop', 'workflow.run', 'workflow.failed', 'workflow.skipped', 'app.push_skipped', 'app.push_replaced', 'fix.done', 'fix.failed', 'mcp.revoke', 'domain.active', 'machine.daemon_updated', 'daemon.update_waiting', 'panel.updated', 'panel.update_failed', 'email_domain.unverified', 'cloud.suspend', 'cloud.resume', 'cloud.end', 'cloud.throttle'], true)) {
+        if (! $a->byPerson() && in_array($a->action, ['machine.offline', 'machine.online', 'machine.disk_full', 'monitor.down', 'monitor.up', 'backup.failed', 'backup.restore_failed', 'machine.connect', 'service.down', 'service.up', 'service.crash_loop', 'workflow.run', 'workflow.failed', 'workflow.skipped', 'app.push_skipped', 'app.push_replaced', 'app.schedule_skipped', 'fix.done', 'fix.failed', 'mcp.revoke', 'domain.active', 'machine.daemon_updated', 'daemon.update_waiting', 'panel.updated', 'panel.update_failed', 'email_domain.unverified', 'cloud.suspend', 'cloud.resume', 'cloud.end', 'cloud.throttle', 'machine.ssh_access.failed', 'machine.ssh_access.end'], true)) {
             $out['leads'] = true;
         }
 

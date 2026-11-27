@@ -30,7 +30,7 @@ function fixesSelfHosted(): void
 
 function fixesUrl(Workspace $workspace, string $path): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 /** @param  array<string, list<string>>  $addresses */

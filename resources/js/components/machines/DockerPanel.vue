@@ -8,6 +8,7 @@ import TickBox from '@/components/workspace/TickBox.vue';
 import { errorMessage, failIfBad } from '@/lib/errors';
 import { timeAgo } from '@/lib/timeAgo';
 import { toast } from '@/lib/toast';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 const props = defineProps<{
     machineId: number;
@@ -175,16 +176,19 @@ function csrf(): string {
 }
 
 async function post(path: string, body?: object): Promise<string> {
-    const response = await fetch(`/machines/${props.machineId}/${path}`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': csrf(),
+    const response = await fetch(
+        workspacePath(`/machines/${props.machineId}/${path}`),
+        {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrf(),
+            },
+            body: body ? JSON.stringify(body) : undefined,
         },
-        body: body ? JSON.stringify(body) : undefined,
-    });
+    );
     await failIfBad(response);
     return ((await response.json()) as { jobId: string }).jobId;
 }
@@ -200,7 +204,7 @@ function follow<
         if (!active) return;
         try {
             const response = await fetch(
-                `/machines/${props.machineId}/docker/${jobId}`,
+                workspacePath(`/machines/${props.machineId}/docker/${jobId}`),
                 {
                     credentials: 'same-origin',
                     headers: { Accept: 'application/json' },

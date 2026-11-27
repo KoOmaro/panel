@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -14,6 +15,12 @@ use Illuminate\Database\Eloquent\Model;
  * @property int|null $mem_used
  * @property int|null $mem_max
  * @property int|null $disk_percent
+ * @property float|null $load_1
+ * @property float|null $load_5
+ * @property float|null $load_15
+ * @property int|null $processes
+ * @property int|null $net_rx bytes received in the minute, from the interface counters
+ * @property int|null $net_tx bytes sent in the minute
  */
 class MachineSample extends Model
 {
@@ -25,7 +32,7 @@ class MachineSample extends Model
 
     public const MAX_POINTS = 120;
 
-    /** @param  list<array{ts: int, cpu: float|null, mem: int|null, disk: int|null}>  $readings */
+    /** @param  list<array{ts: int, cpu: float|null, mem: int|null, disk: int|null, load?: array{0: float, 1: float, 2: float}|null, processes?: int|null, rx?: int|null, tx?: int|null}>  $readings */
     public static function record(Machine $machine, array $readings): void
     {
         $oldest = now()->subDays(self::KEEP_DAYS)->getTimestamp();
@@ -48,6 +55,8 @@ class MachineSample extends Model
             $peak = fn (int|float|null $current, int|float|null $next) => $current === null || $next === null
                 ? $current ?? $next
                 : max($current, $next);
+            $total = fn (?int $current, ?int $next) => $next === null ? $current : ($current ?? 0) + $next;
+            $load = $reading['load'] ?? null;
 
             $sample->fill([
                 'samples' => min(65535, $count + 1),
@@ -56,8 +65,37 @@ class MachineSample extends Model
                 'mem_used' => ($mem = $mean($sample->mem_used, $reading['mem'])) === null ? null : (int) round($mem),
                 'mem_max' => $peak($sample->mem_max, $reading['mem']),
                 'disk_percent' => $peak($sample->disk_percent, $reading['disk']),
+                'load_1' => $mean($sample->load_1, $load[0] ?? null),
+                'load_5' => $mean($sample->load_5, $load[1] ?? null),
+                'load_15' => $mean($sample->load_15, $load[2] ?? null),
+                'processes' => $reading['processes'] ?? $sample->processes,
+                'net_rx' => $total($sample->net_rx, $reading['rx'] ?? null),
+                'net_tx' => $total($sample->net_tx, $reading['tx'] ?? null),
             ])->save();
         }
+    }
+
+    /** @return array{received: int, sent: int, since: string|null}|null */
+    public static function monthTraffic(Machine $machine): ?array
+    {
+        $start = now()->startOfMonth()->getTimestamp();
+        $counted = fn () => self::query()->where('machine_id', $machine->id)->whereNotNull('net_rx');
+        $month = $counted()
+            ->where('ts', '>=', $start)
+            ->selectRaw('sum(net_rx) as received, sum(net_tx) as sent, min(ts) as first_ts')
+            ->first();
+        $first = $month?->getAttribute('first_ts');
+        if ($month === null || $first === null) {
+            return null;
+        }
+
+        return [
+            'received' => (int) $month->getAttribute('received'),
+            'sent' => (int) $month->getAttribute('sent'),
+            'since' => $counted()->where('ts', '<', $start)->exists()
+                ? null
+                : CarbonImmutable::createFromTimestamp((int) $first)->toIso8601String(),
+        ];
     }
 
     /** @return list<array{ts: int, cpu: float|null, cpuMax: float|null, mem: int|null, memMax: int|null, disk: int|null}> */

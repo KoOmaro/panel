@@ -10,6 +10,7 @@ use App\Models\Workspace;
 use App\Support\DaemonJobQueue;
 use App\Support\Deploys\AppReleases;
 use App\Support\ServiceTemplates\ServiceTemplateCatalog;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -28,7 +29,7 @@ class ServiceController extends Controller
                 ->map(fn (array $service) => [
                     ...$service,
                     'machine' => ['id' => $machine->id, 'name' => $machine->name],
-                    'stat' => $machine->service_stats[$service['key']] ?? null,
+                    'stat' => $machine->serviceStatsNow()[$service['key']] ?? null,
                 ]))->values(),
             'groups' => ServiceGroup::query()->whereIn('machine_id', $machines->modelKeys())->orderBy('name')->get()
                 ->map(fn (ServiceGroup $group) => [...$group->toPageProps(), 'machineId' => $group->machine_id]),
@@ -38,6 +39,7 @@ class ServiceController extends Controller
                 'connection' => MachineResource::connection($machine),
                 'scanned' => $machine->inventory !== null,
                 'scannedAt' => $machine->inventory['scanned_at'] ?? null,
+                'memoryBytes' => is_numeric($machine->facts['memory_bytes'] ?? null) ? (int) $machine->facts['memory_bytes'] : null,
             ]),
             'deploys' => self::deploys($machines->modelKeys())->map(fn (DaemonJob $job) => [
                 'id' => $job->id,
@@ -47,6 +49,13 @@ class ServiceController extends Controller
                 'phase' => $job->phase,
                 'progress' => $job->progress,
                 'createdAt' => $job->created_at?->toIso8601String(),
+            ])->values(),
+            'adopts' => self::adopts($machines->modelKeys())->map(fn (DaemonJob $job) => [
+                'id' => $job->id,
+                'machineId' => $job->machine_id,
+                'service' => $job->service,
+                'state' => $job->state,
+                'error' => is_array($job->error) ? Arr::only($job->error, ['message', 'next_step']) : null,
             ])->values(),
             'templates' => fn () => $templates->toPageProps(),
             'deployEnabled' => (bool) config('daemon.commands_enabled') && filled(config('daemon.gateway_internal_url')),
@@ -75,5 +84,20 @@ class ServiceController extends Controller
         return $jobs()->whereIn('state', $moving)->where('updated_at', '>=', now()->subMinutes(DaemonJob::STALE_AFTER_MINUTES))->get()
             ->concat($jobs()->whereNotIn('state', $moving)->where('created_at', '>=', now()->subMinutes(10))->latest()->limit(50)->get())
             ->sortByDesc('created_at');
+    }
+
+    /**
+     * @param  array<int, int|string>  $machineIds
+     * @return Collection<int, DaemonJob>
+     */
+    private static function adopts(array $machineIds): Collection
+    {
+        return DaemonJob::query()
+            ->whereIn('machine_id', $machineIds)
+            ->where('kind', 'adopt')
+            ->where('created_at', '>=', now()->subMinutes(DaemonJob::STALE_AFTER_MINUTES))
+            ->latest()
+            ->limit(50)
+            ->get();
     }
 }

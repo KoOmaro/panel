@@ -32,7 +32,7 @@ function cloneMachine(string $daemon = 'v0.1.1-pre.23'): array
         ]],
     ])->save();
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/services/'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/services/'];
 }
 
 function sentCloneJob(): array

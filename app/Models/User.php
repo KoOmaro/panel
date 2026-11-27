@@ -39,6 +39,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $nav_layout
  * @property CarbonImmutable|null $mcp_terms_accepted_at
  * @property CarbonImmutable|null $trial_used_at
+ * @property CarbonImmutable|null $integrations_promo_seen_at
  * @property bool $is_admin
  * @property CarbonImmutable|null $suspended_at
  * @property string|null $suspended_reason
@@ -69,6 +70,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'mcp_terms_accepted_at' => 'datetime',
             'trial_used_at' => 'datetime',
             'changelog_seen_at' => 'datetime',
+            'integrations_promo_seen_at' => 'datetime',
             'is_admin' => 'boolean',
             'suspended_at' => 'datetime',
             'signup_source' => 'array',

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\MachineEnvironment;
 use App\Exceptions\MachineLimitReached;
+use App\Support\Machines\MachineDisks;
 use Carbon\CarbonImmutable;
 use Database\Factories\MachineFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -60,6 +61,15 @@ use Illuminate\Support\Facades\Storage;
  * @property array<string, array<string, int|float|null>>|null $service_stats
  * @property list<array{mount: string, used: int, total: int}>|null $disks
  * @property int|null $disk_percent
+ * @property float|null $load_1 load average over 1, 5 and 15 minutes, as last reported
+ * @property float|null $load_5
+ * @property float|null $load_15
+ * @property int|null $processes
+ * @property int|null $net_rx_rate bytes received per second over the last reported minute
+ * @property int|null $net_tx_rate bytes sent per second over the last reported minute
+ * @property int|null $net_rx_bytes the interface counters as last read (they restart at boot)
+ * @property int|null $net_tx_bytes
+ * @property int|null $telemetry_ts when its newest machine reading was taken, unix seconds
  * @property array<string, int>|null $alert_state
  * @property CarbonImmutable|null $maintenance_until
  * @property string|null $maintenance_reason
@@ -118,6 +128,15 @@ class Machine extends Model
             'traffic_sites' => 'array',
             'service_stats' => 'array',
             'disks' => 'array',
+            'load_1' => 'float',
+            'load_5' => 'float',
+            'load_15' => 'float',
+            'processes' => 'integer',
+            'net_rx_rate' => 'integer',
+            'net_tx_rate' => 'integer',
+            'net_rx_bytes' => 'integer',
+            'net_tx_bytes' => 'integer',
+            'telemetry_ts' => 'integer',
             'alert_state' => 'array',
             'maintenance_until' => 'datetime',
             'maintenance_public' => 'boolean',
@@ -198,6 +217,12 @@ class Machine extends Model
         return $this->hasOne(StatusPage::class);
     }
 
+    /** @return HasOne<MachineReadme, $this> */
+    public function readme(): HasOne
+    {
+        return $this->hasOne(MachineReadme::class);
+    }
+
     public function inMaintenance(): bool
     {
         return $this->maintenance_until !== null && $this->maintenance_until->isFuture();
@@ -211,12 +236,50 @@ class Machine extends Model
             && $this->last_seen_at->gte(now()->subSeconds(60));
     }
 
+    public function isReporting(): bool
+    {
+        return $this->uid === null || $this->isOnline();
+    }
+
+    public function readingAt(): ?CarbonImmutable
+    {
+        return $this->telemetry_ts === null ? $this->last_seen_at : CarbonImmutable::createFromTimestamp($this->telemetry_ts);
+    }
+
+    /** @return list<array{mount: string, used: int, total: int}> */
+    public function volumes(): array
+    {
+        return MachineDisks::clean($this->disks ?? [], $this->facts);
+    }
+
+    public function fullestDisk(): ?int
+    {
+        return ($this->disks ?? []) === [] ? $this->disk_percent : MachineDisks::fullest($this->volumes());
+    }
+
+    /** @return array<string, array<string, int|float|null>> */
+    public function serviceStatsNow(): array
+    {
+        $stats = $this->service_stats ?? [];
+
+        return $this->isReporting() ? $stats : array_map(
+            fn (array $stat) => [...$stat, 'cpu' => null, 'memUsed' => null, 'pids' => null, 'netRx' => null, 'netTx' => null],
+            $stats,
+        );
+    }
+
     /**
      * @return BelongsTo<BackupDestination, $this>
      */
     public function backupDestination(): BelongsTo
     {
         return $this->belongsTo(BackupDestination::class);
+    }
+
+    /** @return HasOne<IntegrationServer, $this> */
+    public function cloudServer(): HasOne
+    {
+        return $this->hasOne(IntegrationServer::class);
     }
 
     /**

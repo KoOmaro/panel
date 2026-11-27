@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Mcp\McpServer;
 use App\Mcp\Tool;
 use App\Mcp\ToolRegistry;
+use App\Support\Workspaces\Dashboard;
 use Illuminate\Http\JsonResponse;
 
 class ServerCardController extends Controller
@@ -26,10 +27,10 @@ class ServerCardController extends Controller
             'serverInfo' => ['name' => McpServer::NAME, 'title' => 'ServerOS', 'version' => McpServer::VERSION],
             'remotes' => [[
                 'type' => 'streamable-http',
-                'url' => 'https://{workspace}.'.$domain.'/mcp',
+                'url' => Dashboard::root().'/{workspace}/mcp',
                 'variables' => [
                     'workspace' => [
-                        'description' => 'Your workspace’s name, as in its address: acme for acme.'.$domain.'.',
+                        'description' => 'Your workspace’s name, as in its address: acme for '.Dashboard::host().'/acme.',
                         'isRequired' => true,
                     ],
                 ],

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, router, useForm } from '@inertiajs/vue3';
+import { Head, router, useForm, usePage } from '@inertiajs/vue3';
 import {
     ArrowDown,
     ArrowUp,
@@ -22,6 +22,9 @@ import { SelectMenu } from '@/components/ui/select';
 import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
 import { appButtonClasses } from '@/lib/appButton';
 import { renderMarkdown } from '@/lib/markdown';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import fixesRoutes from '@/routes/workspace/fixes';
+import settingsRoutes from '@/routes/workspace/settings';
 
 type State =
     | 'investigating'
@@ -99,7 +102,9 @@ const props = defineProps<{
     allowance: Allowance;
 }>();
 
-const base = computed(() => '/fixes');
+const page = usePage<{ workspace: { slug: string } }>();
+const slug = computed(() => page.props.workspace.slug);
+const mcpHref = computed(() => onWorkspace(settingsRoutes.mcp(slug.value)).url);
 
 const WAITING: State[] = ['needs_approval'];
 const ACTIVE: State[] = ['investigating', 'running'];
@@ -170,7 +175,7 @@ function longDate(iso: string): string {
 
 function open(id: number): void {
     router.get(
-        base.value,
+        onWorkspace(fixesRoutes.index(slug.value)).url,
         { fix: id },
         {
             preserveState: true,
@@ -230,7 +235,8 @@ function approve(event: MouseEvent): void {
     };
     void shown.peak.then(() =>
         router.post(
-            `${base.value}/${id}/approve`,
+            onWorkspace(fixesRoutes.approve({ workspace: slug.value, fix: id }))
+                .url,
             {},
             {
                 preserveScroll: true,
@@ -247,7 +253,12 @@ function approve(event: MouseEvent): void {
 function decline(): void {
     if (!props.selected) return;
     router.post(
-        `${base.value}/${props.selected.id}/decline`,
+        onWorkspace(
+            fixesRoutes.decline({
+                workspace: slug.value,
+                fix: props.selected.id,
+            }),
+        ).url,
         {},
         { preserveScroll: true, preserveState: true },
     );
@@ -337,7 +348,7 @@ onMounted(() => {
 });
 
 function submit(): void {
-    form.post(base.value, {
+    form.post(onWorkspace(fixesRoutes.store(slug.value)).url, {
         preserveScroll: true,
         onSuccess: () => (asking.value = false),
     });
@@ -1029,7 +1040,7 @@ const field =
                         {{ limitError ?? usedUp }}
                         <a
                             v-if="outOfAllowance && !allowance.ownKey"
-                            href="/settings/mcp"
+                            :href="mcpHref"
                             class="mt-1 block text-(--ds-text-muted) underline underline-offset-2"
                             >{{
                                 $t(

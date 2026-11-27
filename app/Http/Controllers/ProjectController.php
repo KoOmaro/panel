@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Activity;
-use App\Models\DaemonJob;
 use App\Models\GitHubInstallation;
 use App\Models\Machine;
 use App\Models\Project;
@@ -25,8 +24,10 @@ use App\Support\Projects\Placement;
 use App\Support\Projects\Previews;
 use App\Support\Projects\ProjectActions;
 use App\Support\Projects\ProjectData;
+use App\Support\Projects\ProjectFacts;
 use App\Support\Projects\ProjectLinks;
 use App\Support\Projects\ProjectNetwork;
+use App\Support\SavedViews\SavedViews;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -44,26 +45,36 @@ class ProjectController extends Controller
         private readonly ProjectActions $actions,
     ) {}
 
-    public function index(Workspace $workspace): Response
+    public function index(Request $request, Workspace $workspace, ProjectFacts $facts): Response
     {
         $projects = $workspace->projects()
-            ->withCount(['nodes', 'members', 'links'])
-            ->with(['nodes:id,project_id,kind', 'members:id,project_id,state'])
+            ->with(['environments', 'nodes.machine', 'members:id,project_id,state'])
             ->latest()
             ->get();
+        $known = $facts->nodes($projects->flatMap(fn (Project $project) => $project->nodes)->values());
 
         return Inertia::render('workspace/Projects', [
             'workspace' => $workspace->toPageProps(),
-            'projects' => $projects->map(fn (Project $project) => [
-                'uid' => $project->uid,
-                'name' => $project->name,
-                'apps' => $project->nodes->where('kind', 'app')->count(),
-                'resources' => $project->nodes->where('kind', '!=', 'app')->count(),
-                'machines' => $project->members_count,
-                'links' => $project->links_count,
-                'network' => self::networkState($project->members->map(fn (ProjectMachine $member) => $member->state)->values()->all()),
-                'createdAt' => $project->created_at?->toIso8601String(),
-            ])->values(),
+            'projects' => $projects->map(function (Project $project) use ($facts, $known) {
+                $first = $project->environments->first();
+                $environments = $project->environments->isEmpty()
+                    ? [['id' => null, 'name' => 'Production', 'preview' => false, ...$facts->summary($project->nodes, $known)]]
+                    : $project->environments->map(fn (ProjectEnvironment $environment) => [
+                        'id' => $environment->id,
+                        'name' => $environment->name,
+                        'preview' => $environment->pull_request !== null,
+                        ...$facts->summary($project->nodes->filter(fn (ProjectNode $node) => ($node->environment_id ?? $first?->id) === $environment->id)->values(), $known),
+                    ])->values()->all();
+
+                return [
+                    'uid' => $project->uid,
+                    'name' => $project->name,
+                    'network' => self::networkState($project->members->map(fn (ProjectMachine $member) => $member->state)->values()->all()),
+                    'createdAt' => $project->created_at?->toIso8601String(),
+                    'environments' => $environments,
+                ];
+            })->values(),
+            ...SavedViews::props($request, $workspace, 'projects'),
         ]);
     }
 
@@ -78,7 +89,7 @@ class ProjectController extends Controller
         return to_route('workspace.projects.show', [$workspace, $project]);
     }
 
-    public function show(Request $request, Workspace $workspace, Project $project, Environments $environments, AppSettings $settings): Response
+    public function show(Request $request, Workspace $workspace, Project $project, Environments $environments, AppSettings $settings, ProjectFacts $facts): Response
     {
         $this->owned($workspace, $project);
 
@@ -86,6 +97,7 @@ class ProjectController extends Controller
         $project->load(['nodes.machine', 'links', 'members.machine', 'environments']);
         $machines = $workspace->machines()->orderBy('name')->get();
         $onCanvas = $project->nodes->map(fn (ProjectNode $node) => $node->machine_id.'/'.$node->name)->all();
+        $known = $facts->nodes($project->nodes);
 
         return Inertia::render('workspace/ProjectShow', [
             'workspace' => $workspace->toPageProps(),
@@ -103,9 +115,9 @@ class ProjectController extends Controller
                 'refresh' => $environment->refresh,
                 'refreshedAt' => $environment->refreshed_at?->toIso8601String(),
             ])->values(),
-            'nodes' => $project->nodes->map(function (ProjectNode $node) {
+            'nodes' => $project->nodes->map(function (ProjectNode $node) use ($workspace, $known) {
                 $containers = Placement::containers($node->machine, $node->name);
-                $status = ProjectActions::status($node->machine, $node->name);
+                $fact = $known[$node->id];
 
                 return [
                     'id' => $node->id,
@@ -119,16 +131,21 @@ class ProjectController extends Controller
                         'error' => $node->data_error,
                         'at' => $node->data_at?->toIso8601String(),
                     ],
-                    'machine' => ['id' => $node->machine_id, 'name' => $node->machine->name],
-                    'status' => $status,
-                    'failed' => $status === null && DaemonJob::query()
-                        ->where('machine_id', $node->machine_id)->where('kind', 'deploy')->where('service', $node->name)
-                        ->latest()->value('state') === 'failed',
+                    'machine' => ['id' => $node->machine_id, 'name' => $node->machine->name, 'provider' => $node->machine->provider ?: null],
+                    'status' => $fact['running'],
+                    'failed' => $fact['failed'],
+                    'state' => $fact['state'],
+                    'software' => $fact['kind'],
+                    'image' => $fact['image'],
+                    'domain' => $node->isApp() ? $fact['domain'] : null,
                     'href' => $containers === [] ? null
-                        : "/machines/{$node->machine_id}/services/".$containers[0]['key'],
-                    'port' => $node->isApp() ? null : $this->links->port($node),
+                        : $workspace->url("machines/{$node->machine_id}/services/".$containers[0]['key']),
+                    'port' => $node->isApp() ? $fact['port'] : $this->links->port($node),
                 ];
             })->values(),
+            'overview' => $project->environments->mapWithKeys(fn (ProjectEnvironment $environment) => [
+                $environment->id => $facts->summary($project->nodes->where('environment_id', $environment->id)->values(), $known),
+            ]),
             'links' => $project->links->map(fn (ProjectLink $link) => [
                 'id' => $link->id,
                 'app' => $link->app_node_id,
@@ -139,6 +156,8 @@ class ProjectController extends Controller
             ])->values(),
             'members' => $project->members->map(fn (ProjectMachine $member) => [
                 'machine' => $member->machine_id,
+                'name' => $member->machine->name,
+                'provider' => $member->machine->provider ?: null,
                 'address' => $member->setRelation('project', $project)->address(),
                 'state' => $member->state,
                 'error' => $member->error,
@@ -147,7 +166,7 @@ class ProjectController extends Controller
                 ->reject(fn (array $deploy) => in_array($machine->id.'/'.$deploy['name'], $onCanvas, true))
                 ->map(fn (array $deploy) => [...$deploy, 'machine' => ['id' => $machine->id, 'name' => $machine->name]]))
                 ->values()),
-            'machines' => $machines->map(fn (Machine $machine) => ['id' => $machine->id, 'name' => $machine->name])->values(),
+            'machines' => $machines->map(fn (Machine $machine) => ['id' => $machine->id, 'name' => $machine->name, 'provider' => $machine->provider ?: null])->values(),
             'resourceKinds' => collect(Connections::DEFAULTS)->map(fn (string $template, string $kind) => ['kind' => $kind, 'template' => $template])->values(),
             'copyable' => ProjectData::COPYABLE,
             'notes' => array_values(array_map('strval', (array) $request->session()->get('project_notes', []))),
@@ -161,6 +180,7 @@ class ProjectController extends Controller
                     'copyData' => $settings['copy_data'],
                     'domain' => $settings['domain'],
                     'limit' => $settings['limit'],
+                    'open' => $project->environments->whereNotNull('pull_request')->count(),
                     'max' => Previews::MAX,
                     'github' => GitHubApp::enabled() && GitHubInstallation::query()->where('workspace_id', $project->workspace_id)->exists(),
                 ];

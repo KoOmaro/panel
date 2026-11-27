@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import ProviderName from '@/components/machines/ProviderName.vue';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { Ellipsis, ExternalLink } from '@lucide/vue';
 import {
     SolarWrench as Wrench,
@@ -12,6 +12,8 @@ import {
 } from '@/lib/solarIcons';
 import { computed, ref, watch } from 'vue';
 import { toast } from '@/lib/toast';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 import CpuBar from '@/components/machines/CpuBar.vue';
 import EnvironmentBadge from '@/components/machines/EnvironmentBadge.vue';
 import InstallingBadge from '@/components/machines/InstallingBadge.vue';
@@ -49,6 +51,14 @@ const props = withDefaults(defineProps<Props>(), {
     deletable: false,
     nested: false,
 });
+const page = usePage<{ workspace: { slug: string } }>();
+
+function openConsole(): void {
+    if (!props.machine.id) return;
+    router.visit(
+        `${onWorkspace(machinesRoutes.show({ workspace: page.props.workspace.slug, machine: props.machine.id })).url}?console`,
+    );
+}
 
 async function copyIp(): Promise<void> {
     try {
@@ -238,7 +248,12 @@ watch(
         <div :class="columns.memory" role="cell">{{ machine.memory }}</div>
 
         <div :class="columns.cpu" class="flex items-center" role="cell">
-            <CpuBar :cpu="machine.cpu" :themed="dashboard" />
+            <CpuBar
+                v-if="machine.cpu !== null"
+                :cpu="machine.cpu"
+                :themed="dashboard"
+            />
+            <span v-else class="text-(--ds-text-faint)">–</span>
         </div>
 
         <div
@@ -293,9 +308,7 @@ watch(
                     </DropdownMenuItem>
                     <DropdownMenuItem
                         :disabled="!machine.id"
-                        @select="
-                            router.visit(`/machines/${machine.id}?console`)
-                        "
+                        @select="openConsole"
                     >
                         <SquareTerminal class="size-4" :stroke-width="1.75" />
                         {{ $t('Console') }}

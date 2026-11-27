@@ -24,7 +24,7 @@ beforeEach(function () {
 
 function aiUrl(Workspace $workspace, string $path = ''): string
 {
-    return 'https://'.$workspace->host().$path;
+    return $workspace->url().$path;
 }
 
 test('a key is checked with its provider, kept encrypted, and never sent back', function () {

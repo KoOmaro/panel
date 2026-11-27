@@ -43,7 +43,7 @@ function filesMachine(): array
         'command' => ['job' => ['repo' => 'https://github.com/acme/blog', 'commit' => '0123456789abcdef']], 'finished_at' => now(),
     ]);
 
-    return [$workspace, $machine, 'https://'.$workspace->host().'/machines/'.$machine->id.'/files'];
+    return [$workspace, $machine, $workspace->url().'/machines/'.$machine->id.'/files'];
 }
 
 function lastFileJob(): array
@@ -63,7 +63,7 @@ function unlockFiles(User $user, Workspace $workspace): void
     $provider->shouldReceive('verify')->andReturnUsing(fn ($secret, $code) => $code === '123456');
     app()->instance(TwoFactorAuthenticationProvider::class, $provider);
 
-    test()->actingAs($user)->postJson('https://'.$workspace->host().'/console/unlock', ['code' => '123456'])->assertOk();
+    test()->actingAs($user)->postJson($workspace->url().'/console/unlock', ['code' => '123456'])->assertOk();
 }
 
 function finishFileJob(Machine $machine, string $id, string $state, ?array $result = null, ?array $error = null): void
@@ -78,7 +78,7 @@ function finishFileJob(Machine $machine, string $id, string $state, ?array $resu
 
 test('the machine and service pages know where each service’s files are', function () {
     [$workspace, $machine] = filesMachine();
-    $host = 'https://'.$workspace->host();
+    $host = $workspace->url();
 
     $this->actingAs($workspace->owner)->get("{$host}/machines/{$machine->id}")
         ->assertInertia(fn (Assert $page) => $page
@@ -114,7 +114,7 @@ test('listing a folder needs manage machines, but not the unlock', function () {
         ->assertOk()->assertJson(['state' => 'succeeded', 'result' => ['entries' => [['name' => 'config.yml']]]]);
 
     expect(Activity::query()->count())->toBe(0);
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host()."/machines/{$machine->id}")
+    $this->actingAs($workspace->owner)->get($workspace->url()."/machines/{$machine->id}")
         ->assertInertia(fn (Assert $page) => $page->where('jobs', fn ($jobs) => collect($jobs)->every(fn ($j) => ! str_starts_with($j['kind'], 'file_')))->etc());
 });
 
@@ -232,7 +232,7 @@ test('unlocking the console is recorded, and files staff open while viewing as s
 
     $boss = User::factory()->admin()->create();
     $this->actingAs($boss)->post(viewAsUrl($owner), ['reason' => 'Config is wrong']);
-    $this->postJson('https://'.$workspace->host().'/console/unlock', ['code' => '123456'])->assertOk();
+    $this->postJson($workspace->url().'/console/unlock', ['code' => '123456'])->assertOk();
     $this->postJson($url, ['op' => 'read', 'path' => '/srv/bot/.env'])->assertAccepted();
 
     expect(ActivityLine::sentence(Activity::query()->sole()))->toBe('ServerOS Support unlocked the console')

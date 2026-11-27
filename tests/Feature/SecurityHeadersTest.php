@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Route;
 it('keeps panel pages from being framed by other sites', function () {
     $workspace = Workspace::factory()->create();
 
-    $response = $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/machines')->assertOk();
+    $response = $this->actingAs($workspace->owner)->get($workspace->url().'/machines')->assertOk();
 
     $response->assertHeader('Content-Security-Policy', "frame-ancestors 'self'")
         ->assertHeader('X-Frame-Options', 'SAMEORIGIN')

@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { TriangleAlert, X } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
-import { GripVertical } from '@lucide/vue';
-import { SolarTriangleAlert as TriangleAlert } from '@/lib/solarIcons';
-import { computed, onBeforeUnmount, onMounted, useTemplateRef } from 'vue';
-import { hasInput } from './geometry';
-import { STEPS, stepTheme } from './kinds';
+import { computed } from 'vue';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import { STEPS } from './kinds';
 import type { WorkflowNode } from './kinds';
+import type { NodeVisual } from './visual';
 
 const props = defineProps<{
     node: WorkflowNode;
@@ -16,159 +17,139 @@ const props = defineProps<{
     problem: string | null;
     editing: boolean;
     readOnly: boolean;
-    summary: string | null;
+    visual: NodeVisual;
+    subtitle: string;
 }>();
 
 const emit = defineEmits<{
-    measure: [id: string, height: number];
     nodePointerdown: [id: string, event: PointerEvent];
-    handlePointerdown: [id: string, event: PointerEvent];
     open: [id: string];
 }>();
 
-const step = computed(() => STEPS[props.node.kind]);
-const root = useTemplateRef<HTMLDivElement>('root');
-let observer: ResizeObserver | null = null;
-
-onMounted(() => {
-    if (!root.value) return;
-    observer = new ResizeObserver(() =>
-        emit('measure', props.node.id, root.value!.offsetHeight),
-    );
-    observer.observe(root.value);
-});
-onBeforeUnmount(() => observer?.disconnect());
-
-const badgeLabels: Record<string, string> = {
-    running: trans('Running'),
-    waiting: trans('Waiting'),
-    succeeded: trans('Done'),
-    failed: trans('Failed'),
-    cancelled: trans('Cancelled'),
-    pending: trans('Queued'),
-};
-
-const badge = computed(() => badgeLabels[props.runState] ?? null);
-
 const active = computed(() => ['running', 'waiting'].includes(props.runState));
+const dimmed = computed(() =>
+    ['skipped', 'pending', 'cancelled'].includes(props.runState),
+);
+
+const stateLabel = computed(
+    () =>
+        ({
+            succeeded: trans('Ran'),
+            failed: trans('Failed'),
+            running: trans('Running'),
+            waiting: trans('Waiting'),
+            cancelled: trans('Cancelled'),
+            pending: trans('Queued'),
+            skipped: trans('Didn’t run'),
+        })[props.runState] ?? null,
+);
 </script>
 
 <template>
     <div
-        ref="root"
         :data-node="node.id"
         :data-selected="selected || undefined"
-        :data-targeted="targeted || undefined"
         :data-dragging="dragging || undefined"
         :data-run="runState === 'idle' ? undefined : runState"
-        class="wf-node group/node absolute top-0 left-0 w-[400px] data-dragging:z-10"
+        class="group/node absolute top-0 left-0 h-[86px] w-[214px] font-ui data-dragging:z-10"
         :class="{ 'wf-node-fresh': node.fresh }"
-        :style="{
-            ...stepTheme(node.kind),
-            translate: `${node.x}px ${node.y}px`,
-        }"
+        :style="{ translate: `${node.x}px ${node.y}px` }"
     >
         <div
-            class="wf-card relative flex flex-col gap-[3px] rounded-[12px] border px-[5px] pt-[5px] pb-[7px] backdrop-blur-[16px] transition-[border-color,box-shadow,opacity] duration-150"
-            :class="
+            class="flex size-full flex-col rounded-[19px] border-[0.5px] bg-[#f3f3f3] p-[5px] drop-shadow-[0_6px_8px_rgb(0_0_0/0.08)] transition-[border-color,box-shadow] duration-150 dark:bg-[#101010] dark:drop-shadow-[0_8px_9px_rgb(0_0_0/0.55)]"
+            :class="[
+                selected || targeted
+                    ? 'border-dash-blue shadow-[0_0_0_1px_var(--dash-blue)]'
+                    : 'border-[#e0e0e0] dark:border-[#262626]',
                 readOnly
                     ? 'cursor-pointer'
-                    : 'cursor-grab group-data-dragging/node:cursor-grabbing'
-            "
+                    : 'cursor-grab group-data-dragging/node:cursor-grabbing',
+            ]"
+            :title="problem ?? undefined"
             @pointerdown="emit('nodePointerdown', node.id, $event)"
             @dblclick="emit('open', node.id)"
         >
-            <span
-                v-if="active"
-                aria-hidden="true"
-                class="wf-ping pointer-events-none absolute -inset-px rounded-[inherit] motion-reduce:hidden"
-            />
-            <div class="flex h-9 items-center px-1 py-1.5">
-                <div class="flex shrink-0 items-center pl-1">
-                    <component
-                        :is="step.icon"
-                        class="wf-tone size-[18px]"
-                        :stroke-width="2"
-                        aria-hidden="true"
-                    />
-                </div>
-                <div class="flex min-w-0 flex-1 items-center pr-4 pl-2">
-                    <span
-                        class="truncate text-[13.5px]/6 font-medium text-(--wf-muted)"
-                    >
-                        {{ step.label }}
-                    </span>
-                </div>
-                <span
-                    v-if="badge"
-                    class="wf-badge mr-1.5 flex h-5 items-center gap-1.5 rounded-full px-2 text-[12px]/5 font-[550]"
-                    :data-state="runState"
-                >
-                    <span
-                        class="size-1.5 rounded-full bg-current"
-                        :class="{ 'animate-pulse': active }"
-                    />
-                    {{ badge }}
-                </span>
-                <span
-                    v-else-if="problem && !readOnly"
-                    class="mr-1.5 flex size-5 items-center justify-center text-(--ds-amber)"
-                    :title="problem"
-                >
-                    <TriangleAlert class="size-4" :stroke-width="2" />
-                </span>
-                <div
-                    v-else-if="!readOnly"
-                    class="flex items-center justify-end pr-0.5 opacity-0 transition-opacity duration-150 group-hover/node:opacity-100"
-                >
-                    <GripVertical
-                        class="size-4 text-(--wf-faint)"
-                        aria-hidden="true"
-                    />
-                </div>
-                <span v-if="node.kind === 'trigger'" class="wf-if-pill">{{
-                    $t('IF')
-                }}</span>
-            </div>
             <div
-                class="wf-body flex flex-col gap-1 rounded-[10px] px-3.5 py-3 text-[14px]"
+                class="relative flex min-h-0 flex-1 items-center gap-3 overflow-clip rounded-[14px] border-[0.5px] border-[#e4e4e4] bg-[linear-gradient(164.5deg,#ffffff_14.286%,#f7f7f7_85.714%)] px-4 dark:border-[#2e2e2e] dark:bg-[linear-gradient(164.5deg,#222222_14.286%,#161616_85.714%)] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]"
             >
                 <span
-                    class="font-semibold text-(--wf-text)"
-                    :class="node.kind === 'trigger' ? 'leading-6' : 'leading-5'"
+                    v-if="active"
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-0 animate-pulse rounded-[inherit] bg-status-deploying/8 motion-reduce:hidden"
+                />
+                <span
+                    class="flex size-[22px] shrink-0 items-center justify-center"
+                    :class="{ 'opacity-60': dimmed }"
                 >
-                    {{ node.title || step.title }}
-                </span>
-                <span class="leading-5 font-medium text-(--wf-faint)">
-                    {{ node.description || step.description }}
+                    <BrandLogo
+                        v-if="visual.logo"
+                        :name="visual.logo"
+                        :src="visual.logoSrc"
+                        :size="22"
+                    />
+                    <FilledIcon
+                        v-else
+                        :name="visual.icon"
+                        :size="22"
+                        class="text-fg-primary"
+                    />
                 </span>
                 <span
-                    v-if="summary"
-                    class="mt-1 truncate font-ui-mono text-[12px]/4 text-(--wf-muted)"
-                    :title="summary"
+                    class="flex min-w-0 flex-1 flex-col whitespace-nowrap"
+                    :class="{ 'opacity-70': dimmed }"
                 >
-                    {{ summary }}
+                    <span
+                        class="truncate text-[13.5px]/[18px] font-medium tracking-[-0.01em] text-fg-primary"
+                        >{{ node.title || STEPS[node.kind].title }}</span
+                    >
+                    <span
+                        class="truncate text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
+                        >{{ subtitle }}</span
+                    >
                 </span>
                 <span
-                    v-if="problem && !readOnly"
-                    class="mt-1 text-[12px]/4 font-medium text-(--ds-amber)"
+                    class="absolute top-[9.5px] right-[8.5px] flex size-3 items-center justify-center"
+                    :title="
+                        problem && !readOnly
+                            ? problem
+                            : (stateLabel ?? undefined)
+                    "
                 >
-                    {{ problem }}
+                    <TriangleAlert
+                        v-if="problem && !readOnly"
+                        class="size-3 text-status-pending"
+                        :stroke-width="2.2"
+                        :aria-label="problem"
+                    />
+                    <svg
+                        v-else-if="runState === 'succeeded'"
+                        class="size-3"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        :aria-label="$t('Ran')"
+                    >
+                        <path
+                            d="M10 3L4.5 8.5L2 6"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke="#3EC46D"
+                        />
+                    </svg>
+                    <X
+                        v-else-if="runState === 'failed'"
+                        class="size-3 text-status-down"
+                        :stroke-width="2.4"
+                        :aria-label="$t('Failed')"
+                    />
+                    <span
+                        v-else-if="active"
+                        class="size-1.5 animate-pulse rounded-full bg-status-deploying"
+                        :aria-label="stateLabel ?? undefined"
+                    />
                 </span>
             </div>
         </div>
-
-        <span
-            v-if="hasInput(node)"
-            aria-hidden="true"
-            class="wf-handle -top-1"
-        />
-        <span
-            role="presentation"
-            class="wf-handle -bottom-1 before:absolute before:-inset-2 before:rounded-full"
-            :class="readOnly ? '' : 'cursor-crosshair'"
-            @pointerdown="emit('handlePointerdown', node.id, $event)"
-        />
 
         <div
             v-if="selected && !dragging && !editing"
@@ -177,7 +158,7 @@ const active = computed(() => ['running', 'waiting'].includes(props.runState));
         >
             <button
                 type="button"
-                class="ds-raised-button h-7! cursor-pointer px-2.5! text-xs!"
+                class="dash-button dash-button--secondary dash-button--sm"
                 @click="emit('open', node.id)"
             >
                 {{ readOnly ? $t('Details') : $t('Edit') }}

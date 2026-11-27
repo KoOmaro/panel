@@ -79,14 +79,17 @@ const backups = computed(() => {
         : trans('All backed up');
 });
 
-const cpu = computed(() =>
-    props.machines.length
+const cpu = computed(() => {
+    const known = props.machines
+        .map((m) => m.cpu)
+        .filter((value): value is number => value !== null);
+
+    return known.length
         ? Math.round(
-              props.machines.reduce((sum, m) => sum + m.cpu, 0) /
-                  props.machines.length,
+              known.reduce((sum, value) => sum + value, 0) / known.length,
           )
-        : 0,
-);
+        : null;
+});
 </script>
 
 <template>
@@ -150,7 +153,7 @@ const cpu = computed(() =>
         <div :class="columns.memory" role="cell">{{ memory }}</div>
 
         <div :class="columns.cpu" class="flex items-center" role="cell">
-            <CpuBar v-if="machines.length" :cpu="cpu" themed />
+            <CpuBar v-if="cpu !== null" :cpu="cpu" themed />
             <span v-else class="text-(--ds-text-faint)">—</span>
         </div>
 

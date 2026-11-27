@@ -7,6 +7,7 @@ use App\Models\DaemonJob;
 use App\Models\User;
 use App\Models\WorkflowRun;
 use App\Models\Workspace;
+use App\Support\Ai\AiFeatures;
 use App\Support\Ai\AiProviders;
 use App\Support\Brand;
 use App\Support\GitHub\GitHubApp;
@@ -149,7 +150,7 @@ final class AgentSpec
             'SERVEROS_AGENT_RUN_ID' => (string) $run->id,
             'SERVEROS_AGENT_TRIGGER' => mb_substr((string) ($run->trigger['summary'] ?? ''), 0, 200),
             'SERVEROS_AGENT_ASK' => mb_substr(trim(self::text((string) ($rules['prompt'] ?? ''), $run)), 0, 3000),
-            'SERVEROS_AGENT_RUN_URL' => 'https://'.$run->workflow->workspace->host()."/workflows/{$run->workflow->id}?run={$run->id}",
+            'SERVEROS_AGENT_RUN_URL' => $run->workflow->workspace->url("/workflows/{$run->workflow->id}?run={$run->id}"),
         ];
         foreach (['model' => 'SERVEROS_AGENT_MODEL', 'setup' => 'SERVEROS_AGENT_SETUP', 'check' => 'SERVEROS_AGENT_CHECK'] as $rule => $name) {
             $value = trim((string) ($rules[$rule] ?? ''));
@@ -158,12 +159,22 @@ final class AgentSpec
             }
         }
 
-        // OpenCode on a local model needs no key at all: nothing leaves the machine.
+        $model = trim((string) ($rules['model'] ?? ''));
+        if ($model === '') {
+            $picked = AiFeatures::agentDefault($workspace, ($run->trigger['kind'] ?? null) === 'agent_task' ? AiFeatures::AGENTS : AiFeatures::WORKFLOWS);
+            if ($picked !== null && $picked['agent'] === $agent) {
+                $model = $env['SERVEROS_AGENT_MODEL'] = $picked['model'];
+            }
+        }
+
+        // OpenCode on a model on the machine needs no key at all: nothing leaves the machine.
         $provider = match (true) {
             $agent === 'codex' => 'openai',
-            $agent === 'opencode' => match (strtok((string) ($rules['model'] ?? ''), '/')) {
+            $agent === 'opencode' => match (strtok($model, '/')) {
                 'anthropic' => 'anthropic',
                 'openai' => 'openai',
+                'openrouter' => 'openrouter',
+                'ollama' => 'ollama',
                 default => null,
             },
             default => 'anthropic',
@@ -173,7 +184,12 @@ final class AgentSpec
             // The key goes only to an agent started by someone who could see it.
             $runAs = self::actor($run);
             if ($runAs !== null && $workspace->allows($runAs, WorkspacePermission::ManageSettings)) {
-                $env[$provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'] = $own->key;
+                $env = [...$env, ...match ($provider) {
+                    'openai' => ['OPENAI_API_KEY' => $own->key],
+                    'openrouter' => ['OPENROUTER_API_KEY' => $own->key],
+                    'ollama' => array_filter(['OLLAMA_URL' => (string) $own->base_url, 'OLLAMA_API_KEY' => $own->key]),
+                    default => ['ANTHROPIC_API_KEY' => $own->key],
+                }];
             } else {
                 $env['SERVEROS_AGENT_KEY_WITHHELD'] = '1';
             }
@@ -435,7 +451,7 @@ final class AgentSpec
         $esc = fn (?string $v): string => htmlspecialchars((string) $v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $agent = self::AGENTS[(string) (($rules['agent'] ?? '') ?: 'claude')] ?? 'The agent';
         $model = $outcome['model'] ?? 'its default model';
-        $url = 'https://'.$run->workflow->workspace->host()."/workflows/{$run->workflow->id}?run={$run->id}";
+        $url = $run->workflow->workspace->url("/workflows/{$run->workflow->id}?run={$run->id}");
         $name = mb_substr("{$run->workflow->name}, run #{$run->id}", 0, 120);
         $trigger = mb_substr((string) ($run->trigger['summary'] ?? ''), 0, 200);
         $check = trim((string) ($rules['check'] ?? ''));
@@ -708,8 +724,9 @@ if (used[0]) console.log(used[0][0]);
       ollama/*)
         # A model on the machine itself: Ollama on the host, reached from the container.
         ollama="${OLLAMA_URL:-http://host.docker.internal:11434}"
+        ollama_key=""; [ -n "${OLLAMA_API_KEY:-}" ] && ollama_key=',"apiKey":"{env:OLLAMA_API_KEY}"'
         cat >"$ctl/opencode.json" <<JSON
-{"\$schema":"https://opencode.ai/config.json","provider":{"ollama":{"npm":"@ai-sdk/openai-compatible","name":"Ollama","options":{"baseURL":"${ollama%/}/v1"},"models":{"${model#ollama/}":{}}}}}
+{"\$schema":"https://opencode.ai/config.json","provider":{"ollama":{"npm":"@ai-sdk/openai-compatible","name":"Ollama","options":{"baseURL":"${ollama%/}/v1"${ollama_key}},"models":{"${model#ollama/}":{}}}}}
 JSON
         # Readable by the agent's user; written by ServerOS, outside the checkout.
         rm -rf "$work/home/.opencode.json" && cp "$ctl/opencode.json" "$work/home/.opencode.json" && chmod 444 "$work/home/.opencode.json"

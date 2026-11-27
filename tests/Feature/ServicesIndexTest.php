@@ -29,7 +29,7 @@ test('the services page lists every machine\'s services with where they run and 
         ]],
     ])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Services')
@@ -50,10 +50,10 @@ test('another workspace\'s services stay out of the list', function () {
     $other = Machine::factory()->create();
     $other->forceFill(['inventory' => ['services' => [['key' => 'docker:x', 'name' => 'secret', 'ports' => []]]]])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertInertia(fn (Assert $page) => $page->has('services', 0)->etc());
 
-    $this->actingAs(User::factory()->create())->get('https://'.$workspace->host().'/services')
+    $this->actingAs(User::factory()->create())->get($workspace->url().'/services')
         ->assertForbidden();
 });
 
@@ -62,7 +62,7 @@ test('a service saved without ports still lists, with none', function () {
     $machine = Machine::factory()->for($workspace)->create();
     $machine->forceFill(['inventory' => ['services' => [['key' => 'docker:old', 'name' => 'old-db', 'kind' => 'container', 'status' => 'running']]]])->save();
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertInertia(fn (Assert $page) => $page
             ->has('services', 1)
             ->where('services.0.ports', [])
@@ -95,7 +95,7 @@ test('the services page sends this workspace’s deploys that are building or ju
     servicesDeploy($machine, 'scan', 'running', 1, 0, 'scan');
     servicesDeploy($theirs, 'secret', 'running', 1, 0);
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->where('machines.0.scannedAt', 1700000000)
@@ -115,9 +115,46 @@ test('a busy workspace’s finished deploys are capped and never push out one st
         servicesDeploy($machine, "app-{$i}", 'failed', 1);
     }
 
-    $this->actingAs($workspace->owner)->get('https://'.$workspace->host().'/services')
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
         ->assertInertia(fn (Assert $page) => $page
             ->has('deploys', 51)
             ->where('deploys.50.id', $running->id)
+            ->etc());
+});
+
+test('the services page sends each machine’s memory so service meters have a scale', function () {
+    $workspace = Workspace::factory()->create();
+    $machine = Machine::factory()->for($workspace)->create(['name' => 'alpha']);
+    $machine->forceFill(['facts' => ['memory_bytes' => 8589934592]])->save();
+    Machine::factory()->for($workspace)->create(['name' => 'beta']);
+
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('machines.0.memoryBytes', 8589934592)
+            ->where('machines.1.memoryBytes', null)
+            ->etc());
+});
+
+test('the services page sends this workspace’s recent adopts, so a found service shows it is being adopted', function () {
+    $workspace = Workspace::factory()->create();
+    $machine = Machine::factory()->for($workspace)->create();
+    $theirs = Machine::factory()->create();
+
+    $running = servicesDeploy($machine, 'systemd:pgbouncer.service', 'running', 1, 0, 'adopt');
+    $failed = servicesDeploy($machine, 'docker:abc', 'failed', 2, 2, 'adopt');
+    $failed->forceFill(['error' => ['message' => 'Adopting failed.', 'next_step' => 'Try again.', 'output_tail' => ['secret line']]])->save();
+    servicesDeploy($machine, 'docker:old', 'succeeded', 30, 30, 'adopt');
+    servicesDeploy($machine, 'docker:deploy', 'running', 1, 0);
+    servicesDeploy($theirs, 'docker:theirs', 'running', 1, 0, 'adopt');
+
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('adopts', 2)
+            ->where('adopts.0', [
+                'id' => $running->id, 'machineId' => $machine->id, 'service' => 'systemd:pgbouncer.service',
+                'state' => 'running', 'error' => null,
+            ])
+            ->where('adopts.1.id', $failed->id)
+            ->where('adopts.1.error', ['message' => 'Adopting failed.', 'next_step' => 'Try again.'])
             ->etc());
 });

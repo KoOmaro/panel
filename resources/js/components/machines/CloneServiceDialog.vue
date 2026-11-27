@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
@@ -12,6 +13,8 @@ import { Input } from '@/components/ui/input';
 import AppButton from '@/components/workspace/AppButton.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import { describe, errorMessage } from '@/lib/errors';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 const open = defineModel<boolean>('open', { required: true });
 const props = defineProps<{
@@ -21,6 +24,7 @@ const props = defineProps<{
     defaults: { name: string; port: number };
 }>();
 const emit = defineEmits<{ started: [jobId: string, name: string] }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const labelClass = 'text-[13px]/5 font-medium text-(--ds-text-muted)';
 const focusRing =
@@ -49,7 +53,13 @@ async function submit(): Promise<void> {
     errors.value = {};
     try {
         const response = await fetch(
-            `/machines/${props.machineId}/services/${encodeURIComponent(props.serviceKey)}/clone`,
+            onWorkspace(
+                machinesRoutes.services.clone({
+                    workspace: page.props.workspace.slug,
+                    machine: props.machineId,
+                    service: encodeURIComponent(props.serviceKey),
+                }),
+            ).url,
             {
                 method: 'POST',
                 credentials: 'same-origin',

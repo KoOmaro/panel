@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { SolarClock as Clock } from '@/lib/solarIcons';
 import type { PlannedMaintenance } from '@/components/machines/machines';
 import { maintenanceWhen, startsIn } from '@/components/status/status';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import machinesRoutes from '@/routes/workspace/machines';
 
 const props = defineProps<{
     machineId: number;
     windows: PlannedMaintenance[];
     canManage: boolean;
 }>();
+const page = usePage<{ workspace: { slug: string } }>();
 
 const doing: Record<PlannedMaintenance['action'], string> = {
     none: '',
@@ -34,7 +37,13 @@ function cancel(window: PlannedMaintenance): void {
     )
         return;
     router.delete(
-        `/machines/${props.machineId}/maintenance/scheduled/${window.id}`,
+        onWorkspace(
+            machinesRoutes.maintenance.cancel({
+                workspace: page.props.workspace.slug,
+                machine: props.machineId,
+                window: window.id,
+            }),
+        ).url,
         {
             preserveScroll: true,
         },

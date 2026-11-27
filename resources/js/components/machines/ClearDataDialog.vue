@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import AppButton from '@/components/workspace/AppButton.vue';
 import DangerButton from '@/components/workspace/DangerButton.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
+import { workspacePath } from '@/lib/workspaceRoute';
 
 export type DataKind = 'logs' | 'metrics' | 'services';
 
@@ -113,13 +114,13 @@ function submit(): void {
 
     if (single.value) {
         router.post(
-            `/machines/${single.value.id}/collected-data`,
+            workspacePath(`/machines/${single.value.id}/collected-data`),
             { kinds: chosen.value, confirm: confirmation.value },
             options,
         );
     } else {
         router.post(
-            '/machines/collected-data',
+            workspacePath('/machines/collected-data'),
             { machines: props.machines.map((m) => m.id), kinds: chosen.value },
             options,
         );
