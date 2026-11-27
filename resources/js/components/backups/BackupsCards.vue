@@ -2,13 +2,13 @@
 import { trans } from 'laravel-vue-i18n';
 import { computed } from 'vue';
 import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import GaugeDial from '@/components/dash/GaugeDial.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import CardLine from '@/components/summary/CardLine.vue';
 import type { CardLineState } from '@/components/summary/CardLine.vue';
 import StatGrid from '@/components/summary/StatGrid.vue';
 import type { Stat } from '@/components/summary/StatGrid.vue';
-import SummaryCard from '@/components/summary/SummaryCard.vue';
 import { destinationKind, size, sizeParts, when } from './backups';
 import type { BackupsSummary, Destination } from './backups';
 
@@ -148,19 +148,23 @@ const dayNote = computed(() => {
 
 <template>
     <div
-        class="grid grid-cols-1 gap-3 px-5 pt-3.5 pb-1 md:grid-cols-2 xl:flex xl:items-stretch xl:[&>*]:min-h-[195px]"
+        class="grid grid-cols-1 gap-3 px-5 pt-3.5 pb-1 md:grid-cols-2 xl:flex xl:items-stretch xl:[&>*]:min-h-[214px]"
     >
-        <SummaryCard
+        <DashTray
+            icon="upload-fill"
             :title="$t('Backups')"
-            :note="
-                summary.lastRunAt
-                    ? $t('last run :when', {
-                          when: when(summary.lastRunAt, true),
-                      })
-                    : $t('nothing has run yet')
-            "
             class="shrink-0 md:col-span-2 xl:w-[480px]"
+            panel-class="px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{
+                    summary.lastRunAt
+                        ? $t('last run :when', {
+                              when: when(summary.lastRunAt, true),
+                          })
+                        : $t('nothing has run yet')
+                }}</span>
+            </template>
             <div class="flex items-center gap-[18px]">
                 <GaugeDial
                     :value="
@@ -189,13 +193,17 @@ const dayNote = computed(() => {
                 />
                 <StatGrid :stats="stats" class="max-sm:hidden" />
             </div>
-        </SummaryCard>
+        </DashTray>
 
-        <SummaryCard
+        <DashTray
+            icon="database-fill"
             :title="$t('Destinations')"
-            :note="destinationNote"
             class="min-w-0 flex-1"
+            panel-class="gap-2.5 px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{ destinationNote }}</span>
+            </template>
             <template v-if="destinations.length">
                 <div
                     v-for="row in destinationRows"
@@ -270,13 +278,19 @@ const dayNote = computed(() => {
                     {{ $t('Add a destination') }}
                 </button>
             </template>
-        </SummaryCard>
+        </DashTray>
 
-        <SummaryCard
+        <DashTray
+            icon="layers-fill"
             :title="$t('Last 24 hours')"
-            :note="summary.day.total ? dayNote : $t('nothing ran')"
             class="min-w-0 flex-1"
+            panel-class="gap-2.5 px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{
+                    summary.day.total ? dayNote : $t('nothing ran')
+                }}</span>
+            </template>
             <CardLine
                 v-for="line in lines"
                 :key="line.key"
@@ -294,6 +308,6 @@ const dayNote = computed(() => {
                     )
                 }}
             </p>
-        </SummaryCard>
+        </DashTray>
     </div>
 </template>

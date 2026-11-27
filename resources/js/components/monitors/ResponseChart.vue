@@ -7,7 +7,7 @@ import {
     ms,
     shortDay,
 } from '@/components/monitors/monitors';
-import MonitorCard from '@/components/monitors/MonitorCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import type { MonitorChart } from '@/components/monitors/monitors';
 
 type Range = '24h' | '7d';
@@ -139,7 +139,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-    <MonitorCard
+    <DashTray
         icon="monitors-fill"
         :title="$t('Response time')"
         :meta="cadence(chart.step)"
@@ -240,5 +240,5 @@ const summary = computed(() => {
                 <span class="min-w-0 flex-1 text-right">{{ axis[2] }}</span>
             </div>
         </div>
-    </MonitorCard>
+    </DashTray>
 </template>

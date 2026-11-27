@@ -2,7 +2,7 @@
 import { trans } from 'laravel-vue-i18n';
 import { computed, onMounted, ref, watch } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { ExistingSiteRow } from '@/components/machines/ExistingSitesTraffic.vue';
 import type { ServiceApp } from '@/components/service/serviceTypes';
@@ -127,12 +127,7 @@ const found = computed(() =>
 </script>
 
 <template>
-    <HomeCard
-        icon="globe-fill"
-        :title="$t('Domain')"
-        heading-id="service-domain"
-        class="shrink-0"
-    >
+    <DashTray icon="globe-fill" :title="$t('Domain')" class="shrink-0">
         <template v-if="app && canManage" #actions>
             <DashButton
                 size="sm"
@@ -255,5 +250,5 @@ const found = computed(() =>
                 >
             </div>
         </div>
-    </HomeCard>
+    </DashTray>
 </template>

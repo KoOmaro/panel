@@ -205,6 +205,7 @@ test('a machine with nothing reported shows no load, network, processes or traff
                 'networkIn' => null,
                 'networkOut' => null,
                 'at' => null,
+                'last' => null,
             ])
             ->where('traffic', null)
             ->etc());

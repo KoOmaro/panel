@@ -145,7 +145,7 @@ class WorkspaceHealth
                 $href, 'Open machine', $since, $machine);
         }
 
-        $disk = $machine->disks[0] ?? null;
+        $disk = $machine->volumes()[0] ?? null;
         if ($disk !== null && $machine->disk_percent !== null && $machine->disk_percent >= self::DISK_WARN) {
             $free = self::bytes($disk['total'] - $disk['used']);
             $mount = $disk['mount'] === '/' ? 'Its main disk' : "The disk at {$disk['mount']}";

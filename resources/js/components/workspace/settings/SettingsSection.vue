@@ -1,16 +1,26 @@
 <script setup lang="ts">
-import { provide, useId } from 'vue';
+import type { Component } from 'vue';
+import { computed, provide } from 'vue';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashTray from '@/components/dash/DashTray.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import { SETTINGS_SECTIONS } from '@/components/workspace/settings/sections';
+import { trayIcon } from '@/components/workspace/settings/trayIcons';
+
+defineOptions({ inheritAttrs: false });
 
 const {
     title,
     description,
+    icon = undefined,
+    logo = undefined,
     danger = false,
     padded = true,
-    wide = false,
 } = defineProps<{
     title?: string;
     description?: string;
+    icon?: Component | FilledIconName;
+    logo?: string;
     danger?: boolean;
     padded?: boolean;
     wide?: boolean;
@@ -25,45 +35,62 @@ defineSlots<{
 
 provide(SETTINGS_SECTIONS, false);
 
-const headingId = useId();
+const resolved = computed(() => trayIcon(icon));
+const filled = computed(() =>
+    typeof resolved.value === 'string' ? resolved.value : undefined,
+);
+const component = computed(() =>
+    typeof resolved.value === 'string' ? undefined : resolved.value,
+);
+const panelClass = computed(
+    () =>
+        'pt-3 [--tile-bg:var(--dash-bg-tray-panel)] [--tile-edge:var(--dash-edge-row)] [--tile-head:var(--dash-bg-tray-panel)] [--tile-inner:var(--dash-bg-card-footer)] [--tile-rule:var(--dash-edge-row)]' +
+        (danger ? ' border-status-down/60!' : ''),
+);
 </script>
 
 <template>
     <section
-        class="settings-section flex min-w-0 scroll-mt-6 flex-col gap-4 border-t-[0.5px] border-edge-tabs py-7"
-        :class="{ 'lg:flex-row lg:items-start lg:gap-12': !wide }"
-        :aria-labelledby="title ? headingId : undefined"
+        class="settings-section flex min-w-0 flex-col border-t-[0.5px] border-edge-tabs py-7"
     >
-        <div
-            class="flex w-full min-w-0 shrink-0 flex-col pt-0.5"
-            :class="{ 'lg:w-60': !wide }"
+        <DashTray
+            v-bind="$attrs"
+            class="scroll-mt-6"
+            :title="title ?? ''"
+            :icon="filled"
+            :panel-class="panelClass"
         >
-            <slot name="head">
-                <h2
-                    :id="headingId"
-                    class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
+            <template v-if="logo || component" #icon>
+                <BrandLogo v-if="logo" :name="logo" :size="15" />
+                <component
+                    :is="component"
+                    v-else
+                    class="size-[15px] shrink-0 text-fg-muted"
+                    :stroke-width="1.75"
+                />
+            </template>
+            <template v-if="$slots.head" #title>
+                <slot name="head" />
+            </template>
+            <template v-if="description" #meta>
+                <span class="hidden whitespace-normal sm:inline">{{
+                    description
+                }}</span>
+            </template>
+            <template v-if="$slots.actions" #actions>
+                <div
+                    class="flex shrink-0 flex-wrap items-center justify-end gap-2"
                 >
-                    {{ title }}
-                </h2>
-                <p
-                    v-if="description"
-                    class="mt-1 text-[13px]/5 tracking-[-0.005em] text-pretty text-fg-tertiary"
-                >
-                    {{ description }}
-                </p>
-            </slot>
-            <div
-                v-if="$slots.actions"
-                class="mt-3 flex flex-wrap items-center gap-2"
-            >
-                <slot name="actions" />
-            </div>
-        </div>
+                    <slot name="actions" />
+                </div>
+            </template>
 
-        <div
-            class="dash-card flex min-w-0 flex-1 flex-col self-stretch"
-            :class="{ 'border-status-down/35!': danger }"
-        >
+            <p
+                v-if="description"
+                class="px-[18px] pt-1 text-[12.5px]/[18px] tracking-[-0.005em] text-pretty text-fg-tertiary sm:hidden"
+            >
+                {{ description }}
+            </p>
             <div
                 class="flex grow flex-col"
                 :class="{ 'px-[18px] py-4': padded }"
@@ -73,6 +100,6 @@ const headingId = useId();
             <div v-if="$slots.footer" class="dash-card-footer flex-wrap">
                 <slot name="footer" />
             </div>
-        </div>
+        </DashTray>
     </section>
 </template>

@@ -4,6 +4,7 @@ import { Link } from '@inertiajs/vue3';
 import { Check } from '@lucide/vue';
 import { computed } from 'vue';
 import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import GaugeDial from '@/components/dash/GaugeDial.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { FilledIconName } from '@/components/icons/filledIcons';
@@ -82,6 +83,7 @@ export type MachineLive = {
     networkIn: number | null;
     networkOut: number | null;
     at: string | null;
+    last: { at: string; cpu: number | null; memoryMb: number | null } | null;
 };
 
 export type MachineTraffic = {
@@ -192,6 +194,48 @@ const memoryReadout = computed(() =>
     memory.value ? bytesLabel(memory.value.used) : '–',
 );
 
+function readingTime(iso: string): { date: string; time: string } {
+    const at = new Date(iso);
+
+    return {
+        date: at.toLocaleDateString([], {
+            day: 'numeric',
+            month: 'short',
+            year:
+                at.getFullYear() === new Date().getFullYear()
+                    ? undefined
+                    : 'numeric',
+        }),
+        time: at.toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        }),
+    };
+}
+
+const lastReading = computed(() => {
+    const last = props.live?.last;
+    if (!last) return null;
+    const values = [
+        last.cpu === null
+            ? null
+            : trans('CPU :percent%', { percent: String(Math.round(last.cpu)) }),
+        last.memoryMb === null
+            ? null
+            : trans('memory :size', {
+                  size: bytesLabel(last.memoryMb * 1024 ** 2),
+              }),
+    ].filter((value): value is string => value !== null);
+
+    return values.length
+        ? trans('Last reading :date at :time: :values.', {
+              ...readingTime(last.at),
+              values: values.join(', '),
+          })
+        : null;
+});
+
 function rate(bytesPerSecond: number | null | undefined) {
     return bytesPerSecond === null || bytesPerSecond === undefined
         ? { value: '–', unit: '' }
@@ -283,6 +327,11 @@ const storage = computed(() => {
     return {
         size: sizePair(used, total),
         percent: Math.round((used / total) * 100),
+        asOf: props.live?.last
+            ? trans('as of :date', {
+                  date: readingTime(props.live.last.at).date,
+              })
+            : null,
     };
 });
 
@@ -550,15 +599,11 @@ function resize(): void {
         <div class="flex min-w-0 flex-1 flex-col gap-2.5 px-6 py-4">
             <slot name="notices" />
 
-            <section
-                class="dash-card flex flex-col gap-3 px-[18px] pt-3 pb-3.5"
-                :aria-label="$t('Summary')"
+            <DashTray
+                icon="machines-fill"
+                :title="$t('Summary')"
+                panel-class="px-[18px] pt-3 pb-3.5"
             >
-                <h2
-                    class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
-                >
-                    {{ $t('Summary') }}
-                </h2>
                 <dl class="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4">
                     <div
                         v-for="item in summary"
@@ -589,24 +634,18 @@ function resize(): void {
                         </dd>
                     </div>
                 </dl>
-            </section>
+            </DashTray>
 
             <div class="flex flex-wrap items-stretch gap-4">
-                <section
-                    class="dash-card flex min-w-0 flex-[1_1_440px] flex-col gap-2.5 px-[18px] py-3"
-                    :aria-label="$t('Live')"
+                <DashTray
+                    icon="monitors-fill"
+                    :title="$t('Live')"
+                    class="flex-[1_1_440px]"
+                    panel-class="justify-center px-[18px] py-3"
                 >
-                    <h2 class="flex items-center gap-2 text-[14px]/5">
-                        <span
-                            class="font-medium tracking-[-0.01em] text-fg-primary"
-                            >{{ $t('Live') }}</span
-                        >
-                        <span
-                            v-if="cadence"
-                            class="text-[13px] text-fg-tertiary"
-                            >{{ cadence }}</span
-                        >
-                    </h2>
+                    <template v-if="cadence" #meta>
+                        <span class="text-fg-tertiary">{{ cadence }}</span>
+                    </template>
                     <div class="flex flex-wrap items-center gap-[18px]">
                         <GaugeDial
                             :value="cpuNow ?? 0"
@@ -662,62 +701,67 @@ function resize(): void {
                             </div>
                         </div>
                     </div>
-                </section>
+                    <p
+                        v-if="lastReading"
+                        class="mt-2.5 text-[12px]/4 text-fg-muted"
+                    >
+                        {{ lastReading }}
+                    </p>
+                </DashTray>
 
-                <section
+                <DashTray
                     v-if="place"
-                    class="dash-card flex min-h-[175px] flex-[1_1_262px] flex-col gap-2.5 overflow-hidden px-[18px] pt-3 sm:max-w-[262px]"
-                    :aria-label="$t('Location')"
+                    icon="globe-fill"
+                    :title="$t('Location')"
+                    class="min-h-[198px] flex-[1_1_262px] sm:max-w-[262px]"
+                    panel-class="pt-3 pr-1.5 pl-[18px]"
                 >
-                    <h2 class="flex items-center gap-2 text-[14px]/5">
-                        <span
-                            class="font-medium tracking-[-0.01em] text-fg-primary"
-                            >{{ $t('Location') }}</span
-                        >
-                        <span class="truncate text-[13px] text-fg-tertiary"
+                    <template #meta>
+                        <span class="text-fg-tertiary"
                             >{{ place.city }}, {{ place.country }}</span
                         >
-                    </h2>
-                    <div class="-mx-[18px] min-h-0 flex-1">
+                    </template>
+                    <div class="min-h-0 flex-1">
                         <MachineGlobe
                             :lat="place.lat"
                             :lon="place.lon"
                             :label="`${machine.name} · ${regionCode}`"
                         />
                     </div>
-                </section>
+                </DashTray>
             </div>
 
-            <section
+            <DashTray
                 v-if="storage"
-                class="dash-card flex flex-col gap-2.5 px-[18px] pt-3 pb-3.5"
-                :aria-label="$t('Storage')"
+                icon="database-fill"
+                :title="$t('Storage')"
+                panel-class="px-[18px] pt-3 pb-3.5"
             >
-                <div class="flex items-center gap-2">
-                    <h2
-                        class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
+                <template #meta>
+                    <span class="text-fg-tertiary tabular-nums"
+                        >{{ storage.size.used }} / {{ storage.size.total
+                        }}<template v-if="storage.asOf">
+                            · {{ storage.asOf }}</template
+                        ></span
                     >
-                        {{ $t('Storage') }}
-                    </h2>
-                    <span class="text-[13px]/5 text-fg-tertiary tabular-nums"
-                        >{{ storage.size.used }} /
-                        {{ storage.size.total }}</span
-                    >
-                    <span class="grow" />
-                    <span
-                        class="text-[12.5px]/4 font-medium text-fg-secondary tabular-nums"
-                        >{{ storage.percent }}%</span
-                    >
-                    <span
-                        class="relative h-1 w-10 overflow-hidden rounded-[2px] bg-[#e6e6e6] dark:bg-[#2a2a2a]"
-                        aria-hidden="true"
-                    >
+                </template>
+                <template #actions>
+                    <span class="flex shrink-0 items-center gap-2">
                         <span
-                            class="absolute inset-y-0 left-0 rounded-[2px] bg-[#6b8cff]"
-                            :style="{ width: `${storage.percent}%` }"
-                        />
+                            class="text-[12.5px]/4 font-medium text-fg-secondary tabular-nums"
+                            >{{ storage.percent }}%</span
+                        >
+                        <span
+                            class="relative h-1 w-10 overflow-hidden rounded-[2px] bg-[#e6e6e6] dark:bg-[#2a2a2a]"
+                            aria-hidden="true"
+                        >
+                            <span
+                                class="absolute inset-y-0 left-0 rounded-[2px] bg-[#6b8cff]"
+                                :style="{ width: `${storage.percent}%` }"
+                            />
+                        </span>
                     </span>
-                </div>
+                </template>
                 <div class="grid gap-y-4 sm:grid-cols-3">
                     <div
                         v-for="(volume, index) in volumes"
@@ -755,79 +799,80 @@ function resize(): void {
                         </div>
                     </div>
                 </div>
-            </section>
+            </DashTray>
 
-            <section
-                class="dash-card flex flex-col gap-1.5 px-[18px] py-2.5"
+            <DashTray
+                icon="monitors-fill"
                 :aria-label="$t('Usage history')"
+                panel-class="gap-1.5 px-[18px] pt-3 pb-2.5"
             >
-                <div class="flex flex-wrap items-center gap-2.5">
-                    <div
-                        class="flex gap-0.5 rounded-[7px] border-[0.5px] border-edge-row bg-surface-well p-0.5"
-                        role="group"
-                        :aria-label="$t('Metric')"
-                    >
-                        <button
-                            v-for="key in ['cpu', 'mem', 'disk'] as const"
-                            :key="key"
-                            type="button"
-                            class="flex h-[22px] cursor-pointer items-center rounded-[5px] px-[9px] text-[12px]/4 font-medium tracking-[-0.01em] focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
-                            :class="
-                                metric === key
-                                    ? 'border-[0.5px] border-[#dcdcdc] bg-white text-fg-primary shadow-card dark:border-[#363636] dark:bg-[#262626]'
-                                    : 'text-fg-tertiary hover:text-fg-secondary'
-                            "
-                            :aria-pressed="metric === key"
-                            @click="metric = key"
+                <template #meta>
+                    <span class="flex items-center gap-[9px]">
+                        <span
+                            class="flex gap-0.5 rounded-[7px] border-[0.5px] border-edge-row bg-surface-well p-0.5"
+                            role="group"
+                            :aria-label="$t('Metric')"
                         >
-                            {{ metricLabels[key] }}
-                        </button>
-                    </div>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger as-child>
                             <button
+                                v-for="key in ['cpu', 'mem', 'disk'] as const"
+                                :key="key"
                                 type="button"
-                                class="flex cursor-pointer items-center gap-1 rounded-md text-[13px]/5 text-fg-tertiary hover:text-fg-secondary focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
-                                :aria-busy="loadingRange || undefined"
+                                class="flex h-[22px] cursor-pointer items-center rounded-[5px] px-[9px] text-[12px]/4 font-medium tracking-[-0.01em] focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
+                                :class="
+                                    metric === key
+                                        ? 'border-[0.5px] border-[#dcdcdc] bg-white text-fg-primary shadow-card dark:border-[#363636] dark:bg-[#262626]'
+                                        : 'text-fg-tertiary hover:text-fg-secondary'
+                                "
+                                :aria-pressed="metric === key"
+                                @click="metric = key"
                             >
-                                {{ rangeLabel }}
-                                <FilledIcon
-                                    name="chevron-down"
-                                    :size="12"
-                                    class="text-fg-muted"
-                                />
+                                {{ metricLabels[key] }}
                             </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                            class="ds-modal min-w-40 font-ui"
-                            align="start"
-                        >
-                            <DropdownMenuItem
-                                v-for="option in ranges"
-                                :key="option.value"
-                                @select="emit('range', option.value)"
+                        </span>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger as-child>
+                                <button
+                                    type="button"
+                                    class="flex cursor-pointer items-center gap-1 rounded-md text-[13px]/5 text-fg-tertiary hover:text-fg-secondary focus-visible:outline-2 focus-visible:outline-(--ds-ring)"
+                                    :aria-busy="loadingRange || undefined"
+                                >
+                                    {{ rangeLabel }}
+                                    <FilledIcon
+                                        name="chevron-down"
+                                        :size="12"
+                                        class="text-fg-muted"
+                                    />
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                                class="ds-modal min-w-40 font-ui"
+                                align="start"
                             >
-                                {{ option.label }}
-                                <Check
-                                    v-if="range === option.value"
-                                    class="ml-auto size-3.5"
-                                />
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    <span class="grow" />
-                    <template v-if="stats">
-                        <span
-                            class="font-ui-mono text-[10.5px]/3.5 tracking-[0.04em] text-fg-tertiary uppercase"
-                            >{{ $t('Avg') }} {{ formatValue(stats.avg) }}</span
-                        >
-                        <span
-                            class="font-ui-mono text-[10.5px]/3.5 tracking-[0.04em] text-fg-secondary uppercase"
-                            >{{ $t('Peak') }}
-                            {{ formatValue(stats.peak) }}</span
-                        >
-                    </template>
-                </div>
+                                <DropdownMenuItem
+                                    v-for="option in ranges"
+                                    :key="option.value"
+                                    @select="emit('range', option.value)"
+                                >
+                                    {{ option.label }}
+                                    <Check
+                                        v-if="range === option.value"
+                                        class="ml-auto size-3.5"
+                                    />
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </span>
+                </template>
+                <template v-if="stats" #actions>
+                    <span
+                        class="shrink-0 font-ui-mono text-[10.5px]/3.5 tracking-[0.04em] text-fg-tertiary uppercase max-sm:hidden"
+                        >{{ $t('Avg') }} {{ formatValue(stats.avg) }}</span
+                    >
+                    <span
+                        class="shrink-0 font-ui-mono text-[10.5px]/3.5 tracking-[0.04em] text-fg-secondary uppercase"
+                        >{{ $t('Peak') }} {{ formatValue(stats.peak) }}</span
+                    >
+                </template>
                 <DotRidge
                     :values="series"
                     :timestamps="points.map((point) => point.ts)"
@@ -849,17 +894,13 @@ function resize(): void {
                         )
                     }}
                 </p>
-            </section>
+            </DashTray>
 
-            <section
-                class="dash-card flex flex-col gap-3 px-[18px] pt-3 pb-3.5"
-                :aria-label="$t('System')"
+            <DashTray
+                icon="info-fill"
+                :title="$t('System')"
+                panel-class="gap-3 px-[18px] pt-3 pb-3.5"
             >
-                <h2
-                    class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
-                >
-                    {{ $t('System') }}
-                </h2>
                 <dl class="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4">
                     <div
                         v-for="item in system"
@@ -897,25 +938,21 @@ function resize(): void {
                         }}</span>
                     </span>
                 </div>
-            </section>
+            </DashTray>
 
-            <section
+            <DashTray
                 v-if="machine.id && canManage"
-                class="dash-card flex flex-col gap-2 px-[18px] pt-3 pb-3.5"
-                :aria-label="$t('Disk space')"
+                icon="folder-fill"
+                :title="$t('Disk space')"
+                panel-class="px-[18px] pt-3 pb-3.5"
             >
-                <h2
-                    class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
-                >
-                    {{ $t('Disk space') }}
-                </h2>
                 <DiskUsagePanel
                     :machine-id="machine.id"
                     :can-manage="canManage"
                     :online="online"
                 />
-            </section>
-            <section
+            </DashTray>
+            <DashTray
                 v-if="
                     machine.id &&
                     canManage &&
@@ -923,20 +960,16 @@ function resize(): void {
                         service.key.startsWith('docker:'),
                     )
                 "
-                class="dash-card flex flex-col gap-2 px-[18px] pt-3 pb-3.5"
-                :aria-label="$t('Docker images and volumes')"
+                icon="package-fill"
+                :title="$t('Docker images and volumes')"
+                panel-class="px-[18px] pt-3 pb-3.5"
             >
-                <h2
-                    class="text-[14px]/5 font-medium tracking-[-0.01em] text-fg-primary"
-                >
-                    {{ $t('Docker images and volumes') }}
-                </h2>
                 <DockerPanel
                     :machine-id="machine.id"
                     :can-manage="canManage"
                     :online="online"
                 />
-            </section>
+            </DashTray>
         </div>
 
         <aside

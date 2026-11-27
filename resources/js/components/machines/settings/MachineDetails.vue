@@ -11,7 +11,7 @@ import { environmentLabels } from '@/components/machines/machines';
 import type { Environment, Machine } from '@/components/machines/machines';
 import FieldSelect from '@/components/machines/settings/FieldSelect.vue';
 import type { FieldOption } from '@/components/machines/settings/FieldSelect.vue';
-import SettingsCard from '@/components/machines/settings/SettingsCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import SettingsRow from '@/components/machines/settings/SettingsRow.vue';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import machinesRoutes from '@/routes/workspace/machines';
@@ -249,7 +249,11 @@ const lan = computed(() => privateAddress(props.machine));
 </script>
 
 <template>
-    <SettingsCard icon="settings-fill" :title="$t('General')">
+    <DashTray
+        panel-class="gap-1 px-[18px] pt-3 pb-1"
+        icon="settings-fill"
+        :title="$t('General')"
+    >
         <SettingsRow
             :label="$t('Name')"
             label-for="machine-name"
@@ -399,9 +403,13 @@ const lan = computed(() => privateAddress(props.machine));
                 >{{ $t('None') }}</span
             >
         </SettingsRow>
-    </SettingsCard>
+    </DashTray>
 
-    <SettingsCard icon="globe-fill" :title="$t('Where it runs')">
+    <DashTray
+        panel-class="gap-1 px-[18px] pt-3 pb-1"
+        icon="globe-fill"
+        :title="$t('Where it runs')"
+    >
         <SettingsRow :label="$t('Provider')" :error="form.errors.provider">
             <div v-if="typingProvider" class="dash-field w-[232px] max-w-full">
                 <BrandLogo :name="form.provider" :size="14" />
@@ -486,5 +494,5 @@ const lan = computed(() => privateAddress(props.machine));
                 }}</span>
             </span>
         </SettingsRow>
-    </SettingsCard>
+    </DashTray>
 </template>

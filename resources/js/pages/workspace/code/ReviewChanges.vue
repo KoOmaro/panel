@@ -7,6 +7,7 @@ import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
 import DashTab from '@/components/dash/DashTab.vue';
 import DashTabs from '@/components/dash/DashTabs.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import EmptyArt from '@/components/dash/EmptyArt.vue';
 import StatusBadge from '@/components/dash/StatusBadge.vue';
 import type { DashStatus } from '@/components/dash/StatusBadge.vue';
@@ -401,31 +402,29 @@ function retry(): void {
                 class="flex flex-col gap-3 px-6 py-4 xl:min-w-0 xl:flex-1 xl:overflow-y-auto"
             >
                 <template v-if="tab === 'changes'">
-                    <section
-                        class="dash-card flex flex-col gap-3 px-[18px] pt-3 pb-3.5"
+                    <DashTray
+                        icon="file-fill"
+                        :title="$t('Plan')"
+                        panel-class="gap-3 px-[18px] pt-3 pb-3.5"
                     >
-                        <div class="flex flex-wrap items-center gap-2">
-                            <h2
-                                class="text-[14px]/5 font-medium text-fg-primary"
-                            >
-                                {{ $t('Plan') }}
-                            </h2>
-                            <span class="text-[13px]/5 text-fg-tertiary">{{
-                                $t('from')
-                            }}</span>
-                            <a
-                                :href="pullRequest.commitUrl"
-                                target="_blank"
-                                rel="noopener"
-                                class="font-ui-mono text-[12px]/5 text-fg-secondary transition-colors duration-150 hover:text-fg-primary"
-                                >{{ pullRequest.commit }}</a
-                            >
+                        <template #meta>
                             <span
-                                v-if="pullRequest.updated"
-                                class="text-[13px]/5 text-fg-tertiary"
-                                >{{ timeAgo(pullRequest.updated) }}</span
+                                class="flex items-center gap-[9px] tracking-normal text-fg-tertiary"
                             >
-                        </div>
+                                {{ $t('from') }}
+                                <a
+                                    :href="pullRequest.commitUrl"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="font-ui-mono text-[12px]/5 text-fg-secondary transition-colors duration-150 hover:text-fg-primary"
+                                    >{{ pullRequest.commit }}</a
+                                >
+                                <span v-if="pullRequest.updated">{{
+                                    timeAgo(pullRequest.updated)
+                                }}</span>
+                            </span>
+                        </template>
+
                         <div class="grid grid-cols-2 gap-y-3 sm:flex">
                             <div
                                 v-for="(figure, index) in figures"
@@ -460,21 +459,20 @@ function retry(): void {
                                 )
                             }}
                         </p>
-                    </section>
+                    </DashTray>
 
-                    <section class="dash-card flex flex-col">
-                        <div class="flex items-center gap-2 px-[18px] py-3">
-                            <h2
-                                class="text-[14px]/5 font-medium text-fg-primary"
-                            >
-                                {{ $t('Changes') }}
-                            </h2>
-                            <span class="text-[13px]/5 text-fg-tertiary">{{
+                    <DashTray
+                        icon="branch-fill"
+                        :title="$t('Changes')"
+                        panel-class="pt-3"
+                    >
+                        <template #meta>
+                            <span class="tracking-normal text-fg-tertiary">{{
                                 changes.length
                             }}</span>
-                            <span class="grow" />
+                        </template>
+                        <template v-if="changes.length" #actions>
                             <button
-                                v-if="changes.length"
                                 type="button"
                                 class="text-[12px]/4 font-medium text-fg-secondary transition-colors duration-150 hover:text-fg-primary"
                                 @click="toggleAll"
@@ -485,7 +483,7 @@ function retry(): void {
                                         : $t('Expand all')
                                 }}
                             </button>
-                        </div>
+                        </template>
                         <ChangeRow
                             v-for="change in changes"
                             :key="change.id"
@@ -503,7 +501,7 @@ function retry(): void {
                                 )
                             }}
                         </p>
-                    </section>
+                    </DashTray>
                 </template>
 
                 <template v-else-if="tab === 'files'">
@@ -530,10 +528,17 @@ function retry(): void {
                     </CodeDiff>
                 </template>
 
-                <section
+                <DashTray
                     v-else-if="pullRequest.checks"
-                    class="dash-card flex flex-col"
+                    icon="setup-fill"
+                    :title="$t('Checks')"
+                    panel-class="pt-3"
                 >
+                    <template v-if="pullRequest.checks.length" #meta>
+                        <span class="tracking-normal text-fg-tertiary">{{
+                            pullRequest.checks.length
+                        }}</span>
+                    </template>
                     <component
                         :is="check.url ? 'a' : 'div'"
                         v-for="(check, index) in pullRequest.checks"
@@ -541,10 +546,7 @@ function retry(): void {
                         :href="check.url ?? undefined"
                         :target="check.url ? '_blank' : undefined"
                         :rel="check.url ? 'noopener' : undefined"
-                        class="flex items-start gap-3 px-[18px] py-3"
-                        :class="{
-                            'border-t-[0.5px] border-edge-tabs': index > 0,
-                        }"
+                        class="flex items-start gap-3 border-t-[0.5px] border-edge-tabs px-[18px] py-3"
                     >
                         <CheckMark :state="check.state" />
                         <span
@@ -554,11 +556,11 @@ function retry(): void {
                     </component>
                     <p
                         v-if="!pullRequest.checks.length"
-                        class="px-[18px] py-4 text-[13px]/5 text-fg-tertiary"
+                        class="border-t-[0.5px] border-edge-tabs px-[18px] py-4 text-[13px]/5 text-fg-tertiary"
                     >
                         {{ $t('No checks ran on this commit.') }}
                     </p>
-                </section>
+                </DashTray>
             </div>
 
             <aside

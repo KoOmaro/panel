@@ -6,7 +6,7 @@ import DashButton from '@/components/dash/DashButton.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import FieldSelect from '@/components/machines/settings/FieldSelect.vue';
 import type { FieldOption } from '@/components/machines/settings/FieldSelect.vue';
-import SettingsCard from '@/components/machines/settings/SettingsCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import SettingsRow from '@/components/machines/settings/SettingsRow.vue';
 import {
     Dialog,
@@ -277,7 +277,8 @@ const editable = computed(() => props.canManage && props.logSkip.available);
 </script>
 
 <template>
-    <SettingsCard
+    <DashTray
+        panel-class="gap-1 px-[18px] pt-3 pb-1"
         icon="file-fill"
         :title="$t('Logs that stay on :name', { name: machineName })"
     >
@@ -400,7 +401,7 @@ const editable = computed(() => props.canManage && props.logSkip.available);
         >
             {{ error }}
         </p>
-    </SettingsCard>
+    </DashTray>
 
     <Dialog
         :open="pending !== null"

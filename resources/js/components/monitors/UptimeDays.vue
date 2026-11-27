@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref } from 'vue';
-import MonitorCard from '@/components/monitors/MonitorCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import { percent, spelled } from '@/components/monitors/monitors';
 import type { MonitorDay, OutageTone } from '@/components/monitors/monitors';
 
@@ -49,7 +49,7 @@ const detail = computed(() => {
 </script>
 
 <template>
-    <MonitorCard icon="activity-fill" :title="$t('Last 90 days')">
+    <DashTray icon="activity-fill" :title="$t('Last 90 days')">
         <template #actions>
             <span
                 class="truncate text-right text-[13px]/5 tracking-[-0.005em] text-fg-muted tabular-nums"
@@ -95,5 +95,5 @@ const detail = computed(() => {
                 <span class="shrink-0">{{ $t('Today') }}</span>
             </div>
         </div>
-    </MonitorCard>
+    </DashTray>
 </template>

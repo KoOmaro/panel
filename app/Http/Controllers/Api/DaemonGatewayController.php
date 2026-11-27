@@ -24,9 +24,11 @@ use App\Support\Logs\LogIngest;
 use App\Support\Logs\LogSkipRules;
 use App\Support\Machines\CloudflareTunnel;
 use App\Support\Machines\DaemonUpdateNotices;
+use App\Support\Machines\MachineDisks;
 use App\Support\Machines\MachineMetadata;
 use App\Support\Machines\MachineVitals;
 use App\Support\Machines\PackageUpdates;
+use App\Support\Machines\SshAccess;
 use App\Support\Projects\ProjectData;
 use App\Support\Projects\ProjectLinks;
 use App\Support\Projects\ProjectNetwork;
@@ -196,11 +198,11 @@ class DaemonGatewayController extends Controller
                             $changes['memory_used_mb'] = max(0, (int) floor($sample['mem_used'] / 1048576));
                         }
                         if (isset($sample['disks']) && is_array($sample['disks'])) {
-                            $disks = self::disks($sample['disks']);
+                            $disks = self::disks($sample['disks'], $changes['facts'] ?? $machine->facts);
                             $changes['disks'] = $disks;
-                            $changes['disk_percent'] = self::fullest($disks);
+                            $changes['disk_percent'] = MachineDisks::fullest($disks);
                         }
-                        $readings[] = $this->machineReading($sample);
+                        $readings[] = $this->machineReading($sample, $changes['facts'] ?? $machine->facts);
                     }
                     MachineSample::record($machine, $vitals->count($readings));
                     $changes = [...$changes, ...$vitals->changes()];
@@ -271,6 +273,9 @@ class DaemonGatewayController extends Controller
                         }
                         if ($job->kind === 'image_update') {
                             ImageUpdates::finished($job);
+                        }
+                        if ($job->kind === SshAccess::KIND) {
+                            SshAccess::finished($job);
                         }
                     }
 
@@ -480,11 +485,11 @@ class DaemonGatewayController extends Controller
      * @param  array<string, mixed>  $sample
      * @return array{ts: int, cpu: float|null, mem: int|null, disk: int|null, load: array{0: float, 1: float, 2: float}|null, processes: int|null, rxBytes: int|null, txBytes: int|null}
      */
-    private function machineReading(array $sample): array
+    private function machineReading(array $sample, mixed $facts): array
     {
         $now = now()->getTimestamp();
         $ts = is_numeric($sample['ts'] ?? null) ? (int) $sample['ts'] : $now;
-        $disks = is_array($sample['disks'] ?? null) ? self::disks($sample['disks']) : [];
+        $disks = is_array($sample['disks'] ?? null) ? self::disks($sample['disks'], $facts) : [];
         $count = fn (string $key) => is_numeric($sample[$key] ?? null) ? max(0, (int) $sample[$key]) : null;
         $load = is_array($sample['load'] ?? null) ? array_values($sample['load']) : [];
 
@@ -492,7 +497,7 @@ class DaemonGatewayController extends Controller
             'ts' => $ts > $now ? $now : $ts,
             'cpu' => is_numeric($sample['cpu_percent'] ?? null) ? round(max(0, min(100, (float) $sample['cpu_percent'])), 2) : null,
             'mem' => is_numeric($sample['mem_used'] ?? null) ? max(0, (int) $sample['mem_used']) : null,
-            'disk' => self::fullest($disks),
+            'disk' => MachineDisks::fullest($disks),
             'load' => count($load) === 3 && is_numeric($load[0]) && is_numeric($load[1]) && is_numeric($load[2])
                 ? [round(max(0, (float) $load[0]), 2), round(max(0, (float) $load[1]), 2), round(max(0, (float) $load[2]), 2)]
                 : null,
@@ -571,17 +576,11 @@ class DaemonGatewayController extends Controller
         });
     }
 
-    /** @param  list<array{mount: string, used: int, total: int}>  $disks */
-    private static function fullest(array $disks): ?int
-    {
-        return $disks === [] ? null : max(array_map(fn (array $d) => (int) floor($d['used'] / $d['total'] * 100), $disks));
-    }
-
     /**
      * @param  array<int, mixed>  $samples
      * @return list<array{mount: string, used: int, total: int}>
      */
-    private static function disks(array $samples): array
+    private static function disks(array $samples, mixed $facts): array
     {
         $disks = [];
         foreach (array_slice($samples, 0, 64) as $disk) {
@@ -589,15 +588,10 @@ class DaemonGatewayController extends Controller
                 continue;
             }
             $mount = substr($disk['mount'], 0, 200);
-            $used = (int) $disk['used_bytes'];
-            $total = $used + (int) $disk['free_bytes'];
-            if ($total < 1 << 30 || preg_match('#^/(snap|boot/efi|run|dev|sys|proc)(/|$)#', $mount) === 1) {
-                continue;
-            }
-            $disks[$mount] = ['mount' => $mount, 'used' => $used, 'total' => $total];
+            $used = max(0, (int) $disk['used_bytes']);
+            $disks[$mount] = ['mount' => $mount, 'used' => $used, 'total' => $used + max(0, (int) $disk['free_bytes'])];
         }
-        usort($disks, fn (array $a, array $b) => $b['used'] / $b['total'] <=> $a['used'] / $a['total']);
 
-        return array_slice($disks, 0, 8);
+        return MachineDisks::clean(array_values($disks), $facts);
     }
 }

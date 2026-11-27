@@ -4,7 +4,7 @@ import { Sparkles } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, ref } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import { issueHref } from '@/components/home/home';
 import type { HomeIssue } from '@/components/home/home';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
@@ -74,11 +74,7 @@ function dismiss(ids: string[]): void {
 </script>
 
 <template>
-    <HomeCard
-        icon="info-fill"
-        :title="$t('Needs a look')"
-        heading-id="home-attention-heading"
-    >
+    <DashTray icon="info-fill" :title="$t('Needs a look')">
         <template v-if="issues.length" #meta>{{ issues.length }}</template>
         <template #actions>
             <button
@@ -192,5 +188,5 @@ function dismiss(ids: string[]): void {
         >
             {{ $t('Nothing needs a look right now.') }}
         </p>
-    </HomeCard>
+    </DashTray>
 </template>

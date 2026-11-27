@@ -4,7 +4,7 @@ import { trans } from 'laravel-vue-i18n';
 import { ref, watch } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import DashSwitch from '@/components/dash/DashSwitch.vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import type { AppVersion, ServiceApp } from '@/components/service/serviceTypes';
 import { networkMessage, responseError } from '@/lib/errors';
 import { timeAgo } from '@/lib/timeAgo';
@@ -101,10 +101,9 @@ function drop(event: DragEvent): void {
 </script>
 
 <template>
-    <HomeCard
+    <DashTray
         icon="upload-fill"
         :title="$t('Deploys')"
-        heading-id="service-deploys"
         class="shrink-0 transition-shadow"
         :class="dragging && 'ring-2 ring-dash-blue/60'"
         @dragover.prevent="dragging = !!app && canManage"
@@ -199,5 +198,5 @@ function drop(event: DragEvent): void {
                 }}
             </li>
         </ul>
-    </HomeCard>
+    </DashTray>
 </template>

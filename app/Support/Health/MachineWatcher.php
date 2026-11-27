@@ -80,7 +80,7 @@ class MachineWatcher
         if ($online && $machine->disk_percent !== null) {
             if ($machine->disk_percent >= self::DISK_ALERT && ! isset($state['disk']) && ! $maintenance) {
                 $state['disk'] = now()->getTimestamp();
-                $disk = $machine->disks[0] ?? null;
+                $disk = $machine->volumes()[0] ?? null;
                 $free = $disk ? WorkspaceHealth::bytes($disk['total'] - $disk['used']) : null;
                 Activity::system($machine->workspace_id, 'machine.disk_full', $machine->name, $machine, ['percent' => $machine->disk_percent, 'mount' => $disk['mount'] ?? null]);
                 $this->alerts->notify($machine->workspace, 'machine.disk', "{$machine->name}’s disk is {$machine->disk_percent}% full", [

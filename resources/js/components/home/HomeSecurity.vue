@@ -3,7 +3,7 @@ import { usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import HomeGraph from '@/components/home/HomeGraph.vue';
 import type { GraphChip } from '@/components/home/HomeGraph.vue';
 import type { HomeSecurity } from '@/components/home/home';
@@ -152,11 +152,7 @@ const graphLabel = computed(() =>
 </script>
 
 <template>
-    <HomeCard
-        icon="lock-fill"
-        :title="$t('Security')"
-        heading-id="home-security-heading"
-    >
+    <DashTray icon="lock-fill" :title="$t('Security')">
         <template #meta>
             <span :class="meta.tone">{{ meta.text }}</span>
         </template>
@@ -182,5 +178,5 @@ const graphLabel = computed(() =>
                 :label="security.package ? $t('Review') : $t('Open')"
             />
         </div>
-    </HomeCard>
+    </DashTray>
 </template>

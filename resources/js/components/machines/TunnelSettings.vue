@@ -3,7 +3,7 @@ import { router, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
-import SettingsCard from '@/components/machines/settings/SettingsCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import SettingsRow from '@/components/machines/settings/SettingsRow.vue';
 import { SolarCopy as Copy } from '@/lib/solarIcons';
 import { toast } from '@/lib/toast';
@@ -202,7 +202,11 @@ async function copy(text: string): Promise<void> {
 </script>
 
 <template>
-    <SettingsCard icon="lock-fill" :title="$t('Cloudflare Tunnel')">
+    <DashTray
+        panel-class="gap-1 px-[18px] pt-3 pb-1"
+        icon="lock-fill"
+        :title="$t('Cloudflare Tunnel')"
+    >
         <template v-if="connected" #actions>
             <span
                 class="flex items-center gap-1.5 text-[12px]/4 text-fg-secondary"
@@ -356,5 +360,5 @@ async function copy(text: string): Promise<void> {
                 {{ error }}
             </p>
         </template>
-    </SettingsCard>
+    </DashTray>
 </template>

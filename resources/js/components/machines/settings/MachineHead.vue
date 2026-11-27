@@ -64,6 +64,12 @@ const tabs = computed<
         href: `${machineBase.value}/firewall`,
     },
     {
+        key: 'access',
+        label: trans('Access'),
+        icon: 'key-fill',
+        href: `${machineBase.value}/access`,
+    },
+    {
         key: 'terminal',
         label: trans('Terminal'),
         icon: 'terminal-fill',

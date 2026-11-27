@@ -22,6 +22,7 @@ use App\Support\Files\FileJobs;
 use App\Support\Firewall;
 use App\Support\Health\WorkspaceHealth;
 use App\Support\Machines\MachinePolicies;
+use App\Support\Machines\SshAccess;
 use App\Support\ScheduledTasks;
 use App\Support\ServiceTemplates\ServiceTemplateCatalog;
 use Carbon\CarbonImmutable;
@@ -68,7 +69,7 @@ class MachineController extends Controller
             'machine' => [
                 ...(new MachineResource($machine))->resolve(),
                 'firewall' => Firewall::view($machine),
-                'serviceStats' => (object) ($machine->service_stats ?? []),
+                'serviceStats' => (object) $machine->serviceStatsNow(),
                 'plannedMaintenance' => MaintenanceWindow::query()
                     ->where('machine_id', $machine->id)
                     ->whereIn('state', ['scheduled', 'active'])
@@ -88,6 +89,7 @@ class MachineController extends Controller
             'history' => Inertia::optional(fn () => MachineSample::history($machine, self::RANGES[$range])),
             'scheduled' => fn () => ScheduledTasks::for($machine),
             'issues' => fn () => app(WorkspaceHealth::class)->forMachine($machine),
+            'access' => fn () => SshAccess::view($workspace, $machine, $request->user()),
             'serviceGroups' => fn () => $machine->serviceGroups()->orderBy('name')->get()
                 ->map(fn (ServiceGroup $group) => $group->toPageProps())
                 ->all(),
@@ -176,19 +178,27 @@ class MachineController extends Controller
         ];
     }
 
-    /** @return array{cpu: int|null, memoryMb: int|null, load: list<float>|null, processes: int|null, networkIn: int|null, networkOut: int|null, at: string|null} */
+    /** @return array{cpu: int|null, memoryMb: int|null, load: list<float>|null, processes: int|null, networkIn: int|null, networkOut: int|null, at: string|null, last: array{at: string, cpu: int|null, memoryMb: int|null}|null} */
     private function live(Machine $machine): array
     {
+        $now = $machine->isReporting();
+        $readAt = $machine->readingAt();
+
         return [
-            'cpu' => $machine->cpu_percent,
-            'memoryMb' => $machine->memory_used_mb,
-            'load' => $machine->load_1 === null || $machine->load_5 === null || $machine->load_15 === null
+            'cpu' => $now ? $machine->cpu_percent : null,
+            'memoryMb' => $now ? $machine->memory_used_mb : null,
+            'load' => ! $now || $machine->load_1 === null || $machine->load_5 === null || $machine->load_15 === null
                 ? null
                 : [$machine->load_1, $machine->load_5, $machine->load_15],
-            'processes' => $machine->processes,
-            'networkIn' => $machine->net_rx_rate,
-            'networkOut' => $machine->net_tx_rate,
+            'processes' => $now ? $machine->processes : null,
+            'networkIn' => $now ? $machine->net_rx_rate : null,
+            'networkOut' => $now ? $machine->net_tx_rate : null,
             'at' => $machine->telemetry_ts === null ? null : CarbonImmutable::createFromTimestamp($machine->telemetry_ts)->toIso8601String(),
+            'last' => $now || $readAt === null ? null : [
+                'at' => $readAt->toIso8601String(),
+                'cpu' => $machine->cpu_percent,
+                'memoryMb' => $machine->memory_used_mb,
+            ],
         ];
     }
 

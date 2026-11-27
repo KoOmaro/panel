@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import { BUSY_CPU, WARM_CPU } from '@/components/home/home';
 import type { HomeBusy } from '@/components/home/home';
 import { onWorkspace } from '@/lib/workspaceRoute';
@@ -40,11 +40,7 @@ function height(cpu: number): string {
 </script>
 
 <template>
-    <HomeCard
-        icon="machines-fill"
-        :title="$t('Top 5 by CPU')"
-        heading-id="home-busiest-heading"
-    >
+    <DashTray icon="machines-fill" :title="$t('Top 5 by CPU')">
         <template #meta>{{ $t('now') }}</template>
         <div
             v-if="machines.length"
@@ -100,5 +96,5 @@ function height(cpu: number): string {
         >
             {{ $t('No CPU readings yet.') }}
         </p>
-    </HomeCard>
+    </DashTray>
 </template>

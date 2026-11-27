@@ -52,6 +52,7 @@ class WorkspaceSettingsController extends Controller
                     'id' => $installation->id,
                     'account' => $installation->account_login,
                     'organisation' => $installation->account_type === 'Organization',
+                    'repositories' => $installation->repository_ids === null ? null : count($installation->repository_ids),
                     'manageUrl' => $installation->account_type === 'Organization'
                         ? 'https://github.com/organizations/'.rawurlencode($installation->account_login).'/settings/installations/'.$installation->installation_id
                         : 'https://github.com/settings/installations/'.$installation->installation_id,

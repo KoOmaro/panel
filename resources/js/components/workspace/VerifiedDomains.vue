@@ -108,6 +108,7 @@ const focusRing =
     <Tile
         id="verified-domains"
         class="scroll-mt-6"
+        icon="globe-fill"
         :title="$t('Verified domains')"
         :description="
             $t(

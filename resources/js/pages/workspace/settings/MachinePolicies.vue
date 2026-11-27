@@ -29,7 +29,6 @@ import type {
     PolicyRule,
     PolicySettings,
 } from '@/lib/machinePolicies';
-import { SolarShieldCheck } from '@/lib/solarIcons';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import settingsRoutes from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
@@ -208,7 +207,7 @@ const labelClass = 'text-[13px]/5 font-medium text-(--ds-text-muted)';
                     'Choose what your machines look for, collect and send. A machine follows its own policy, else its group’s, else the default.',
                 )
             "
-            :icon="SolarShieldCheck"
+            icon="machines-fill"
             :padded="false"
         >
             <template v-if="canManage" #actions>

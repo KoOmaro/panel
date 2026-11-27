@@ -407,6 +407,7 @@ function shortDate(iso: string | null): string {
 
         <Tile
             id="templates"
+            icon="table-fill"
             :title="$t('Templates')"
             :description="
                 $t(
@@ -459,6 +460,7 @@ function shortDate(iso: string | null): string {
 
         <Tile
             id="images"
+            icon="upload-fill"
             :title="$t('Images')"
             :description="
                 $t(
@@ -572,6 +574,7 @@ function shortDate(iso: string | null): string {
 
         <Tile
             id="share"
+            icon="open-fill"
             :title="$t('Share and import')"
             :description="
                 $t(
@@ -778,6 +781,7 @@ function shortDate(iso: string | null): string {
         <Tile
             v-if="live"
             id="standard-look"
+            icon="settings-fill"
             :title="$t('Standard look')"
             :description="
                 $t(

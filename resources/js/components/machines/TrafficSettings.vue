@@ -5,7 +5,7 @@ import FilledIcon from '@/components/icons/FilledIcon.vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import DashSwitch from '@/components/dash/DashSwitch.vue';
-import SettingsCard from '@/components/machines/settings/SettingsCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import SettingsRow from '@/components/machines/settings/SettingsRow.vue';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
@@ -289,7 +289,11 @@ onMounted(() => {
 </script>
 
 <template>
-    <SettingsCard icon="activity-fill" :title="$t('Traffic')">
+    <DashTray
+        panel-class="gap-1 px-[18px] pt-3 pb-1"
+        icon="activity-fill"
+        :title="$t('Traffic')"
+    >
         <SettingsRow
             :label="$t('Count traffic')"
             :hint="
@@ -421,5 +425,5 @@ onMounted(() => {
                 }}
             </p>
         </template>
-    </SettingsCard>
+    </DashTray>
 </template>

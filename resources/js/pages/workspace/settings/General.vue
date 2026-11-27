@@ -49,6 +49,7 @@ type Props = {
               id: number;
               account: string;
               organisation: boolean;
+              repositories: number | null;
               manageUrl: string;
           }[]
         | null;
@@ -219,6 +220,25 @@ const mutedLine = computed(() =>
           ),
 );
 
+function githubLine(account: {
+    organisation: boolean;
+    repositories: number | null;
+}): string {
+    const kind = account.organisation
+        ? trans('Organisation')
+        : trans('Personal account');
+    const reach =
+        account.repositories === null
+            ? trans('all repositories')
+            : account.repositories === 1
+              ? trans('1 repository')
+              : trans(':count repositories', {
+                    count: String(account.repositories),
+                });
+
+    return `${kind} · ${reach}`;
+}
+
 function disconnectGitHub(id: number, account: string): void {
     if (
         !window.confirm(
@@ -302,6 +322,7 @@ const fieldLabel =
 
     <SettingsSection
         id="workspace"
+        icon="settings-fill"
         :title="$t('Workspace')"
         :description="
             canManageSettings
@@ -425,6 +446,7 @@ const fieldLabel =
     <SettingsSection
         v-if="canManageAlerts"
         id="alerts"
+        icon="info-fill"
         :title="$t('Alerts')"
         :description="$t('Who hears about it when something breaks.')"
         :padded="false"
@@ -505,6 +527,7 @@ const fieldLabel =
     <SettingsSection
         v-if="github"
         id="github"
+        logo="github"
         title="GitHub"
         :description="
             $t('Deploy from your repositories and get pull request previews.')
@@ -543,11 +566,7 @@ const fieldLabel =
                 v-for="account in github"
                 :key="account.id"
                 :title="account.account"
-                :description="
-                    account.organisation
-                        ? $t('Organisation')
-                        : $t('Personal account')
-                "
+                :description="githubLine(account)"
             >
                 <template #icon>
                     <BrandLogo name="github" />
@@ -603,6 +622,7 @@ const fieldLabel =
     <SettingsSection
         v-if="registries"
         id="registries"
+        icon="package-fill"
         :title="$t('Container registries')"
         :description="
             $t('Logins for private images. Public images deploy without one.')
@@ -650,6 +670,7 @@ const fieldLabel =
     <SettingsSection
         v-if="canDelete"
         id="danger-zone"
+        icon="info-fill"
         :title="$t('Danger zone')"
         :description="$t('Actions here can’t be undone.')"
         :padded="false"

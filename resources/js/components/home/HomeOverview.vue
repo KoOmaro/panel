@@ -2,7 +2,7 @@
 import { Link, usePage } from '@inertiajs/vue3';
 import { trans } from 'laravel-vue-i18n';
 import { computed } from 'vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import type { HomeOverview } from '@/components/home/home';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { FilledIconName } from '@/components/icons/filledIcons';
@@ -205,11 +205,7 @@ const figures = computed<Figure[]>(() => [
 </script>
 
 <template>
-    <HomeCard
-        icon="house-fill"
-        :title="$t('Overview')"
-        heading-id="home-overview-heading"
-    >
+    <DashTray icon="house-fill" :title="$t('Overview')">
         <template #meta>{{ $t('live') }}</template>
         <div class="@container">
             <dl class="grid grid-cols-2 @3xl:grid-cols-4">
@@ -257,5 +253,5 @@ const figures = computed<Figure[]>(() => [
                 </div>
             </dl>
         </div>
-    </HomeCard>
+    </DashTray>
 </template>

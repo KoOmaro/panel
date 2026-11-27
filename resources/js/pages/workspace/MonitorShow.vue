@@ -5,7 +5,7 @@ import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
-import MonitorCard from '@/components/monitors/MonitorCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import MonitorDialog from '@/components/monitors/MonitorDialog.vue';
 import ResponseChart from '@/components/monitors/ResponseChart.vue';
 import UptimeDays from '@/components/monitors/UptimeDays.vue';
@@ -468,7 +468,7 @@ function figureBorder(i: number): string {
             </p>
         </div>
 
-        <MonitorCard icon="house-fill" :title="$t('Overview')">
+        <DashTray icon="house-fill" :title="$t('Overview')">
             <div class="grid grid-cols-2 xl:grid-cols-4">
                 <div
                     v-for="(figure, i) in tiles"
@@ -487,7 +487,7 @@ function figureBorder(i: number): string {
                     >
                 </div>
             </div>
-        </MonitorCard>
+        </DashTray>
 
         <ResponseChart
             :chart="chart"
@@ -499,7 +499,7 @@ function figureBorder(i: number): string {
         <UptimeDays :days="days" :uptime="figures.uptime90" />
 
         <div class="grid gap-4 lg:grid-cols-2">
-            <MonitorCard
+            <DashTray
                 icon="info-fill"
                 :title="$t('Incidents')"
                 :meta="
@@ -557,9 +557,9 @@ function figureBorder(i: number): string {
                               })
                     }}
                 </button>
-            </MonitorCard>
+            </DashTray>
 
-            <MonitorCard
+            <DashTray
                 icon="activity-fill"
                 :title="$t('Recent checks')"
                 :meta="cadence(monitor.interval)"
@@ -606,7 +606,7 @@ function figureBorder(i: number): string {
                               : $t('The first check runs within a few seconds.')
                     }}
                 </p>
-            </MonitorCard>
+            </DashTray>
         </div>
     </div>
 

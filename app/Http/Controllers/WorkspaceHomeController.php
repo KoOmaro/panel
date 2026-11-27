@@ -87,7 +87,7 @@ class WorkspaceHomeController extends Controller
     {
         $connections = $machines->mapWithKeys(fn (Machine $machine) => [$machine->id => MachineResource::connection($machine)]);
         $offline = $machines->filter(fn (Machine $machine) => $connections[$machine->id] === 'offline');
-        $reporting = $machines->filter(fn (Machine $machine) => $machine->cpu_percent !== null && $connections[$machine->id] !== 'offline');
+        $reporting = $machines->filter(fn (Machine $machine) => $machine->cpu_percent !== null && $machine->isReporting());
         $monitors = $workspace->monitors()->get(['id', 'status', 'paused', 'daily']);
         $watched = $monitors->where('paused', false);
 
@@ -136,7 +136,7 @@ class WorkspaceHomeController extends Controller
     private function busiest(Collection $machines): array
     {
         return array_values($machines
-            ->filter(fn (Machine $machine) => $machine->cpu_percent !== null && MachineResource::connection($machine) !== 'offline')
+            ->filter(fn (Machine $machine) => $machine->cpu_percent !== null && $machine->isReporting())
             ->sortBy([['cpu_percent', 'desc'], ['name', 'asc']])
             ->take(self::BUSIEST)
             ->map(fn (Machine $machine) => ['id' => $machine->id, 'name' => $machine->name, 'cpu' => (int) round((float) $machine->cpu_percent)])

@@ -79,6 +79,21 @@ final class ActivityLine
                 ? $set($t('stopped counting the log file :name on', ['name' => (string) ($meta['name'] ?? '')]))
                 : $set($t('started counting the log file :name on', ['name' => (string) ($meta['name'] ?? '')])),
             'machine.tunnel' => $set(($meta['action'] ?? null) === 'up' ? 'put a Cloudflare Tunnel on' : 'took the Cloudflare Tunnel off', null, 'warn'),
+            'machine.ssh_access.give' => $set('gave SSH access to', trim(implode(', ', array_filter([
+                isset($meta['login']) ? $t('as :login', ['login' => (string) $meta['login']]) : null,
+                isset($meta['expires']) ? $t('until :date', ['date' => (string) $meta['expires']]) : null,
+                ($meta['waiting_key'] ?? false) ? $t('waiting for their key') : null,
+            ]))) ?: null, 'warn'),
+            'machine.ssh_access.request' => $set('asked for SSH access to', isset($meta['login']) ? $t('as :login', ['login' => (string) $meta['login']]) : null),
+            'machine.ssh_access.key' => $set('added their SSH key to'),
+            'machine.ssh_access.withdraw' => $set('withdrew their request for SSH access to'),
+            'machine.ssh_access.approve' => $set('approved SSH access for', isset($meta['login']) ? $t('as :login', ['login' => (string) $meta['login']]) : null, 'warn'),
+            'machine.ssh_access.decline' => $set('turned down SSH access for'),
+            'machine.ssh_access.retry' => $set('tried again to give SSH access to'),
+            'machine.ssh_access.revoke' => $set('removed SSH access for'),
+            'machine.ssh_access.revoke_all' => $set('removed everyone’s SSH access to', isset($meta['count']) ? $t((int) $meta['count'] === 1 ? '(1 person)' : '(:count people)', ['count' => (string) $meta['count']]) : null, 'warn'),
+            'machine.ssh_access.failed' => $set('didn’t get SSH access', null, 'bad'),
+            'machine.ssh_access.end' => $set('lost SSH access'),
             'machine.remove' => $set('removed the machine', null, 'bad'),
             'machine.data_clear' => $set(match (array_keys(array_intersect_key($meta, array_flip(['logs', 'metrics', 'services'])))) {
                 ['logs'] => isset($meta['skipped_services'])
@@ -412,9 +427,13 @@ final class ActivityLine
             $out['detail'] = $meta['error'] ?? null;
         } elseif ($a->action === 'monitor.down') {
             $out['detail'] = $meta['cause'] ?? null;
+        } elseif ($a->action === 'machine.ssh_access.failed') {
+            $out['detail'] = $meta['error'] ?? null;
+        } elseif ($a->action === 'machine.ssh_access.end') {
+            $out['detail'] = $t(($meta['reason'] ?? null) === 'left' ? 'They left the workspace.' : 'Their access expired.');
         }
 
-        if (! $a->byPerson() && in_array($a->action, ['machine.offline', 'machine.online', 'machine.disk_full', 'monitor.down', 'monitor.up', 'backup.failed', 'backup.restore_failed', 'machine.connect', 'service.down', 'service.up', 'service.crash_loop', 'workflow.run', 'workflow.failed', 'workflow.skipped', 'app.push_skipped', 'app.push_replaced', 'fix.done', 'fix.failed', 'mcp.revoke', 'domain.active', 'machine.daemon_updated', 'daemon.update_waiting', 'panel.updated', 'panel.update_failed', 'email_domain.unverified', 'cloud.suspend', 'cloud.resume', 'cloud.end', 'cloud.throttle'], true)) {
+        if (! $a->byPerson() && in_array($a->action, ['machine.offline', 'machine.online', 'machine.disk_full', 'monitor.down', 'monitor.up', 'backup.failed', 'backup.restore_failed', 'machine.connect', 'service.down', 'service.up', 'service.crash_loop', 'workflow.run', 'workflow.failed', 'workflow.skipped', 'app.push_skipped', 'app.push_replaced', 'fix.done', 'fix.failed', 'mcp.revoke', 'domain.active', 'machine.daemon_updated', 'daemon.update_waiting', 'panel.updated', 'panel.update_failed', 'email_domain.unverified', 'cloud.suspend', 'cloud.resume', 'cloud.end', 'cloud.throttle', 'machine.ssh_access.failed', 'machine.ssh_access.end'], true)) {
             $out['leads'] = true;
         }
 

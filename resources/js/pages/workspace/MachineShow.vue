@@ -23,6 +23,8 @@ import FileBrowser from '@/components/machines/FileBrowser.vue';
 import type { FilePlace } from '@/components/machines/FileBrowser.vue';
 import FirewallPanel from '@/components/machines/FirewallPanel.vue';
 import JobLogDialog from '@/components/machines/JobLogDialog.vue';
+import MachineAccessTab from '@/components/machines/access/MachineAccessTab.vue';
+import type { MachineAccess } from '@/components/machines/access/access';
 import type { DaemonJob } from '@/components/machines/JobLogDialog.vue';
 import MachineBackupsTab from '@/components/machines/MachineBackupsTab.vue';
 import MachineConsole from '@/components/machines/MachineConsole.vue';
@@ -109,6 +111,7 @@ const props = defineProps<{
         minutes: number;
     };
     issues?: HealthIssue[];
+    access?: MachineAccess;
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -154,6 +157,7 @@ type TabKey =
     | 'system-updates'
     | 'backups'
     | 'firewall'
+    | 'access'
     | 'terminal';
 
 const ALIASES: Record<string, TabKey> = {
@@ -171,6 +175,7 @@ const tab = usePathTab(machineBase.value, [
     'system-updates',
     'backups',
     'firewall',
+    'access',
     'terminal',
     'scheduled',
     'deployments',
@@ -195,6 +200,7 @@ const tabs = computed<{ key: TabKey; label: string; icon: FilledIconName }[]>(
         },
         { key: 'backups', label: trans('Backups'), icon: 'activity-fill' },
         { key: 'firewall', label: trans('Firewall'), icon: 'settings-fill' },
+        { key: 'access', label: trans('Access'), icon: 'key-fill' },
         { key: 'terminal', label: trans('Terminal'), icon: 'terminal-fill' },
     ],
 );
@@ -574,7 +580,9 @@ onBeforeUnmount(() => {
                 label: machine.name,
                 logo: machine.iconUrl ? undefined : machine.provider,
                 image: machine.iconUrl,
+                href: current === 'access' ? machineBase : undefined,
             },
+            ...(current === 'access' ? [{ label: $t('Access') }] : []),
         ]"
     >
         <template #actions>
@@ -821,6 +829,17 @@ onBeforeUnmount(() => {
                 :online="online"
             />
         </div>
+
+        <MachineAccessTab
+            v-else-if="current === 'access' && machine.id && access"
+            class="grow"
+            :access="access"
+            :workspace-slug="workspace.slug"
+            :workspace-name="workspace.name"
+            :machine-id="machine.id"
+            :machine-name="machine.name"
+            @tab="go"
+        />
 
         <div
             v-else-if="current === 'terminal'"

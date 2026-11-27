@@ -1044,6 +1044,11 @@ html:has(.marketing-page)::-webkit-scrollbar-thumb:active {
     --dash-edge-control: #dcdcdc;
     --dash-edge-field: #dedede;
     --dash-edge-strong: #d4d4d4;
+    --dash-bg-tray: #f6f6f6;
+    --dash-bg-tray-panel: #ffffff;
+    --dash-edge-tray: #e3e3e3;
+    --dash-edge-tray-panel: #e3e3e3;
+    --dash-tray-panel-lip: rgb(0 0 0 / 0.06);
     --dash-edge-tile: #d0d0d0;
     --dash-edge-checkbox: #c8c8c8;
     --dash-edge-checkbox-hover: #a8a8a8;
@@ -1108,6 +1113,11 @@ html:has(.marketing-page)::-webkit-scrollbar-thumb:active {
     --dash-edge-control: #2e2e2e;
     --dash-edge-field: #2a2a2a;
     --dash-edge-strong: #333333;
+    --dash-bg-tray: #1f1f1f;
+    --dash-bg-tray-panel: #181818;
+    --dash-edge-tray: #2b2b2b;
+    --dash-edge-tray-panel: #2a2a2a;
+    --dash-tray-panel-lip: rgb(0 0 0 / 0.35);
     --dash-edge-tile: #3d3d3d;
     --dash-edge-checkbox: #3a3a3a;
     --dash-edge-checkbox-hover: #4a4a4a;
@@ -1157,6 +1167,8 @@ html:has(.marketing-page)::-webkit-scrollbar-thumb:active {
     --color-surface-checkbox: var(--dash-bg-checkbox);
     --color-surface-avatar: var(--dash-bg-avatar);
     --color-surface-pill: var(--dash-bg-pill);
+    --color-surface-tray: var(--dash-bg-tray);
+    --color-surface-tray-panel: var(--dash-bg-tray-panel);
 
     --color-edge: var(--dash-edge);
     --color-edge-cell: var(--dash-edge-cell);
@@ -1166,6 +1178,8 @@ html:has(.marketing-page)::-webkit-scrollbar-thumb:active {
     --color-edge-control: var(--dash-edge-control);
     --color-edge-field: var(--dash-edge-field);
     --color-edge-strong: var(--dash-edge-strong);
+    --color-edge-tray: var(--dash-edge-tray);
+    --color-edge-tray-panel: var(--dash-edge-tray-panel);
     --color-edge-tile: var(--dash-edge-tile);
     --color-edge-checkbox: var(--dash-edge-checkbox);
     --color-edge-checkbox-hover: var(--dash-edge-checkbox-hover);

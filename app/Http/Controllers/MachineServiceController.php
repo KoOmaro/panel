@@ -92,7 +92,7 @@ class MachineServiceController extends Controller
             'usage' => fn () => self::usage($machine, $sites),
             'logs' => fn () => self::logSummary($workspace, $machine, $found),
             'messages' => Inertia::defer(fn () => $deploy === null ? (object) [] : (object) self::messages($workspace, $machine, (string) $deploy->service)),
-            'stats' => $machine->service_stats[$service] ?? null,
+            'stats' => $machine->serviceStatsNow()[$service] ?? null,
             'removable' => self::removable($machine, $found),
             'clone' => str_starts_with($service, 'docker:') ? [
                 'unavailable' => ServiceClones::unavailable($machine, $found),

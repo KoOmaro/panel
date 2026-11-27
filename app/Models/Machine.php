@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\MachineEnvironment;
 use App\Exceptions\MachineLimitReached;
+use App\Support\Machines\MachineDisks;
 use Carbon\CarbonImmutable;
 use Database\Factories\MachineFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -227,6 +228,38 @@ class Machine extends Model
             && $this->disconnected_at === null
             && $this->last_seen_at !== null
             && $this->last_seen_at->gte(now()->subSeconds(60));
+    }
+
+    public function isReporting(): bool
+    {
+        return $this->uid === null || $this->isOnline();
+    }
+
+    public function readingAt(): ?CarbonImmutable
+    {
+        return $this->telemetry_ts === null ? $this->last_seen_at : CarbonImmutable::createFromTimestamp($this->telemetry_ts);
+    }
+
+    /** @return list<array{mount: string, used: int, total: int}> */
+    public function volumes(): array
+    {
+        return MachineDisks::clean($this->disks ?? [], $this->facts);
+    }
+
+    public function fullestDisk(): ?int
+    {
+        return ($this->disks ?? []) === [] ? $this->disk_percent : MachineDisks::fullest($this->volumes());
+    }
+
+    /** @return array<string, array<string, int|float|null>> */
+    public function serviceStatsNow(): array
+    {
+        $stats = $this->service_stats ?? [];
+
+        return $this->isReporting() ? $stats : array_map(
+            fn (array $stat) => [...$stat, 'cpu' => null, 'memUsed' => null, 'pids' => null, 'netRx' => null, 'netTx' => null],
+            $stats,
+        );
     }
 
     /**

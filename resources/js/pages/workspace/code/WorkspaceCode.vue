@@ -6,6 +6,7 @@ import { computed, ref } from 'vue';
 import BrandLogo from '@/components/dash/BrandLogo.vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import EmptyArt from '@/components/dash/EmptyArt.vue';
 import CodeLines from '@/components/code/CodeLines.vue';
 import FileTree from '@/components/code/FileTree.vue';
@@ -246,21 +247,15 @@ function lookAt(path: string): void {
 
         <div class="flex flex-col xl:min-h-0 xl:flex-1 xl:flex-row">
             <div class="flex flex-col px-6 pt-4 pb-6 xl:min-w-0 xl:flex-1">
-                <section
-                    class="dash-card flex min-h-[480px] flex-col xl:min-h-0 xl:flex-1"
+                <DashTray
+                    icon="folder-fill"
+                    :title="$t('Files')"
+                    :meta="String(code.files.length)"
+                    panel-class="pt-3"
+                    class="min-h-[480px] xl:min-h-0 xl:flex-1"
                 >
-                    <div
-                        class="flex shrink-0 items-center gap-2 border-b-[0.5px] border-edge-tabs px-[18px] py-3"
-                    >
-                        <h2 class="text-[14px]/5 font-medium text-fg-primary">
-                            {{ $t('Files') }}
-                        </h2>
-                        <span class="text-[13px]/5 text-fg-muted">{{
-                            code.files.length
-                        }}</span>
-                        <span class="grow" />
+                    <template v-if="folderNames.length" #actions>
                         <button
-                            v-if="folderNames.length"
                             type="button"
                             class="text-[12px]/4 font-medium text-fg-secondary transition-colors duration-150 hover:text-fg-primary"
                             @click="toggleAll"
@@ -269,7 +264,7 @@ function lookAt(path: string): void {
                                 allOpen ? $t('Collapse all') : $t('Expand all')
                             }}
                         </button>
-                    </div>
+                    </template>
 
                     <div class="flex min-h-0 flex-1 flex-col md:flex-row">
                         <FileTree
@@ -328,7 +323,7 @@ function lookAt(path: string): void {
                             </p>
                         </div>
                     </div>
-                </section>
+                </DashTray>
             </div>
 
             <aside

@@ -18,6 +18,7 @@ import AppButton from '@/components/workspace/AppButton.vue';
 import SettingsLine from '@/components/workspace/SettingsLine.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
+import Tile from '@/components/workspace/Tile.vue';
 import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
 import { appButtonClasses } from '@/lib/appButton';
 import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
@@ -298,688 +299,736 @@ const focusRing =
             </Link>
         </div>
 
-        <fieldset
-            class="ds-tile"
-            :disabled="!editable"
-            :class="{ 'opacity-60': !editable }"
+        <Tile
+            id="fleet-status-page"
+            icon="monitors-fill"
+            :title="$t('Fleet status page')"
+            :padded="false"
         >
-            <legend class="sr-only">{{ $t('Fleet status page') }}</legend>
-            <div class="ds-tile-rows">
-                <SettingsLine
-                    :label="$t('Status page')"
-                    :hint="
-                        page.live
-                            ? $t(
-                                  'Live at :host/status/:slug, with a section for each machine.',
-                                  {
-                                      host: String(host),
-                                      slug: String(page.slug),
-                                  },
-                              )
-                            : $t(
-                                  'One page for your whole fleet, a section for each machine. Off until you turn it on.',
-                              )
-                    "
-                >
-                    <div class="flex h-9 items-center gap-3">
-                        <ToggleSwitch
-                            v-model="form.enabled"
-                            :label="$t('Fleet status page on')"
-                        />
-                        <span class="text-[13px]/5 text-(--ds-text-muted)">
-                            {{ form.enabled ? $t('On') : $t('Off') }}
-                        </span>
-                        <a
-                            v-if="page.live"
-                            :href="url"
-                            target="_blank"
-                            rel="noopener"
-                            class="ml-1 flex items-center gap-1 text-[13px]/5 font-medium text-(--ds-blue) hover:underline"
-                        >
-                            {{ ' ' + $t('Open') }}
-                            <ArrowUpRight class="size-3.5" :stroke-width="2" />
-                        </a>
-                    </div>
-                    <InputError :message="form.errors.enabled" />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Visibility')"
-                    :hint="
-                        form.public
-                            ? $t('Anyone with the link, no sign-in.')
-                            : $t('Only members of this workspace, signed in.')
-                    "
-                >
-                    <div
-                        class="ds-segments w-fit"
-                        role="group"
-                        :aria-label="$t('Visibility')"
-                    >
-                        <button
-                            type="button"
-                            class="cursor-pointer"
-                            :class="focusRing"
-                            :aria-pressed="form.public"
-                            @click="form.public = true"
-                        >
-                            {{ ' ' + $t('Public') + ' ' }}
-                        </button>
-                        <button
-                            type="button"
-                            class="cursor-pointer"
-                            :class="focusRing"
-                            :aria-pressed="!form.public"
-                            @click="form.public = false"
-                        >
-                            {{ ' ' + $t('Workspace only') + ' ' }}
-                        </button>
-                    </div>
-                </SettingsLine>
-
-                <SettingsLine :label="$t('Address')" input-id="fleet-slug">
-                    <div class="flex max-w-xl items-center gap-2">
-                        <div
-                            class="flex h-9 min-w-0 grow items-center overflow-hidden rounded-md border border-input bg-(--ds-field) focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
-                        >
-                            <span
-                                class="shrink-0 pl-3 font-ui-mono text-[13px] text-(--ds-text-faint)"
-                                >{{ $t(':host/status/', { host }) }}</span
-                            >
-                            <input
-                                id="fleet-slug"
-                                v-model="form.slug"
-                                class="h-full min-w-0 grow bg-transparent pr-3 font-ui-mono text-[13px] text-(--ds-text) outline-none"
-                                maxlength="60"
-                                spellcheck="false"
-                                autocomplete="off"
-                                @blur="tidySlug"
-                            />
-                        </div>
-                        <AppButton
-                            size="sm"
-                            variant="quiet"
-                            :aria-label="$t('Copy the address')"
-                            @click="copy"
-                        >
-                            <Check
-                                v-if="copied"
-                                class="mi-pop size-3.5 text-(--ds-green)"
-                                :stroke-width="2.25"
-                            />
-                            <Copy
-                                v-else
-                                class="mi-copy size-3.5"
-                                :stroke-width="1.75"
-                            />
-                        </AppButton>
-                    </div>
-                    <InputError :message="form.errors.slug" />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Name')"
-                    :hint="
-                        $t('At the top of the page. Defaults to :name.', {
-                            name: String(workspace.name),
-                        })
-                    "
-                    input-id="fleet-title"
-                >
-                    <Input
-                        id="fleet-title"
-                        v-model="form.title"
-                        maxlength="80"
-                        class="max-w-md"
-                        :placeholder="workspace.name"
-                    />
-                    <InputError :message="form.errors.title" />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Page title')"
-                    :hint="
-                        $t(
-                            'In the browser tab and link previews. Defaults to the name.',
-                        )
-                    "
-                    input-id="fleet-page-title"
-                >
-                    <Input
-                        id="fleet-page-title"
-                        v-model="form.page_title"
-                        maxlength="120"
-                        class="max-w-md"
-                        :placeholder="form.title || workspace.name"
-                    />
-                    <InputError :message="form.errors.page_title" />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Icon')"
-                    :hint="
-                        $t('Beside the name. Defaults to the workspace logo.')
-                    "
-                >
-                    <ImageUploadField
-                        field="icon"
-                        :label="$t('Icon')"
-                        hide-label
-                        preserve-state
-                        max-size="2 MB"
-                        :image-url="page.iconUrl"
-                        :fallback="
-                            (form.title || workspace.name)
-                                .charAt(0)
-                                .toUpperCase()
-                        "
-                        :upload-url="imageUrls.icon.upload"
-                        :remove-url="imageUrls.icon.remove"
-                        :disabled="!editable"
-                    />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Favicon')"
-                    :hint="$t('The little picture in the browser tab.')"
-                >
-                    <ImageUploadField
-                        field="favicon"
-                        :label="$t('Favicon')"
-                        hide-label
-                        preserve-state
-                        accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/jpeg,image/webp,image/gif"
+            <fieldset
+                :disabled="!editable"
+                :class="{ 'opacity-60': !editable }"
+            >
+                <legend class="sr-only">{{ $t('Fleet status page') }}</legend>
+                <div class="ds-tile-rows">
+                    <SettingsLine
+                        :label="$t('Status page')"
                         :hint="
-                            $t(
-                                'A square PNG or ICO, up to 1 MB. 64 by 64 or bigger looks sharpest.',
-                            )
+                            page.live
+                                ? $t(
+                                      'Live at :host/status/:slug, with a section for each machine.',
+                                      {
+                                          host: String(host),
+                                          slug: String(page.slug),
+                                      },
+                                  )
+                                : $t(
+                                      'One page for your whole fleet, a section for each machine. Off until you turn it on.',
+                                  )
                         "
-                        :image-url="page.faviconUrl"
-                        fallback=""
-                        :upload-url="imageUrls.favicon.upload"
-                        :remove-url="imageUrls.favicon.remove"
-                        :disabled="!editable"
-                    />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Description')"
-                    :hint="$t('A line under the name.')"
-                    input-id="fleet-description"
-                >
-                    <Input
-                        id="fleet-description"
-                        v-model="form.description"
-                        maxlength="280"
-                        class="max-w-xl"
-                        :placeholder="$t('Everything we run, in one place')"
-                    />
-                    <InputError :message="form.errors.description" />
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Notice')"
-                    :hint="
-                        $t('Shown at the top of the page until you clear it.')
-                    "
-                    input-id="fleet-notice"
-                >
-                    <div
-                        class="ds-segments w-fit"
-                        role="group"
-                        :aria-label="$t('Kind of notice')"
                     >
-                        <button
-                            v-for="kind in noticeKinds"
-                            :key="kind.value"
-                            type="button"
-                            class="cursor-pointer"
-                            :class="focusRing"
-                            :aria-pressed="form.notice_kind === kind.value"
-                            @click="form.notice_kind = kind.value"
-                        >
-                            {{ kind.label }}
-                        </button>
-                    </div>
-                    <textarea
-                        id="fleet-notice"
-                        v-model="form.notice"
-                        rows="2"
-                        maxlength="500"
-                        class="mt-2 w-full max-w-xl rounded-md border border-input bg-(--ds-field) px-3 py-2 text-[13px]/5 text-(--ds-text) outline-none placeholder:text-(--ds-text-faint) focus:border-ring focus:ring-[3px] focus:ring-ring/50"
-                        placeholder="Nothing to say right now."
-                    />
-                    <InputError :message="form.errors.notice" />
-                </SettingsLine>
+                        <div class="flex h-9 items-center gap-3">
+                            <ToggleSwitch
+                                v-model="form.enabled"
+                                :label="$t('Fleet status page on')"
+                            />
+                            <span class="text-[13px]/5 text-(--ds-text-muted)">
+                                {{ form.enabled ? $t('On') : $t('Off') }}
+                            </span>
+                            <a
+                                v-if="page.live"
+                                :href="url"
+                                target="_blank"
+                                rel="noopener"
+                                class="ml-1 flex items-center gap-1 text-[13px]/5 font-medium text-(--ds-blue) hover:underline"
+                            >
+                                {{ ' ' + $t('Open') }}
+                                <ArrowUpRight
+                                    class="size-3.5"
+                                    :stroke-width="2"
+                                />
+                            </a>
+                        </div>
+                        <InputError :message="form.errors.enabled" />
+                    </SettingsLine>
 
-                <SettingsLine
-                    :label="$t('Uptime history')"
-                    :hint="$t('90 days of uptime bars for each service.')"
-                >
-                    <div class="flex h-9 items-center gap-3">
-                        <ToggleSwitch
-                            v-model="form.show_uptime"
-                            :label="$t('Show uptime history')"
-                        />
-                    </div>
-                </SettingsLine>
-
-                <SettingsLine
-                    :label="$t('Machines')"
-                    :hint="
-                        $t(
-                            'Which services each one shows is set on its own status page, in the machine’s Settings. It doesn’t need to be turned on.',
-                        )
-                    "
-                >
-                    <label
-                        class="flex cursor-pointer items-center gap-2.5 text-[13px]/5 select-none"
+                    <SettingsLine
+                        :label="$t('Visibility')"
+                        :hint="
+                            form.public
+                                ? $t('Anyone with the link, no sign-in.')
+                                : $t(
+                                      'Only members of this workspace, signed in.',
+                                  )
+                        "
                     >
-                        <TickBox v-model="form.every_machine" />
-                        {{
-                            $t(
-                                'Every machine, including ones connected later',
-                            ) + ' '
-                        }}
-                    </label>
-                    <div class="mt-3 flex flex-wrap items-center gap-2.5">
-                        <span class="text-[13px]/5 text-(--ds-text-muted)">
-                            {{
-                                $t('A machine with no page of its own shows as')
-                            }}
-                        </span>
                         <div
-                            class="ds-segments"
+                            class="ds-segments w-fit"
                             role="group"
-                            :aria-label="
-                                $t('A machine with no page of its own shows as')
-                            "
+                            :aria-label="$t('Visibility')"
                         >
                             <button
                                 type="button"
-                                class="cursor-pointer px-2.5! py-1! text-[13px]!"
+                                class="cursor-pointer"
                                 :class="focusRing"
-                                :aria-pressed="form.new_machines === 'machine'"
-                                @click="form.new_machines = 'machine'"
+                                :aria-pressed="form.public"
+                                @click="form.public = true"
                             >
-                                {{ $t('One row') }}
+                                {{ ' ' + $t('Public') + ' ' }}
                             </button>
                             <button
                                 type="button"
-                                class="cursor-pointer px-2.5! py-1! text-[13px]!"
+                                class="cursor-pointer"
                                 :class="focusRing"
-                                :aria-pressed="form.new_machines === 'services'"
-                                @click="form.new_machines = 'services'"
+                                :aria-pressed="!form.public"
+                                @click="form.public = false"
                             >
-                                {{ $t('Its running services') }}
+                                {{ ' ' + $t('Workspace only') + ' ' }}
                             </button>
                         </div>
-                    </div>
-                    <div
-                        v-if="!form.every_machine && groups.length"
-                        class="mt-3 max-w-xl"
-                    >
-                        <p class="mb-1.5 text-[13px]/5 text-(--ds-text-muted)">
-                            {{
-                                $t(
-                                    'And every machine in these groups, including ones added to them later:',
-                                )
-                            }}
-                        </p>
-                        <div class="flex flex-wrap gap-x-4 gap-y-1.5">
-                            <label
-                                v-for="group in groups"
-                                :key="group.id"
-                                class="flex cursor-pointer items-center gap-2 text-[13px]/5 select-none"
-                            >
-                                <TickBox
-                                    :model-value="
-                                        form.machine_groups.includes(group.id)
-                                    "
-                                    @update:model-value="
-                                        (on: boolean) => pickGroup(group.id, on)
-                                    "
-                                />
-                                {{ group.name }}
-                            </label>
-                        </div>
-                    </div>
-                    <ul
-                        v-if="!form.every_machine"
-                        class="mt-3 max-w-xl divide-y divide-(--ds-divider) overflow-hidden rounded-[10px] border border-(--ds-border)"
-                    >
-                        <li v-for="machine in machines" :key="machine.id">
-                            <label
-                                class="flex cursor-pointer items-center gap-3 px-3.5 py-2 text-[13px]/5 hover:bg-(--ds-row-hover)"
-                            >
-                                <TickBox
-                                    :model-value="
-                                        form.machines.includes(machine.id)
-                                    "
-                                    @update:model-value="
-                                        (on: boolean) => pick(machine.id, on)
-                                    "
-                                />
-                                <span
-                                    class="size-1.5 shrink-0 rounded-full"
-                                    :class="
-                                        machine.online
-                                            ? 'bg-(--ds-green)'
-                                            : 'bg-(--ds-text-faint)'
-                                    "
-                                    aria-hidden="true"
-                                />
-                                <span class="grow truncate font-medium">{{
-                                    machine.name
-                                }}</span>
-                                <Link
-                                    :href="
-                                        workspacePath(
-                                            `/machines/${machine.id}/settings/status`,
-                                        )
-                                    "
-                                    class="shrink-0 text-xs text-(--ds-text-muted) hover:text-(--ds-text) hover:underline"
-                                    @click.stop
-                                >
-                                    {{
-                                        machine.hasOwnSettings
-                                            ? $t('Pick services')
-                                            : form.new_machines === 'services'
-                                              ? $t('Running services')
-                                              : $t('One row')
-                                    }}
-                                </Link>
-                            </label>
-                        </li>
-                        <li
-                            v-if="machines.length === 0"
-                            class="px-3.5 py-3 text-[13px]/5 text-(--ds-text-muted)"
-                        >
-                            {{ ' ' + $t('No machines connected yet.') + ' ' }}
-                        </li>
-                    </ul>
-                    <InputError :message="form.errors.machines" />
-                </SettingsLine>
+                    </SettingsLine>
 
-                <SettingsLine
-                    :label="$t('Layout')"
-                    :hint="
-                        $t(
-                            'Sections of your own come first and can take services from any machine, like Game nodes · London. The rest show under their machine, with the heading and order you give.',
-                        )
-                    "
-                >
-                    <p
-                        v-if="!page.exists"
-                        class="text-[13px]/5 text-(--ds-text-muted)"
-                    >
-                        {{ $t('Save the page first, then arrange it here.') }}
-                    </p>
-                    <div v-else class="flex max-w-xl flex-col gap-4">
-                        <div
-                            v-for="(section, index) in form.layout.sections"
-                            :key="index"
-                            class="flex flex-col gap-2.5 rounded-[10px] border border-(--ds-border) p-3"
-                        >
-                            <div class="flex items-center gap-2">
-                                <Input
-                                    v-model="section.name"
-                                    maxlength="60"
-                                    class="h-8 grow text-[13px]"
-                                    :placeholder="$t('Section name')"
-                                    :aria-label="$t('Section name')"
-                                />
-                                <button
-                                    type="button"
-                                    :class="
-                                        appButtonClasses(
-                                            'quiet',
-                                            'sm',
-                                            'px-1.5!',
-                                        )
-                                    "
-                                    :aria-label="$t('Move up')"
-                                    :disabled="index === 0"
-                                    @click="moveSection(index, -1)"
-                                >
-                                    <ArrowUp class="size-3.5" />
-                                </button>
-                                <button
-                                    type="button"
-                                    :class="
-                                        appButtonClasses(
-                                            'quiet',
-                                            'sm',
-                                            'px-1.5!',
-                                        )
-                                    "
-                                    :aria-label="$t('Move down')"
-                                    :disabled="
-                                        index ===
-                                        form.layout.sections.length - 1
-                                    "
-                                    @click="moveSection(index, 1)"
-                                >
-                                    <ArrowDown class="size-3.5" />
-                                </button>
-                                <button
-                                    type="button"
-                                    :class="
-                                        appButtonClasses(
-                                            'quiet',
-                                            'sm',
-                                            'px-1.5!',
-                                        )
-                                    "
-                                    :aria-label="$t('Remove section')"
-                                    @click="
-                                        form.layout.sections.splice(index, 1)
-                                    "
-                                >
-                                    <X class="size-3.5" />
-                                </button>
-                            </div>
-                            <div class="flex flex-wrap gap-1.5">
+                    <SettingsLine :label="$t('Address')" input-id="fleet-slug">
+                        <div class="flex max-w-xl items-center gap-2">
+                            <div
+                                class="flex h-9 min-w-0 grow items-center overflow-hidden rounded-md border border-input bg-(--ds-field) focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+                            >
                                 <span
-                                    v-for="(key, at) in section.components"
-                                    :key="key"
-                                    class="inline-flex items-center gap-1 rounded-md bg-(--ds-hover) py-0.5 pr-1 pl-2 text-[12.5px]/5"
+                                    class="shrink-0 pl-3 font-ui-mono text-[13px] text-(--ds-text-faint)"
+                                    >{{ $t(':host/status/', { host }) }}</span
                                 >
-                                    {{ componentByKey.get(key)?.label ?? key }}
-                                    <span class="text-(--ds-text-faint)">
-                                        · {{ componentByKey.get(key)?.machine }}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        class="flex size-4 cursor-pointer items-center justify-center rounded text-(--ds-text-faint) hover:text-(--ds-text)"
-                                        :aria-label="$t('Remove')"
-                                        @click="
-                                            section.components.splice(at, 1)
-                                        "
-                                    >
-                                        <X class="size-3" />
-                                    </button>
-                                </span>
-                                <SelectMenu
-                                    :key="section.components.length"
-                                    model-value=""
-                                    :options="availableOptions"
-                                    :placeholder="$t('Add…')"
-                                    class="h-7 rounded-md border border-(--ds-border) bg-(--ds-field) px-2 text-[12.5px]/5 text-(--ds-text-muted)"
-                                    :aria-label="$t('Add to this section')"
-                                    @update:model-value="
-                                        (key) => addComponent(index, key)
-                                    "
+                                <input
+                                    id="fleet-slug"
+                                    v-model="form.slug"
+                                    class="h-full min-w-0 grow bg-transparent pr-3 font-ui-mono text-[13px] text-(--ds-text) outline-none"
+                                    maxlength="60"
+                                    spellcheck="false"
+                                    autocomplete="off"
+                                    @blur="tidySlug"
                                 />
                             </div>
-                        </div>
-                        <div>
-                            <AppButton size="sm" @click="addSection">
-                                {{ $t('Add a section') }}
+                            <AppButton
+                                size="sm"
+                                variant="quiet"
+                                :aria-label="$t('Copy the address')"
+                                @click="copy"
+                            >
+                                <Check
+                                    v-if="copied"
+                                    class="mi-pop size-3.5 text-(--ds-green)"
+                                    :stroke-width="2.25"
+                                />
+                                <Copy
+                                    v-else
+                                    class="mi-copy size-3.5"
+                                    :stroke-width="1.75"
+                                />
                             </AppButton>
                         </div>
+                        <InputError :message="form.errors.slug" />
+                    </SettingsLine>
 
-                        <p
-                            v-if="form.layout.order.length"
-                            class="-mb-2 text-[13px]/5 text-(--ds-text-muted)"
+                    <SettingsLine
+                        :label="$t('Name')"
+                        :hint="
+                            $t('At the top of the page. Defaults to :name.', {
+                                name: String(workspace.name),
+                            })
+                        "
+                        input-id="fleet-title"
+                    >
+                        <Input
+                            id="fleet-title"
+                            v-model="form.title"
+                            maxlength="80"
+                            class="max-w-md"
+                            :placeholder="workspace.name"
+                        />
+                        <InputError :message="form.errors.title" />
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Page title')"
+                        :hint="
+                            $t(
+                                'In the browser tab and link previews. Defaults to the name.',
+                            )
+                        "
+                        input-id="fleet-page-title"
+                    >
+                        <Input
+                            id="fleet-page-title"
+                            v-model="form.page_title"
+                            maxlength="120"
+                            class="max-w-md"
+                            :placeholder="form.title || workspace.name"
+                        />
+                        <InputError :message="form.errors.page_title" />
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Icon')"
+                        :hint="
+                            $t(
+                                'Beside the name. Defaults to the workspace logo.',
+                            )
+                        "
+                    >
+                        <ImageUploadField
+                            field="icon"
+                            :label="$t('Icon')"
+                            hide-label
+                            preserve-state
+                            max-size="2 MB"
+                            :image-url="page.iconUrl"
+                            :fallback="
+                                (form.title || workspace.name)
+                                    .charAt(0)
+                                    .toUpperCase()
+                            "
+                            :upload-url="imageUrls.icon.upload"
+                            :remove-url="imageUrls.icon.remove"
+                            :disabled="!editable"
+                        />
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Favicon')"
+                        :hint="$t('The little picture in the browser tab.')"
+                    >
+                        <ImageUploadField
+                            field="favicon"
+                            :label="$t('Favicon')"
+                            hide-label
+                            preserve-state
+                            accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/jpeg,image/webp,image/gif"
+                            :hint="
+                                $t(
+                                    'A square PNG or ICO, up to 1 MB. 64 by 64 or bigger looks sharpest.',
+                                )
+                            "
+                            :image-url="page.faviconUrl"
+                            fallback=""
+                            :upload-url="imageUrls.favicon.upload"
+                            :remove-url="imageUrls.favicon.remove"
+                            :disabled="!editable"
+                        />
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Description')"
+                        :hint="$t('A line under the name.')"
+                        input-id="fleet-description"
+                    >
+                        <Input
+                            id="fleet-description"
+                            v-model="form.description"
+                            maxlength="280"
+                            class="max-w-xl"
+                            :placeholder="$t('Everything we run, in one place')"
+                        />
+                        <InputError :message="form.errors.description" />
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Notice')"
+                        :hint="
+                            $t(
+                                'Shown at the top of the page until you clear it.',
+                            )
+                        "
+                        input-id="fleet-notice"
+                    >
+                        <div
+                            class="ds-segments w-fit"
+                            role="group"
+                            :aria-label="$t('Kind of notice')"
                         >
-                            {{ $t('Machines: their headings and order') }}
-                        </p>
-                        <ul
-                            v-if="form.layout.order.length"
-                            class="divide-y divide-(--ds-divider) overflow-hidden rounded-[10px] border border-(--ds-border)"
-                        >
-                            <li
-                                v-for="(id, index) in form.layout.order"
-                                :key="id"
-                                class="flex items-center gap-2 px-3 py-2"
+                            <button
+                                v-for="kind in noticeKinds"
+                                :key="kind.value"
+                                type="button"
+                                class="cursor-pointer"
+                                :class="focusRing"
+                                :aria-pressed="form.notice_kind === kind.value"
+                                @click="form.notice_kind = kind.value"
                             >
-                                <Input
-                                    v-model="form.layout.headings[String(id)]"
-                                    maxlength="60"
-                                    class="h-8 grow text-[13px]"
-                                    :placeholder="machineNames.get(id)"
-                                    :aria-label="
-                                        $t('Heading for :name', {
-                                            name: String(
-                                                machineNames.get(id) ?? '',
-                                            ),
-                                        })
-                                    "
-                                />
+                                {{ kind.label }}
+                            </button>
+                        </div>
+                        <textarea
+                            id="fleet-notice"
+                            v-model="form.notice"
+                            rows="2"
+                            maxlength="500"
+                            class="mt-2 w-full max-w-xl rounded-md border border-input bg-(--ds-field) px-3 py-2 text-[13px]/5 text-(--ds-text) outline-none placeholder:text-(--ds-text-faint) focus:border-ring focus:ring-[3px] focus:ring-ring/50"
+                            placeholder="Nothing to say right now."
+                        />
+                        <InputError :message="form.errors.notice" />
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Uptime history')"
+                        :hint="$t('90 days of uptime bars for each service.')"
+                    >
+                        <div class="flex h-9 items-center gap-3">
+                            <ToggleSwitch
+                                v-model="form.show_uptime"
+                                :label="$t('Show uptime history')"
+                            />
+                        </div>
+                    </SettingsLine>
+
+                    <SettingsLine
+                        :label="$t('Machines')"
+                        :hint="
+                            $t(
+                                'Which services each one shows is set on its own status page, in the machine’s Settings. It doesn’t need to be turned on.',
+                            )
+                        "
+                    >
+                        <label
+                            class="flex cursor-pointer items-center gap-2.5 text-[13px]/5 select-none"
+                        >
+                            <TickBox v-model="form.every_machine" />
+                            {{
+                                $t(
+                                    'Every machine, including ones connected later',
+                                ) + ' '
+                            }}
+                        </label>
+                        <div class="mt-3 flex flex-wrap items-center gap-2.5">
+                            <span class="text-[13px]/5 text-(--ds-text-muted)">
+                                {{
+                                    $t(
+                                        'A machine with no page of its own shows as',
+                                    )
+                                }}
+                            </span>
+                            <div
+                                class="ds-segments"
+                                role="group"
+                                :aria-label="
+                                    $t(
+                                        'A machine with no page of its own shows as',
+                                    )
+                                "
+                            >
                                 <button
                                     type="button"
-                                    :class="
-                                        appButtonClasses(
-                                            'quiet',
-                                            'sm',
-                                            'px-1.5!',
-                                        )
+                                    class="cursor-pointer px-2.5! py-1! text-[13px]!"
+                                    :class="focusRing"
+                                    :aria-pressed="
+                                        form.new_machines === 'machine'
                                     "
-                                    :aria-label="$t('Move up')"
-                                    :disabled="index === 0"
-                                    @click="moveMachine(index, -1)"
+                                    @click="form.new_machines = 'machine'"
                                 >
-                                    <ArrowUp class="size-3.5" />
+                                    {{ $t('One row') }}
                                 </button>
                                 <button
                                     type="button"
-                                    :class="
-                                        appButtonClasses(
-                                            'quiet',
-                                            'sm',
-                                            'px-1.5!',
-                                        )
+                                    class="cursor-pointer px-2.5! py-1! text-[13px]!"
+                                    :class="focusRing"
+                                    :aria-pressed="
+                                        form.new_machines === 'services'
                                     "
-                                    :aria-label="$t('Move down')"
-                                    :disabled="
-                                        index === form.layout.order.length - 1
-                                    "
-                                    @click="moveMachine(index, 1)"
+                                    @click="form.new_machines = 'services'"
                                 >
-                                    <ArrowDown class="size-3.5" />
+                                    {{ $t('Its running services') }}
                                 </button>
+                            </div>
+                        </div>
+                        <div
+                            v-if="!form.every_machine && groups.length"
+                            class="mt-3 max-w-xl"
+                        >
+                            <p
+                                class="mb-1.5 text-[13px]/5 text-(--ds-text-muted)"
+                            >
+                                {{
+                                    $t(
+                                        'And every machine in these groups, including ones added to them later:',
+                                    )
+                                }}
+                            </p>
+                            <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+                                <label
+                                    v-for="group in groups"
+                                    :key="group.id"
+                                    class="flex cursor-pointer items-center gap-2 text-[13px]/5 select-none"
+                                >
+                                    <TickBox
+                                        :model-value="
+                                            form.machine_groups.includes(
+                                                group.id,
+                                            )
+                                        "
+                                        @update:model-value="
+                                            (on: boolean) =>
+                                                pickGroup(group.id, on)
+                                        "
+                                    />
+                                    {{ group.name }}
+                                </label>
+                            </div>
+                        </div>
+                        <ul
+                            v-if="!form.every_machine"
+                            class="mt-3 max-w-xl divide-y divide-(--ds-divider) overflow-hidden rounded-[10px] border border-(--ds-border)"
+                        >
+                            <li v-for="machine in machines" :key="machine.id">
+                                <label
+                                    class="flex cursor-pointer items-center gap-3 px-3.5 py-2 text-[13px]/5 hover:bg-(--ds-row-hover)"
+                                >
+                                    <TickBox
+                                        :model-value="
+                                            form.machines.includes(machine.id)
+                                        "
+                                        @update:model-value="
+                                            (on: boolean) =>
+                                                pick(machine.id, on)
+                                        "
+                                    />
+                                    <span
+                                        class="size-1.5 shrink-0 rounded-full"
+                                        :class="
+                                            machine.online
+                                                ? 'bg-(--ds-green)'
+                                                : 'bg-(--ds-text-faint)'
+                                        "
+                                        aria-hidden="true"
+                                    />
+                                    <span class="grow truncate font-medium">{{
+                                        machine.name
+                                    }}</span>
+                                    <Link
+                                        :href="
+                                            workspacePath(
+                                                `/machines/${machine.id}/settings/status`,
+                                            )
+                                        "
+                                        class="shrink-0 text-xs text-(--ds-text-muted) hover:text-(--ds-text) hover:underline"
+                                        @click.stop
+                                    >
+                                        {{
+                                            machine.hasOwnSettings
+                                                ? $t('Pick services')
+                                                : form.new_machines ===
+                                                    'services'
+                                                  ? $t('Running services')
+                                                  : $t('One row')
+                                        }}
+                                    </Link>
+                                </label>
+                            </li>
+                            <li
+                                v-if="machines.length === 0"
+                                class="px-3.5 py-3 text-[13px]/5 text-(--ds-text-muted)"
+                            >
+                                {{
+                                    ' ' + $t('No machines connected yet.') + ' '
+                                }}
                             </li>
                         </ul>
-                        <InputError :message="form.errors.layout" />
-                    </div>
-                </SettingsLine>
+                        <InputError :message="form.errors.machines" />
+                    </SettingsLine>
 
-                <SettingsLine
-                    :label="$t('Websites')"
-                    :hint="
-                        $t(
-                            'Uptime monitors that aren’t on a machine, like a site hosted somewhere else. They show first, with their own uptime.',
-                        )
-                    "
-                >
-                    <ul
-                        v-if="monitors.length"
-                        class="max-w-xl divide-y divide-(--ds-divider) overflow-hidden rounded-[10px] border border-(--ds-border)"
+                    <SettingsLine
+                        :label="$t('Layout')"
+                        :hint="
+                            $t(
+                                'Sections of your own come first and can take services from any machine, like Game nodes · London. The rest show under their machine, with the heading and order you give.',
+                            )
+                        "
                     >
-                        <li v-for="monitor in monitors" :key="monitor.id">
-                            <label
-                                class="flex cursor-pointer items-center gap-3 px-3.5 py-2 text-[13px]/5 hover:bg-(--ds-row-hover)"
-                            >
-                                <TickBox
-                                    :model-value="
-                                        form.monitors.includes(monitor.id)
-                                    "
-                                    @update:model-value="
-                                        (on: boolean) =>
-                                            pickMonitor(monitor.id, on)
-                                    "
-                                />
-                                <span class="grow truncate font-medium">{{
-                                    monitor.name
-                                }}</span>
-                                <span
-                                    class="shrink-0 truncate text-xs text-(--ds-text-muted)"
-                                    >{{
-                                        monitor.paused
-                                            ? $t('Paused')
-                                            : monitor.target
-                                    }}</span
-                                >
-                            </label>
-                        </li>
-                    </ul>
-                    <p v-else class="text-[13px]/5 text-(--ds-text-muted)">
-                        {{ ' '
-                        }}{{ $t('No uptime monitors outside a machine yet.') }}
-                        <Link
-                            :href="monitorsHref"
-                            class="text-(--ds-text) underline-offset-2 hover:underline"
-                            >{{ $t('Add one') }}</Link
+                        <p
+                            v-if="!page.exists"
+                            class="text-[13px]/5 text-(--ds-text-muted)"
                         >
-                    </p>
-                    <InputError :message="form.errors.monitors" />
-                </SettingsLine>
+                            {{
+                                $t('Save the page first, then arrange it here.')
+                            }}
+                        </p>
+                        <div v-else class="flex max-w-xl flex-col gap-4">
+                            <div
+                                v-for="(section, index) in form.layout.sections"
+                                :key="index"
+                                class="flex flex-col gap-2.5 rounded-[10px] border border-(--ds-border) p-3"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <Input
+                                        v-model="section.name"
+                                        maxlength="60"
+                                        class="h-8 grow text-[13px]"
+                                        :placeholder="$t('Section name')"
+                                        :aria-label="$t('Section name')"
+                                    />
+                                    <button
+                                        type="button"
+                                        :class="
+                                            appButtonClasses(
+                                                'quiet',
+                                                'sm',
+                                                'px-1.5!',
+                                            )
+                                        "
+                                        :aria-label="$t('Move up')"
+                                        :disabled="index === 0"
+                                        @click="moveSection(index, -1)"
+                                    >
+                                        <ArrowUp class="size-3.5" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        :class="
+                                            appButtonClasses(
+                                                'quiet',
+                                                'sm',
+                                                'px-1.5!',
+                                            )
+                                        "
+                                        :aria-label="$t('Move down')"
+                                        :disabled="
+                                            index ===
+                                            form.layout.sections.length - 1
+                                        "
+                                        @click="moveSection(index, 1)"
+                                    >
+                                        <ArrowDown class="size-3.5" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        :class="
+                                            appButtonClasses(
+                                                'quiet',
+                                                'sm',
+                                                'px-1.5!',
+                                            )
+                                        "
+                                        :aria-label="$t('Remove section')"
+                                        @click="
+                                            form.layout.sections.splice(
+                                                index,
+                                                1,
+                                            )
+                                        "
+                                    >
+                                        <X class="size-3.5" />
+                                    </button>
+                                </div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <span
+                                        v-for="(key, at) in section.components"
+                                        :key="key"
+                                        class="inline-flex items-center gap-1 rounded-md bg-(--ds-hover) py-0.5 pr-1 pl-2 text-[12.5px]/5"
+                                    >
+                                        {{
+                                            componentByKey.get(key)?.label ??
+                                            key
+                                        }}
+                                        <span class="text-(--ds-text-faint)">
+                                            ·
+                                            {{
+                                                componentByKey.get(key)?.machine
+                                            }}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            class="flex size-4 cursor-pointer items-center justify-center rounded text-(--ds-text-faint) hover:text-(--ds-text)"
+                                            :aria-label="$t('Remove')"
+                                            @click="
+                                                section.components.splice(at, 1)
+                                            "
+                                        >
+                                            <X class="size-3" />
+                                        </button>
+                                    </span>
+                                    <SelectMenu
+                                        :key="section.components.length"
+                                        model-value=""
+                                        :options="availableOptions"
+                                        :placeholder="$t('Add…')"
+                                        class="h-7 rounded-md border border-(--ds-border) bg-(--ds-field) px-2 text-[12.5px]/5 text-(--ds-text-muted)"
+                                        :aria-label="$t('Add to this section')"
+                                        @update:model-value="
+                                            (key) => addComponent(index, key)
+                                        "
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <AppButton size="sm" @click="addSection">
+                                    {{ $t('Add a section') }}
+                                </AppButton>
+                            </div>
 
-                <SettingsLine
-                    v-if="page.live && page.public"
-                    :label="$t('Subscribers')"
-                    :hint="
-                        $t(
-                            'Visitors can ask for an email when something goes wrong and when it’s fixed, from Get updates on the page.',
-                        )
-                    "
-                >
-                    <p class="text-[13px]/5">
-                        {{
-                            page.subscribers === 1
-                                ? $t('1 person gets email updates')
-                                : $t(':count people get email updates', {
-                                      count: String(page.subscribers),
-                                  })
-                        }}
-                    </p>
-                </SettingsLine>
+                            <p
+                                v-if="form.layout.order.length"
+                                class="-mb-2 text-[13px]/5 text-(--ds-text-muted)"
+                            >
+                                {{ $t('Machines: their headings and order') }}
+                            </p>
+                            <ul
+                                v-if="form.layout.order.length"
+                                class="divide-y divide-(--ds-divider) overflow-hidden rounded-[10px] border border-(--ds-border)"
+                            >
+                                <li
+                                    v-for="(id, index) in form.layout.order"
+                                    :key="id"
+                                    class="flex items-center gap-2 px-3 py-2"
+                                >
+                                    <Input
+                                        v-model="
+                                            form.layout.headings[String(id)]
+                                        "
+                                        maxlength="60"
+                                        class="h-8 grow text-[13px]"
+                                        :placeholder="machineNames.get(id)"
+                                        :aria-label="
+                                            $t('Heading for :name', {
+                                                name: String(
+                                                    machineNames.get(id) ?? '',
+                                                ),
+                                            })
+                                        "
+                                    />
+                                    <button
+                                        type="button"
+                                        :class="
+                                            appButtonClasses(
+                                                'quiet',
+                                                'sm',
+                                                'px-1.5!',
+                                            )
+                                        "
+                                        :aria-label="$t('Move up')"
+                                        :disabled="index === 0"
+                                        @click="moveMachine(index, -1)"
+                                    >
+                                        <ArrowUp class="size-3.5" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        :class="
+                                            appButtonClasses(
+                                                'quiet',
+                                                'sm',
+                                                'px-1.5!',
+                                            )
+                                        "
+                                        :aria-label="$t('Move down')"
+                                        :disabled="
+                                            index ===
+                                            form.layout.order.length - 1
+                                        "
+                                        @click="moveMachine(index, 1)"
+                                    >
+                                        <ArrowDown class="size-3.5" />
+                                    </button>
+                                </li>
+                            </ul>
+                            <InputError :message="form.errors.layout" />
+                        </div>
+                    </SettingsLine>
 
-                <SettingsLine
-                    v-if="page.live && page.public"
-                    :label="$t('Embed')"
-                    :hint="
-                        $t(
-                            'Show it on your own site as a widget, put a live badge in a README, or read the same status as JSON.',
-                        )
-                    "
-                >
-                    <EmbedOptions
-                        :url="`https://${host}/status/${page.slug}`"
-                        :title="page.title || workspace.name"
-                    />
-                </SettingsLine>
-            </div>
-        </fieldset>
+                    <SettingsLine
+                        :label="$t('Websites')"
+                        :hint="
+                            $t(
+                                'Uptime monitors that aren’t on a machine, like a site hosted somewhere else. They show first, with their own uptime.',
+                            )
+                        "
+                    >
+                        <ul
+                            v-if="monitors.length"
+                            class="max-w-xl divide-y divide-(--ds-divider) overflow-hidden rounded-[10px] border border-(--ds-border)"
+                        >
+                            <li v-for="monitor in monitors" :key="monitor.id">
+                                <label
+                                    class="flex cursor-pointer items-center gap-3 px-3.5 py-2 text-[13px]/5 hover:bg-(--ds-row-hover)"
+                                >
+                                    <TickBox
+                                        :model-value="
+                                            form.monitors.includes(monitor.id)
+                                        "
+                                        @update:model-value="
+                                            (on: boolean) =>
+                                                pickMonitor(monitor.id, on)
+                                        "
+                                    />
+                                    <span class="grow truncate font-medium">{{
+                                        monitor.name
+                                    }}</span>
+                                    <span
+                                        class="shrink-0 truncate text-xs text-(--ds-text-muted)"
+                                        >{{
+                                            monitor.paused
+                                                ? $t('Paused')
+                                                : monitor.target
+                                        }}</span
+                                    >
+                                </label>
+                            </li>
+                        </ul>
+                        <p v-else class="text-[13px]/5 text-(--ds-text-muted)">
+                            {{ ' '
+                            }}{{
+                                $t('No uptime monitors outside a machine yet.')
+                            }}
+                            <Link
+                                :href="monitorsHref"
+                                class="text-(--ds-text) underline-offset-2 hover:underline"
+                                >{{ $t('Add one') }}</Link
+                            >
+                        </p>
+                        <InputError :message="form.errors.monitors" />
+                    </SettingsLine>
 
-        <div v-if="canManage" class="flex justify-end">
-            <SubmitButton
-                :label="$t('Save')"
-                busy-label="Saving…"
-                :processing="form.processing"
-                :disabled="!editable || !form.isDirty"
-            />
-        </div>
+                    <SettingsLine
+                        v-if="page.live && page.public"
+                        :label="$t('Subscribers')"
+                        :hint="
+                            $t(
+                                'Visitors can ask for an email when something goes wrong and when it’s fixed, from Get updates on the page.',
+                            )
+                        "
+                    >
+                        <p class="text-[13px]/5">
+                            {{
+                                page.subscribers === 1
+                                    ? $t('1 person gets email updates')
+                                    : $t(':count people get email updates', {
+                                          count: String(page.subscribers),
+                                      })
+                            }}
+                        </p>
+                    </SettingsLine>
+
+                    <SettingsLine
+                        v-if="page.live && page.public"
+                        :label="$t('Embed')"
+                        :hint="
+                            $t(
+                                'Show it on your own site as a widget, put a live badge in a README, or read the same status as JSON.',
+                            )
+                        "
+                    >
+                        <EmbedOptions
+                            :url="`https://${host}/status/${page.slug}`"
+                            :title="page.title || workspace.name"
+                        />
+                    </SettingsLine>
+                </div>
+            </fieldset>
+
+            <template v-if="canManage" #footer>
+                <SubmitButton
+                    :label="$t('Save')"
+                    busy-label="Saving…"
+                    :processing="form.processing"
+                    :disabled="!editable || !form.isDirty"
+                />
+            </template>
+        </Tile>
     </form>
 </template>

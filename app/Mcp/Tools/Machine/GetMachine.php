@@ -20,7 +20,7 @@ final class GetMachine extends Tool
 
     public function description(): string
     {
-        return 'Everything about one machine, as its page in the panel shows it: status, environment, group, IP and provider; facts (hostname, OS and version, kernel, architecture, CPU cores and model, total memory, whether Docker is there and its version, boot time, hosting region and zone, network interfaces); usage (CPU %, memory used and total, each disk’s size, use and %); '
+        return 'Everything about one machine, as its page in the panel shows it: status, environment, group, IP and provider; facts (hostname, OS and version, kernel, architecture, CPU cores and model, total memory, whether Docker is there and its version, boot time, hosting region and zone, network interfaces); usage (CPU %, memory used and total, each disk’s size, use and %; CPU, memory and disk % are null unless it’s reporting now, and readingAt says when they were read); '
             .'a summary of its services by status, with any that aren’t running; its service groups; backups (schedule, destination, last backup and the latest run); maintenance window; its status page (address, whether it’s live) and whether the fleet status page shows it; the latest updates check (how many waiting, security ones, reboot needed); its last 10 jobs; its scheduled tasks (cron jobs and systemd timers: the command, schedule and when in plain words, user, last and next run where timers say, and the service it belongs to where that’s clear); and panel URLs. '
             .'Use list_services for the services themselves.';
     }

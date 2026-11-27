@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import { computed } from 'vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import type { ServiceStat } from '@/components/machines/serviceFormat';
 import type { ServiceUsage } from '@/components/service/serviceTypes';
 import { cpus, size } from '@/components/service/serviceTypes';
@@ -100,12 +100,7 @@ const figures = computed<Figure[]>(() => {
 </script>
 
 <template>
-    <HomeCard
-        icon="monitors-fill"
-        :title="$t('Usage')"
-        heading-id="service-usage"
-        class="shrink-0"
-    >
+    <DashTray icon="monitors-fill" :title="$t('Usage')" class="shrink-0">
         <ul class="grid grid-cols-2 md:h-[100px] md:grid-cols-4">
             <li
                 v-for="(figure, index) in figures"
@@ -143,5 +138,5 @@ const figures = computed<Figure[]>(() => {
                 </span>
             </li>
         </ul>
-    </HomeCard>
+    </DashTray>
 </template>

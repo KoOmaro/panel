@@ -12,7 +12,7 @@ import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { Machine } from '@/components/machines/machines';
 import FieldSelect from '@/components/machines/settings/FieldSelect.vue';
 import type { FieldOption } from '@/components/machines/settings/FieldSelect.vue';
-import SettingsCard from '@/components/machines/settings/SettingsCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import SettingsRow from '@/components/machines/settings/SettingsRow.vue';
 import EmbedOptions from '@/components/status/EmbedOptions.vue';
 import { useUpgradeLink } from '@/composables/useUpgradeLink';
@@ -368,7 +368,11 @@ const rowValue =
             />
         </div>
 
-        <SettingsCard icon="monitors-fill" :title="$t('Status page')">
+        <DashTray
+            panel-class="gap-1 px-[18px] pt-3 pb-1"
+            icon="monitors-fill"
+            :title="$t('Status page')"
+        >
             <SettingsRow
                 :label="$t('Turned on')"
                 :hint="
@@ -557,9 +561,13 @@ const rowValue =
                     />
                 </template>
             </SettingsRow>
-        </SettingsCard>
+        </DashTray>
 
-        <SettingsCard icon="info-fill" :title="$t('Notice')">
+        <DashTray
+            panel-class="gap-1 px-[18px] pt-3 pb-1"
+            icon="info-fill"
+            :title="$t('Notice')"
+        >
             <SettingsRow
                 :label="$t('Kind')"
                 :hint="$t('Shown at the top of the page until you clear it')"
@@ -598,9 +606,13 @@ const rowValue =
                     />
                 </div>
             </SettingsRow>
-        </SettingsCard>
+        </DashTray>
 
-        <SettingsCard icon="layers-fill" :title="$t('On the page')">
+        <DashTray
+            panel-class="gap-1 px-[18px] pt-3 pb-1"
+            icon="layers-fill"
+            :title="$t('On the page')"
+        >
             <SettingsRow
                 :label="$t('New services')"
                 :hint="
@@ -631,9 +643,13 @@ const rowValue =
                     @update:model-value="(on) => set('show_uptime', on)"
                 />
             </SettingsRow>
-        </SettingsCard>
+        </DashTray>
 
-        <SettingsCard icon="activity-fill" :title="$t('Monitors on the page')">
+        <DashTray
+            panel-class="gap-1 px-[18px] pt-3 pb-1"
+            icon="activity-fill"
+            :title="$t('Monitors on the page')"
+        >
             <template #actions>
                 <Link
                     :href="monitorsUrl"
@@ -702,9 +718,13 @@ const rowValue =
                     "
                 />
             </SettingsRow>
-        </SettingsCard>
+        </DashTray>
 
-        <SettingsCard icon="package-fill" :title="$t('Services on the page')">
+        <DashTray
+            panel-class="gap-1 px-[18px] pt-3 pb-1"
+            icon="package-fill"
+            :title="$t('Services on the page')"
+        >
             <template v-if="editable && form.services.length" #actions>
                 <button
                     type="button"
@@ -777,9 +797,10 @@ const rowValue =
                     "
                 />
             </SettingsRow>
-        </SettingsCard>
+        </DashTray>
 
-        <SettingsCard
+        <DashTray
+            panel-class="gap-1 px-[18px] pt-3 pb-1"
             v-if="live && statusPage.public"
             icon="code-fill"
             :title="$t('Embed')"
@@ -790,7 +811,7 @@ const rowValue =
                     :title="statusPage.title || machine.name"
                 />
             </div>
-        </SettingsCard>
+        </DashTray>
     </div>
 
     <aside

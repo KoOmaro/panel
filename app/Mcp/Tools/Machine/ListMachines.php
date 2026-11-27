@@ -29,7 +29,7 @@ final class ListMachines extends Tool
 
     public function description(): string
     {
-        return 'Lists the workspace’s machines (Linux servers running the ServerOS daemon). Each has its id and name (use either in other tools), environment (production, staging, development), status (online; offline: hasn’t reported for a minute; connecting: installed but not reported yet; demo: a sample machine with no daemon), IP, provider, OS, CPU %, memory used, fullest disk %, service count, group, any maintenance window, and its panel URL. '
+        return 'Lists the workspace’s machines (Linux servers running the ServerOS daemon). Each has its id and name (use either in other tools), environment (production, staging, development), status (online; offline: hasn’t reported for a minute; connecting: installed but not reported yet; demo: a sample machine with no daemon), IP, provider, OS, CPU %, memory used and fullest disk % (null unless it’s reporting now; lastReading has what it last reported and when), service count, group, any maintenance window, and its panel URL. '
             .'Filter with environment, status ("maintenance" means in a maintenance window now), group (a group’s id or name, or "none" for machines in no group), provider, region, tier, label ("key=value", or just "key" for any value) and query (part of a name, IP or provider). Sorted by name, or by cpu, memory or disk (busiest first). Up to limit machines (default 50) from offset; "more" says whether there are others. get_machine gives one machine in full.';
     }
 
@@ -103,9 +103,9 @@ final class ListMachines extends Tool
                 ->contains(fn ($value) => str_contains(mb_strtolower((string) $value), $search)));
 
         $machines = match ($data['sort'] ?? 'name') {
-            'cpu' => $machines->sortByDesc(fn (Machine $m) => $m->cpu_percent ?? -1),
-            'memory' => $machines->sortByDesc(fn (Machine $m) => $m->memory_used_mb ?? -1),
-            'disk' => $machines->sortByDesc(fn (Machine $m) => $m->disk_percent ?? -1),
+            'cpu' => $machines->sortByDesc(fn (Machine $m) => $m->isReporting() ? $m->cpu_percent ?? -1 : -1),
+            'memory' => $machines->sortByDesc(fn (Machine $m) => $m->isReporting() ? $m->memory_used_mb ?? -1 : -1),
+            'disk' => $machines->sortByDesc(fn (Machine $m) => $m->isReporting() ? $m->fullestDisk() ?? -1 : -1),
             default => $machines->sortBy(fn (Machine $m) => mb_strtolower($m->name), SORT_NATURAL),
         };
 

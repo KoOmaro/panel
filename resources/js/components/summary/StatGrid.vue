@@ -4,6 +4,7 @@ export type Stat = {
     value: string | number;
     unit?: string;
     title?: string;
+    tone?: string;
 };
 
 const { stats } = defineProps<{ stats: [Stat, Stat, Stat, Stat] }>();
@@ -35,7 +36,8 @@ const { stats } = defineProps<{ stats: [Stat, Stat, Stat, Stat] }>();
                 </dt>
                 <dd class="flex items-baseline gap-1 whitespace-nowrap">
                     <span
-                        class="text-[18px]/6 font-medium tracking-[-0.02em] text-fg-primary tabular-nums"
+                        class="text-[18px]/6 font-medium tracking-[-0.02em] tabular-nums"
+                        :class="stat.tone ?? 'text-fg-primary'"
                         >{{ stat.value }}</span
                     >
                     <span

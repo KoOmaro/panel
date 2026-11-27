@@ -6,6 +6,7 @@ import { computed, ref } from 'vue';
 import BrandLogo from '@/components/dash/BrandLogo.vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import EmptyArt from '@/components/dash/EmptyArt.vue';
 import CodeLines from '@/components/code/CodeLines.vue';
 import { copyText } from '@/components/code/yaml';
@@ -70,6 +71,13 @@ const stackLabel = computed(
     () => stacks.find((entry) => entry.key === stack.value)?.label ?? '',
 );
 const repoName = computed(() => props.source?.repo ?? null);
+const promptTitle = computed(() =>
+    mode.value === 'manual'
+        ? 'serveros.yml'
+        : stackLabel.value
+          ? trans(':stack guide', { stack: stackLabel.value })
+          : trans('Agent prompt'),
+);
 
 const guide = computed<string[]>(() => {
     if (!props.project) return [];
@@ -311,7 +319,7 @@ function copyFile(): void {
                         }}
                     </p>
                     <div
-                        class="mt-2 grid grid-cols-3 gap-2 md:grid-cols-6"
+                        class="mt-3.5 grid grid-cols-3 gap-2 md:grid-cols-6"
                         role="radiogroup"
                         :aria-label="$t('Stack')"
                     >
@@ -403,36 +411,25 @@ function copyFile(): void {
                         }}
                     </p>
 
-                    <div
-                        class="mt-2 flex flex-col rounded-xl border-[0.5px] border-edge-card bg-surface-card px-[5px] pb-[5px] shadow-card"
+                    <DashTray
+                        class="mt-3.5"
+                        :icon="mode === 'agent' ? 'layers-fill' : 'file-fill'"
+                        :title="promptTitle"
+                        panel-class="px-[5px] pt-3 pb-[5px]"
                     >
-                        <div
-                            class="flex items-center gap-2 py-[7px] pr-[3px] pl-[11px]"
-                        >
-                            <BrandLogo
-                                v-if="mode === 'agent' && stack"
-                                :name="stack"
-                                :size="14"
-                            />
-                            <FilledIcon
-                                v-else
-                                name="file-fill"
-                                :size="14"
-                                class="text-fg-muted"
-                            />
+                        <template #title>
                             <span
-                                class="font-ui-mono text-[12px]/4 text-fg-secondary"
-                                >{{
-                                    mode === 'agent'
-                                        ? stackLabel
-                                            ? $t(':stack guide', {
-                                                  stack: stackLabel,
-                                              })
-                                            : $t('Agent prompt')
-                                        : 'serveros.yml'
-                                }}</span
+                                class="inline-flex items-center gap-[9px] align-top font-ui-mono text-[12px]/5 font-normal tracking-normal text-fg-secondary"
                             >
-                            <span class="grow" />
+                                <BrandLogo
+                                    v-if="mode === 'agent' && stack"
+                                    :name="stack"
+                                    :size="14"
+                                />
+                                {{ promptTitle }}
+                            </span>
+                        </template>
+                        <template #actions>
                             <DashButton
                                 v-if="mode === 'agent'"
                                 variant="primary"
@@ -447,7 +444,7 @@ function copyFile(): void {
                                 :label="$t('Copy file')"
                                 @click="copyFile"
                             />
-                        </div>
+                        </template>
 
                         <div
                             v-if="mode === 'agent'"
@@ -507,7 +504,7 @@ function copyFile(): void {
                         >
                             <CodeLines :lines="project.file" />
                         </div>
-                    </div>
+                    </DashTray>
                 </div>
             </section>
 

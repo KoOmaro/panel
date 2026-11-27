@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import { computed } from 'vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import GaugeDial from '@/components/dash/GaugeDial.vue';
 import CardLine from '@/components/summary/CardLine.vue';
 import type { CardLineState } from '@/components/summary/CardLine.vue';
 import SeverityRing from '@/components/summary/SeverityRing.vue';
 import StatGrid from '@/components/summary/StatGrid.vue';
-import SummaryCard from '@/components/summary/SummaryCard.vue';
 import { severityColour, severityLabel, shortAgo } from './updates';
 import type { RolloutDetail, SecuritySummary, UpdatesSummary } from './updates';
 
@@ -176,13 +176,17 @@ const rolloutNote = computed(() => {
 
 <template>
     <div
-        class="grid grid-cols-1 gap-3 px-5 pt-3.5 pb-1 md:grid-cols-2 xl:flex xl:items-stretch xl:[&>*]:min-h-[195px]"
+        class="grid grid-cols-1 gap-3 px-5 pt-3.5 pb-1 md:grid-cols-2 xl:flex xl:items-stretch xl:[&>*]:min-h-[214px]"
     >
-        <SummaryCard
+        <DashTray
+            icon="update-fill"
             :title="$t('Updates')"
-            :note="checkedNote"
             class="shrink-0 md:col-span-2 xl:w-[480px]"
+            panel-class="px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{ checkedNote }}</span>
+            </template>
             <div class="flex items-center gap-[18px]">
                 <GaugeDial
                     :value="share(summary.machines, summary.total)"
@@ -198,13 +202,17 @@ const rolloutNote = computed(() => {
                 />
                 <StatGrid :stats="[...stats]" class="max-sm:hidden" />
             </div>
-        </SummaryCard>
+        </DashTray>
 
-        <SummaryCard
+        <DashTray
+            icon="lock-fill"
             :title="$t('Security')"
-            :note="securityNote"
             class="min-w-0 flex-1"
+            panel-class="gap-2.5 px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{ securityNote }}</span>
+            </template>
             <div
                 v-for="level in levels"
                 :key="level.severity"
@@ -228,18 +236,26 @@ const rolloutNote = computed(() => {
                     </span>
                 </span>
             </div>
-        </SummaryCard>
+        </DashTray>
 
-        <SummaryCard
+        <DashTray
             v-if="rollout"
-            as="button"
-            type="button"
+            icon="lock-fill"
             :title="rollout.name"
-            :note="rolloutNote"
-            class="min-w-0 flex-1 cursor-pointer transition-colors hover:border-edge-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
-            :aria-label="$t('Open the :name rollout', { name: rollout.name })"
-            @click="$emit('openRollout', rollout.id)"
+            class="relative min-w-0 flex-1 transition-colors hover:border-edge-control"
+            panel-class="gap-2.5 px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{ rolloutNote }}</span>
+            </template>
+            <button
+                type="button"
+                class="absolute inset-0 cursor-pointer rounded-[14px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
+                :aria-label="
+                    $t('Open the :name rollout', { name: rollout.name })
+                "
+                @click="$emit('openRollout', rollout.id)"
+            />
             <CardLine
                 v-for="line in lines"
                 :key="line.key"
@@ -247,13 +263,17 @@ const rolloutNote = computed(() => {
                 :label="line.label"
                 :value="line.value"
             />
-        </SummaryCard>
-        <SummaryCard
+        </DashTray>
+        <DashTray
             v-else
+            icon="lock-fill"
             :title="$t('Rollouts')"
-            :note="$t('none yet')"
             class="min-w-0 flex-1"
+            panel-class="px-[18px] py-3"
         >
+            <template #meta>
+                <span class="text-fg-tertiary">{{ $t('none yet') }}</span>
+            </template>
             <p class="text-[13px]/5 text-pretty text-fg-tertiary">
                 {{
                     $t(
@@ -261,6 +281,6 @@ const rolloutNote = computed(() => {
                     )
                 }}
             </p>
-        </SummaryCard>
+        </DashTray>
     </div>
 </template>

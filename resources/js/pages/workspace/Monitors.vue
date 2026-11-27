@@ -1,13 +1,6 @@
 <script setup lang="ts">
 import { Head, router, usePage } from '@inertiajs/vue3';
-import {
-    CirclePause,
-    CircleX,
-    Ellipsis,
-    LoaderCircle,
-    Lock,
-    Plus,
-} from '@lucide/vue';
+import { CirclePause, CircleX, Ellipsis, Lock, Plus } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import BrandLogo from '@/components/dash/BrandLogo.vue';
@@ -18,6 +11,7 @@ import DashTable from '@/components/dash/DashTable.vue';
 import DashTd from '@/components/dash/DashTd.vue';
 import DashTh from '@/components/dash/DashTh.vue';
 import DashTr from '@/components/dash/DashTr.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import FilterPills from '@/components/dash/FilterPills.vue';
 import GaugeDial from '@/components/dash/GaugeDial.vue';
 import SearchWell from '@/components/dash/SearchWell.vue';
@@ -49,6 +43,9 @@ import type {
 } from '@/components/monitors/monitors';
 import IncidentDialog from '@/components/status/IncidentDialog.vue';
 import type { Incident } from '@/components/status/IncidentDialog.vue';
+import CardLine from '@/components/summary/CardLine.vue';
+import StatGrid from '@/components/summary/StatGrid.vue';
+import type { Stat } from '@/components/summary/StatGrid.vue';
 import {
     Dialog,
     DialogContent,
@@ -209,6 +206,18 @@ const responseAverage = computed(() => {
 const openIncidents = computed(
     () => props.incidents.filter((i) => !i.resolvedAt).length,
 );
+
+const stats = computed<[Stat, Stat, Stat, Stat]>(() => [
+    { label: trans('Monitors'), value: counts.value.all },
+    {
+        label: trans('Down'),
+        value: counts.value.down,
+        unit: counts.value.down ? trans('now') : undefined,
+        tone: counts.value.down ? 'text-status-down' : undefined,
+    },
+    { label: trans('Paused'), value: counts.value.paused },
+    { label: trans('Incidents'), value: openIncidents.value },
+]);
 
 type Look = {
     key: string;
@@ -573,22 +582,19 @@ onBeforeUnmount(() => {
 
             <template v-else>
                 <div
-                    class="grid grid-cols-1 gap-3 px-5 pt-3.5 pb-1 md:grid-cols-2 xl:grid-cols-[480px_minmax(0,1fr)_minmax(0,1fr)]"
+                    class="grid grid-cols-1 gap-3 px-5 pt-3.5 pb-1 md:grid-cols-2 xl:grid-cols-[480px_minmax(0,1fr)_minmax(0,1fr)] xl:[&>*]:min-h-[214px]"
                 >
-                    <section
-                        class="dash-card flex flex-col gap-2.5 overflow-hidden px-[18px] py-3 md:col-span-2 xl:col-span-1"
-                        :aria-label="$t('Uptime')"
+                    <DashTray
+                        icon="monitors-fill"
+                        :title="$t('Uptime')"
+                        class="md:col-span-2 xl:col-span-1"
+                        panel-class="px-[18px] py-3"
                     >
-                        <h2 class="flex items-center gap-2 text-[14px]/5">
-                            <span
-                                class="font-medium tracking-[-0.01em] text-fg-primary"
-                                >{{ $t('Uptime') }}</span
-                            >
-                            <span
-                                class="text-[13px] tracking-[-0.005em] text-fg-tertiary"
-                                >{{ $t('last 30 days') }}</span
-                            >
-                        </h2>
+                        <template #meta>
+                            <span class="text-fg-tertiary">{{
+                                $t('last 30 days')
+                            }}</span>
+                        </template>
                         <div class="flex items-center gap-[18px]">
                             <GaugeDial
                                 :value="uptime ?? 0"
@@ -615,105 +621,24 @@ onBeforeUnmount(() => {
                                 tone="sky"
                                 class="shrink-0 max-sm:hidden"
                             />
-                            <dl class="flex min-w-0 flex-1 flex-col">
-                                <div
-                                    class="flex border-b-[0.5px] border-edge-row pb-3"
-                                >
-                                    <div
-                                        class="flex flex-1 flex-col gap-0.5 border-r-[0.5px] border-edge-row"
-                                    >
-                                        <dt
-                                            class="text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
-                                        >
-                                            {{ $t('Monitors') }}
-                                        </dt>
-                                        <dd
-                                            class="text-[18px]/6 font-medium tracking-[-0.02em] text-fg-primary tabular-nums"
-                                        >
-                                            {{ counts.all }}
-                                        </dd>
-                                    </div>
-                                    <div
-                                        class="flex flex-1 flex-col gap-0.5 pl-3.5"
-                                    >
-                                        <dt
-                                            class="text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
-                                        >
-                                            {{ $t('Down') }}
-                                        </dt>
-                                        <dd class="flex items-baseline gap-1">
-                                            <span
-                                                class="text-[18px]/6 font-medium tracking-[-0.02em] tabular-nums"
-                                                :class="
-                                                    counts.down
-                                                        ? 'text-status-down'
-                                                        : 'text-fg-primary'
-                                                "
-                                                >{{ counts.down }}</span
-                                            >
-                                            <span
-                                                v-if="counts.down"
-                                                class="text-[12px]/4 text-fg-tertiary"
-                                                >{{ $t('now') }}</span
-                                            >
-                                        </dd>
-                                    </div>
-                                </div>
-                                <div class="flex pt-3">
-                                    <div
-                                        class="flex flex-1 flex-col gap-0.5 border-r-[0.5px] border-edge-row"
-                                    >
-                                        <dt
-                                            class="text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
-                                        >
-                                            {{ $t('Paused') }}
-                                        </dt>
-                                        <dd
-                                            class="text-[18px]/6 font-medium tracking-[-0.02em] text-fg-primary tabular-nums"
-                                        >
-                                            {{ counts.paused }}
-                                        </dd>
-                                    </div>
-                                    <div
-                                        class="flex flex-1 flex-col gap-0.5 pl-3.5"
-                                    >
-                                        <dt
-                                            class="text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
-                                        >
-                                            {{ $t('Incidents') }}
-                                        </dt>
-                                        <dd
-                                            class="text-[18px]/6 font-medium tracking-[-0.02em] text-fg-primary tabular-nums"
-                                        >
-                                            {{ openIncidents }}
-                                        </dd>
-                                    </div>
-                                </div>
-                            </dl>
+                            <StatGrid :stats="stats" />
                         </div>
-                    </section>
+                    </DashTray>
 
-                    <section
-                        class="dash-card flex flex-col gap-2.5 overflow-hidden px-[18px] py-3"
-                        :aria-label="$t('Needs a look')"
+                    <DashTray
+                        icon="info-fill"
+                        :title="$t('Needs a look')"
+                        panel-class="gap-2.5 px-[18px] py-3"
                     >
-                        <h2 class="flex items-center gap-2 text-[14px]/5">
-                            <span
-                                class="font-medium tracking-[-0.01em] text-fg-primary"
-                                >{{ $t('Needs a look') }}</span
-                            >
-                            <span
-                                v-if="needsLook.length"
-                                class="text-[13px] tracking-[-0.005em] text-fg-tertiary"
-                                >{{
-                                    needsLook.length === 1
-                                        ? $t('1 monitor')
-                                        : $t(':count monitors', {
-                                              count: String(needsLook.length),
-                                          })
-                                }}</span
-                            >
-                        </h2>
+                        <template v-if="needsLook.length" #meta>
+                            <span class="text-fg-tertiary">{{
+                                needsLook.length === 1
+                                    ? $t('1 monitor')
+                                    : $t(':count monitors', {
+                                          count: String(needsLook.length),
+                                      })
+                            }}</span>
+                        </template>
                         <p
                             v-if="needsLook.length === 0"
                             class="flex items-center gap-2.5 text-[13px]/5 text-fg-tertiary"
@@ -732,17 +657,17 @@ onBeforeUnmount(() => {
                                 <CircleX
                                     v-if="item.kind === 'down'"
                                     class="size-4 text-status-down"
-                                    :stroke-width="1.6"
+                                    :stroke-width="2"
                                 />
                                 <Lock
                                     v-else-if="item.kind === 'cert'"
                                     class="size-4 text-status-pending"
-                                    :stroke-width="1.6"
+                                    :stroke-width="2"
                                 />
                                 <CirclePause
                                     v-else
-                                    class="size-4 text-fg-muted"
-                                    :stroke-width="1.6"
+                                    class="size-4 text-status-stopped"
+                                    :stroke-width="2"
                                 />
                             </span>
                             <span class="flex min-w-0 flex-col">
@@ -764,61 +689,42 @@ onBeforeUnmount(() => {
                                 </span>
                             </span>
                         </a>
-                    </section>
+                    </DashTray>
 
-                    <section
-                        class="dash-card flex flex-col gap-2.5 overflow-hidden px-[18px] py-3"
-                        :aria-label="$t('Status page')"
+                    <DashTray
+                        icon="monitors-fill"
+                        :title="$t('Status page')"
+                        panel-class="gap-2.5 px-[18px] py-3"
                     >
-                        <h2
-                            class="flex min-w-0 items-center gap-2 text-[14px]/5"
+                        <template
+                            v-if="statusPage.url && statusPage.live"
+                            #meta
                         >
                             <a
-                                :href="statusPageHref"
-                                class="shrink-0 font-medium tracking-[-0.01em] text-fg-primary hover:underline hover:underline-offset-4"
-                                @click.prevent="router.visit(statusPageHref)"
-                                >{{ $t('Status page') }}</a
-                            >
-                            <a
-                                v-if="statusPage.url && statusPage.live"
                                 :href="statusPage.url"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                class="truncate text-[13px] tracking-[-0.005em] text-fg-tertiary hover:text-fg-secondary"
+                                class="text-fg-tertiary hover:text-fg-secondary"
                                 >{{ statusPageAddress }}</a
                             >
-                        </h2>
+                        </template>
                         <button
                             v-for="incident in recentIncidents"
                             :key="incident.id"
                             type="button"
-                            class="-mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-[6px] px-1.5 text-left text-[13px]/5 tracking-[-0.005em] hover:bg-surface-hover"
+                            class="-mx-1.5 cursor-pointer rounded-[6px] px-1.5 text-left hover:bg-surface-hover"
                             @click="showIncident(incident)"
                         >
-                            <LoaderCircle
-                                v-if="!incident.resolvedAt"
-                                class="size-4 shrink-0 animate-[spin_2.4s_linear_infinite] text-status-deploying motion-reduce:animate-none"
-                                :stroke-width="2"
-                            />
-                            <FilledIcon
-                                v-else
-                                name="check"
-                                class="text-status-live"
-                            />
-                            <span
-                                class="min-w-0 flex-1 truncate"
-                                :class="
-                                    incident.resolvedAt
-                                        ? 'text-fg-secondary'
-                                        : 'text-fg-tertiary'
+                            <CardLine
+                                as="span"
+                                :state="
+                                    incident.resolvedAt ? 'done' : 'running'
                                 "
-                                >{{ incident.title }}</span
-                            >
-                            <span
-                                v-if="incident.resolvedAt"
-                                class="shrink-0 font-ui-mono text-[12px]/4 text-fg-tertiary"
-                                >{{ $t('resolved') }}</span
-                            >
+                                :label="incident.title"
+                                :value="
+                                    incident.resolvedAt ? $t('resolved') : null
+                                "
+                            />
                         </button>
                         <p
                             v-if="!statusPage.set"
@@ -830,17 +736,15 @@ onBeforeUnmount(() => {
                                 )
                             }}
                         </p>
-                        <div
-                            class="flex items-center gap-2.5 text-[13px]/5 tracking-[-0.005em]"
+                        <a
+                            :href="statusPageHref"
+                            class="-mx-1.5 rounded-[6px] px-1.5 hover:bg-surface-hover"
+                            @click.prevent="router.visit(statusPageHref)"
                         >
-                            <FilledIcon
-                                name="activity-fill"
-                                class="text-fg-muted"
-                            />
-                            <span
-                                class="min-w-0 flex-1 truncate text-fg-secondary"
-                            >
-                                {{
+                            <CardLine
+                                as="span"
+                                state="waiting"
+                                :label="
                                     statusPage.set
                                         ? statusPage.shown === 1
                                             ? $t('1 monitor shown')
@@ -850,21 +754,13 @@ onBeforeUnmount(() => {
                                                   ),
                                               })
                                         : $t('No status page yet')
-                                }}
-                            </span>
-                            <span
-                                class="shrink-0 font-ui-mono text-[12px]/4"
-                                :class="
-                                    statusPage.live
-                                        ? 'text-fg-tertiary'
-                                        : 'text-fg-faint'
                                 "
-                                >{{
+                                :value="
                                     statusPage.live ? $t('live') : $t('off')
-                                }}</span
-                            >
-                        </div>
-                    </section>
+                                "
+                            />
+                        </a>
+                    </DashTray>
                 </div>
 
                 <div

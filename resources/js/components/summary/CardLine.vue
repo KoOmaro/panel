@@ -10,15 +10,21 @@ export type CardLineState =
     | 'skipped'
     | 'waiting';
 
-const { state, label, value } = defineProps<{
+const {
+    state,
+    label,
+    value,
+    as = 'div',
+} = defineProps<{
     state: CardLineState;
     label: string;
     value?: string | null;
+    as?: string;
 }>();
 </script>
 
 <template>
-    <div class="flex h-5 min-w-0 items-center gap-2.5">
+    <component :is="as" class="flex h-5 min-w-0 items-center gap-2.5">
         <SpinnerArc v-if="state === 'running'" />
         <Check
             v-else-if="state === 'done'"
@@ -54,5 +60,5 @@ const { state, label, value } = defineProps<{
             "
             >{{ value }}</span
         >
-    </div>
+    </component>
 </template>

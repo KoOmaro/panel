@@ -13,6 +13,7 @@ use App\Models\MaintenanceWindow;
 use App\Models\ServiceGroup;
 use App\Support\DaemonJobQueue;
 use App\Support\Deploys\ServiceLabels;
+use App\Support\Machines\MachineDisks;
 use App\Support\Machines\MachinePolicies;
 use App\Support\ScheduledTasks;
 use Illuminate\Support\Carbon;
@@ -181,44 +182,32 @@ final class MachineView
      */
     private static function usage(Machine $machine, array $facts): array
     {
+        $now = $machine->isReporting();
         $memoryTotal = self::megabytes($facts['memory_bytes'] ?? null);
-        $live = collect($machine->disks ?? [])->keyBy('mount');
-        $known = [];
-        foreach (is_array($facts['disks'] ?? null) ? $facts['disks'] : [] as $disk) {
-            if (is_array($disk) && is_string($disk['mount'] ?? null)) {
-                $known[] = [
-                    'mount' => $disk['mount'],
-                    'device' => $disk['device'] ?? null,
-                    'fsType' => $disk['fs_type'] ?? null,
-                    'total' => (int) ($disk['total_bytes'] ?? $disk['total'] ?? 0),
-                ];
-            }
-        }
-        if ($known === []) {
-            $known = $live->map(fn (array $d) => ['mount' => $d['mount'], 'device' => null, 'fsType' => null, 'total' => $d['total']])->values()->all();
-        }
+        $devices = collect(is_array($facts['disks'] ?? null) ? $facts['disks'] : [])
+            ->filter(fn ($disk) => is_array($disk) && is_string($disk['mount'] ?? null))
+            ->keyBy('mount');
+        $volumes = $machine->volumes();
+        $known = $volumes !== []
+            ? array_map(fn (array $d) => [...$d, 'device' => $devices->get($d['mount'])['device'] ?? null, 'fsType' => $devices->get($d['mount'])['fs_type'] ?? null], $volumes)
+            : array_map(fn (array $d) => ['mount' => $d['mount'], 'used' => null, 'total' => $d['total_bytes'], 'device' => $d['device'] ?: null, 'fsType' => $d['fs_type'] ?: null], MachineDisks::facts($facts));
 
-        $disks = collect($known)->take(16)->map(function (array $disk) use ($live) {
-            $now = $live->get($disk['mount']);
-            $total = $now['total'] ?? $disk['total'];
-            $used = $now === null ? null : $now['used'];
-
-            return [
-                'mount' => $disk['mount'],
-                'device' => $disk['device'],
-                'fsType' => $disk['fsType'],
-                'totalGb' => $total > 0 ? round($total / 1024 ** 3, 1) : null,
-                'usedGb' => $used === null ? null : round($used / 1024 ** 3, 1),
-                'percent' => $used !== null && $total > 0 ? min(100, (int) floor($used / $total * 100)) : null,
-            ];
-        })->values()->all();
+        $disks = collect($known)->take(16)->map(fn (array $disk) => [
+            'mount' => $disk['mount'],
+            'device' => $disk['device'],
+            'fsType' => $disk['fsType'],
+            'totalGb' => $disk['total'] > 0 ? round($disk['total'] / 1024 ** 3, 1) : null,
+            'usedGb' => $disk['used'] === null ? null : round($disk['used'] / 1024 ** 3, 1),
+            'percent' => $disk['used'] !== null && $disk['total'] > 0 ? min(100, (int) floor($disk['used'] / $disk['total'] * 100)) : null,
+        ])->values()->all();
 
         return [
-            'cpuPercent' => $machine->cpu_percent,
-            'memoryUsedMb' => $machine->memory_used_mb,
+            'readingAt' => $machine->readingAt()?->toIso8601String(),
+            'cpuPercent' => $now ? $machine->cpu_percent : null,
+            'memoryUsedMb' => $now ? $machine->memory_used_mb : null,
             'memoryTotalMb' => $memoryTotal,
-            'memoryPercent' => $memoryTotal !== null && $machine->memory_used_mb !== null ? min(100, (int) floor($machine->memory_used_mb / $memoryTotal * 100)) : null,
-            'diskPercent' => $machine->disk_percent,
+            'memoryPercent' => $now && $memoryTotal !== null && $machine->memory_used_mb !== null ? min(100, (int) floor($machine->memory_used_mb / $memoryTotal * 100)) : null,
+            'diskPercent' => $now ? $machine->fullestDisk() : null,
             'disks' => $disks,
         ];
     }

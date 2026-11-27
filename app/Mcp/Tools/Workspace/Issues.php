@@ -103,7 +103,7 @@ final class Issues
 
     private function fix(string $kind, ?Machine $machine, ?Monitor $monitor): ?string
     {
-        $disk = $machine?->disks[0] ?? null;
+        $disk = $machine?->volumes()[0] ?? null;
 
         return match ($kind) {
             'machine.maintenance' => 'Nothing to fix: alerts about it are held while the work goes on. End the maintenance early once it’s done.',

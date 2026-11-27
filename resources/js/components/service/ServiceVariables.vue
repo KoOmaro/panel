@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import DashButton from '@/components/dash/DashButton.vue';
-import HomeCard from '@/components/home/HomeCard.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import type {
     AppVariable,
     LinkedDatabase,
@@ -18,10 +18,9 @@ defineEmits<{ edit: []; config: [] }>();
 </script>
 
 <template>
-    <HomeCard
+    <DashTray
         icon="key-fill"
         :title="$t('Environment variables')"
-        heading-id="service-variables"
         class="shrink-0"
     >
         <template v-if="variables && canManage" #actions>
@@ -94,5 +93,5 @@ defineEmits<{ edit: []; config: [] }>();
                 }}
             </p>
         </div>
-    </HomeCard>
+    </DashTray>
 </template>

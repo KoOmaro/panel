@@ -134,7 +134,7 @@ test('list_machines filters, sorts and pages like the machines page', function (
         ->and(collect(mcpCall($workspace, $key, 'list_machines', ['query' => 'digital'])['data']['machines'])->pluck('name')->all())->toBe(['db-1'])
         ->and(collect(mcpCall($workspace, $key, 'list_machines', ['provider' => 'hetzner'])['data']['machines'])->pluck('name')->all())->toBe(['web-1'])
         ->and(collect(mcpCall($workspace, $key, 'list_machines', ['provider' => 'Digital'])['data']['machines'])->pluck('name')->all())->toBe([])
-        ->and(collect(mcpCall($workspace, $key, 'list_machines', ['sort' => 'cpu'])['data']['machines'])->pluck('name')->all())->toBe(['db-1', 'old-box', 'web-1']);
+        ->and(collect(mcpCall($workspace, $key, 'list_machines', ['sort' => 'cpu'])['data']['machines'])->pluck('name')->all())->toBe(['db-1', 'web-1', 'old-box']);
 
     $page = mcpCall($workspace, $key, 'list_machines', ['limit' => 2]);
     expect($page['data'])->toMatchArray(['total' => 3, 'count' => 2, 'more' => true]);
@@ -210,6 +210,29 @@ test('get_machine gives the whole picture, without secrets', function () {
         ->text->toContain('No machine');
     expect(mcpCall($workspace, $key, 'get_machine', ['machine' => 'theirs'])['error'])->toBeTrue()
         ->and(mcpCall($workspace, $key, 'get_machine', ['machine' => ['x']])['text'])->toContain('Invalid arguments');
+});
+
+test('get_machine and list_machines give an offline machine’s readings only as its last reading, with each disk once', function () {
+    [$workspace, $machine, $key] = machineToolsSetup();
+    $mounts = ['/etc/resolv.conf', '/etc/hostname', '/etc/hosts', '/var/lib/docker'];
+    $machine->forceFill([
+        'last_seen_at' => now()->subDays(30),
+        'cpu_percent' => 66,
+        'memory_used_mb' => 3431,
+        'disk_percent' => 9,
+        'disks' => array_map(fn (string $mount) => ['mount' => $mount, 'used' => 40 << 30, 'total' => 429 << 30], $mounts),
+        'facts' => ['memory_bytes' => 8 << 30, 'disks' => array_map(fn (string $mount) => ['mount' => $mount, 'device' => '/dev/vda1', 'fs_type' => 'ext4', 'total_bytes' => 452 << 30], $mounts)],
+    ])->save();
+
+    $data = mcpCall($workspace, $key, 'get_machine', ['machine' => 'web-1'])['data'];
+    expect($data)->toMatchArray(['status' => 'offline', 'cpuPercent' => null, 'memoryUsedMb' => null, 'diskPercent' => null])
+        ->and($data['lastReading'])->toBe(['at' => $machine->last_seen_at->toIso8601String(), 'cpuPercent' => 66, 'memoryUsedMb' => 3431, 'diskPercent' => 9])
+        ->and($data['usage'])->toMatchArray(['readingAt' => $machine->last_seen_at->toIso8601String(), 'cpuPercent' => null, 'memoryUsedMb' => null, 'memoryPercent' => null, 'diskPercent' => null])
+        ->and($data['usage']['disks'])->toEqual([['mount' => '/var/lib/docker', 'device' => '/dev/vda1', 'fsType' => 'ext4', 'totalGb' => 429, 'usedGb' => 40, 'percent' => 9]]);
+
+    $row = mcpCall($workspace, $key, 'list_machines')['data']['machines'][0];
+    expect($row)->toMatchArray(['name' => 'web-1', 'cpuPercent' => null, 'memoryUsedMb' => null])
+        ->and($row['lastReading']['cpuPercent'])->toBe(66);
 });
 
 test('update_machine renames and moves environments like settings, recorded via MCP', function () {

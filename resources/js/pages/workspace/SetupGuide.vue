@@ -5,6 +5,7 @@ import { computed, ref, useTemplateRef } from 'vue';
 import BrandLogo from '@/components/dash/BrandLogo.vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTray from '@/components/dash/DashTray.vue';
 import EmptyArt from '@/components/dash/EmptyArt.vue';
 import MachineConnector from '@/components/home/MachineConnector.vue';
 import RailRow from '@/components/home/RailRow.vue';
@@ -15,6 +16,7 @@ import type {
     SetupStepState,
 } from '@/components/home/SetupStep.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import McpDialog from '@/components/workspace/McpDialog.vue';
 import { useAssistant } from '@/composables/useAssistant';
 import { toast } from '@/lib/toast';
@@ -70,6 +72,13 @@ const complete = computed(
 const nextKey = computed(
     () => steps.value.find((step) => !step.done && !step.locked)?.key ?? null,
 );
+
+const groupIcons: Record<string, FilledIconName> = {
+    connect: 'machines-fill',
+    safe: 'monitors-fill',
+    team: 'user-fill',
+    plan: 'file-fill',
+};
 
 const numbers = computed(
     () => new Map(steps.value.map((step, index) => [step.key, index + 1])),
@@ -234,38 +243,32 @@ const machinesHref = computed(
                 </div>
             </div>
 
-            <section
+            <DashTray
                 v-for="group in guide.groups"
                 :key="group.key"
-                class="dash-card"
-                :aria-labelledby="`setup-group-${group.key}`"
+                :icon="groupIcons[group.key] ?? 'setup-fill'"
+                :title="group.title"
+                panel-class="pt-3"
             >
-                <div class="flex items-center gap-2 px-[18px] py-3">
-                    <h2
-                        :id="`setup-group-${group.key}`"
-                        class="truncate text-[14px]/5 font-medium text-fg-primary"
-                    >
-                        {{ group.title }}
-                    </h2>
+                <template #meta>
+                    <span class="text-fg-tertiary tabular-nums">{{
+                        $t(':done of :total', {
+                            done: String(
+                                group.steps.filter((step) => step.done).length,
+                            ),
+                            total: String(group.steps.length),
+                        })
+                    }}</span>
+                </template>
+                <template
+                    v-if="group.steps.every((step) => step.done)"
+                    #actions
+                >
                     <span
-                        class="shrink-0 text-[13px]/5 text-fg-tertiary tabular-nums"
-                    >
-                        {{
-                            $t(':done of :total', {
-                                done: String(
-                                    group.steps.filter((step) => step.done)
-                                        .length,
-                                ),
-                                total: String(group.steps.length),
-                            })
-                        }}
-                    </span>
-                    <span
-                        v-if="group.steps.every((step) => step.done)"
-                        class="ml-auto text-[12px]/4 font-medium text-status-live"
+                        class="shrink-0 text-[12px]/4 font-medium text-status-live"
                         >{{ $t('Done') }}</span
                     >
-                </div>
+                </template>
                 <SetupStep
                     v-for="step in group.steps"
                     :key="step.key"
@@ -322,7 +325,7 @@ const machinesHref = computed(
                         />
                     </template>
                 </SetupStep>
-            </section>
+            </DashTray>
         </div>
 
         <aside

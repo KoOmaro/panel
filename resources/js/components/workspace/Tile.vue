@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { Component } from 'vue';
 import { inject, useId } from 'vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import SettingsSection from '@/components/workspace/settings/SettingsSection.vue';
 import { SETTINGS_SECTIONS } from '@/components/workspace/settings/sections';
 
 type Props = {
     title?: string;
     description?: string;
-    icon?: Component;
+    icon?: Component | FilledIconName;
     danger?: boolean;
     padded?: boolean;
     wide?: boolean;
@@ -28,6 +30,7 @@ const sectioned = inject(SETTINGS_SECTIONS, false);
         v-if="sectioned"
         :title="title"
         :description="description"
+        :icon="icon"
         :danger="danger"
         :padded="padded"
         :wide="wide"
@@ -54,7 +57,12 @@ const sectioned = inject(SETTINGS_SECTIONS, false);
                 class="ds-tile-head flex min-h-12 flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-2.5"
             >
                 <span v-if="icon" class="ds-icon-chip" aria-hidden="true">
-                    <component :is="icon" :stroke-width="1.75" />
+                    <FilledIcon
+                        v-if="typeof icon === 'string'"
+                        :name="icon"
+                        :size="15"
+                    />
+                    <component :is="icon" v-else :stroke-width="1.75" />
                 </span>
                 <slot name="head">
                     <div class="flex min-w-0 grow basis-48 flex-col">
