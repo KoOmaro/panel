@@ -13,7 +13,6 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import crumbSwitch from '@/components/dash/assets/crumb-switch.svg?raw';
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue';
 import { usePinnedWorkspaces } from '@/composables/usePinnedWorkspaces';
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch';
@@ -112,17 +111,10 @@ const icon = 'size-4 shrink-0 text-(--ds-text-muted)';
                             workspaceInitial(shown.name)
                         }}</template>
                     </span>
-                    <span class="flex min-w-0 items-center gap-[5px]">
-                        <span
-                            class="truncate text-[13px]/5 font-medium tracking-[-0.01em] text-fg-secondary transition-colors group-hover:text-fg-primary group-data-[state=open]:text-fg-primary"
-                        >
-                            {{ switchingTo ? $t('Switching…') : shown.name }}
-                        </span>
-                        <span
-                            class="flex h-3 w-2 shrink-0 text-fg-faint transition-colors group-hover:text-fg-muted"
-                            aria-hidden="true"
-                            v-html="crumbSwitch"
-                        />
+                    <span
+                        class="truncate text-[13px]/5 font-medium tracking-[-0.01em] text-fg-secondary transition-colors group-hover:text-fg-primary group-data-[state=open]:text-fg-primary"
+                    >
+                        {{ switchingTo ? $t('Switching…') : shown.name }}
                     </span>
                 </button>
             </DropdownMenuTrigger>
