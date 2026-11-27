@@ -99,10 +99,12 @@ test('what the panel can’t connect yet is never connected and opens the not av
 
     $items = integrationsByKey($workspace);
 
-    foreach (['gitlab', 'sentry', 'linear', 'teams', 'hetzner', 'digitalocean', 'aws', 'synteq', 'ovhcloud', 'vultr', 'proxmox', 'tailscale', 'n8n', 'grafana', 'cloudflare'] as $key) {
+    foreach (['gitlab', 'sentry', 'linear', 'teams', 'digitalocean', 'aws', 'synteq', 'ovhcloud', 'vultr', 'proxmox', 'tailscale', 'n8n', 'grafana', 'cloudflare'] as $key) {
         expect($items[$key]['connected'])->toBeFalse($key)
             ->and($items[$key]['action'])->toBe(['label' => 'Connect', 'unavailable' => true], $key);
     }
+    expect($items['hetzner']['connected'])->toBeFalse()
+        ->and($items['hetzner']['action'])->toBe(['label' => 'Connect', 'connect' => 'hetzner']);
 });
 
 test('GitHub is connected from the workspace’s real installations, and connects through the GitHub App when it is set up', function () {
@@ -295,10 +297,10 @@ test('the Integrations card shows on Home once for people who can connect, until
     $home($member)->assertInertia(fn (Assert $page) => $page->where('integrationsPromo', false));
 });
 
-test('Integrations sits in the main sidebar under Activity', function () {
+test('Integrations sits in the main sidebar under Activity, and stays lit on an account page', function () {
     $nav = (string) file_get_contents(resource_path('js/components/workspace/workspaceNav.ts'));
 
-    expect($nav)->toMatch("/key: 'activity',.*?key: 'integrations',\s+label: trans\('Integrations'\),\s+icon: 'package-fill',\s+href: url\(onWorkspace\(integrations\(slug\)\)\),\s+section: 'menu',\s+current: is\(component, 'workspace\/Integrations'\)/s")
+    expect($nav)->toMatch("/key: 'activity',.*?key: 'integrations',\s+label: trans\('Integrations'\),\s+icon: 'package-fill',\s+href: url\(onWorkspace\(integrations\(slug\)\)\),\s+section: 'menu',\s+current: is\(\s*component,\s*'workspace\/Integrations',\s*'workspace\/IntegrationShow',\s*\)/s")
         ->and(route('workspace.integrations', ['workspace' => 'acme'], false))->toEndWith('/acme/integrations');
 });
 

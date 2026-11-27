@@ -46,7 +46,7 @@ final class IntegrationCatalogue
             $entry('pagerduty', 'PagerDuty', 'communication', 'pagerduty', self::t('Escalate critical incidents to whoever is on call.'), ['Incidents', 'On call']),
             $entry('teams', 'Microsoft Teams', 'communication', null, self::t('Alerts and approvals in Teams, for MSPs and larger teams.'), ['Alerts', 'Approvals'], 'MT'),
 
-            $entry('hetzner', 'Hetzner', 'cloud', 'hetzner', self::t('Make new servers and import the ones you have.'), ['Machines']),
+            $entry('hetzner', 'Hetzner', 'cloud', 'hetzner', self::t('Make, import and resize servers, restart them and take snapshots.'), ['Machines', 'Snapshots']),
             $entry('digitalocean', 'DigitalOcean', 'cloud', 'digitalocean', self::t('Manage droplets and snapshots.'), ['Machines', 'Snapshots']),
             $entry('aws', 'AWS', 'cloud', 'aws', self::t('Find and make EC2 instances.'), ['Machines']),
             $entry('synteq', 'Synteq', 'cloud', 'synteq', self::t('Make servers and dedicated environments for agents.'), ['Machines', 'Agents']),
