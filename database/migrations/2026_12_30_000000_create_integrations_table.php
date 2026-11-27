@@ -2,12 +2,21 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
+        // Databases older than this repo can have an unused, user-level integrations table: replace it only while it's empty.
+        if (Schema::hasTable('integrations') && ! Schema::hasColumn('integrations', 'workspace_id')) {
+            if (DB::table('integrations')->exists()) {
+                throw new RuntimeException('An older integrations table has rows. Move them out before migrating.');
+            }
+            Schema::drop('integrations');
+        }
+
         Schema::create('integrations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
