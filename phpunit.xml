@@ -45,6 +45,8 @@
         <!-- The suite runs as the cloud edition; the self-hosted tests switch to it themselves. -->
         <env name="SERVEROS_EDITION" value="cloud"/>
         <env name="SERVEROS_COMING_SOON" value="false"/>
+        <!-- The handoff test turns this on. A local .env must not send every welcome test to the site. -->
+        <env name="SERVEROS_SITE_ONBOARDING" value="false"/>
         <env name="SERVEROS_ADMIN_EMAILS" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

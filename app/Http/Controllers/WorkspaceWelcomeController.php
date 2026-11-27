@@ -38,11 +38,21 @@ class WorkspaceWelcomeController extends Controller
             return to_route('workspace.home', ['workspace' => $workspace->slug]);
         }
 
+        return Inertia::render('welcome/Welcome', $this->props($request, $workspace));
+    }
+
+    /**
+     * What the welcome steps show. The site's onboarding reads the same payload.
+     *
+     * @return array<string, mixed>
+     */
+    public function props(Request $request, Workspace $workspace): array
+    {
         $answers = $workspace->welcome ?? [];
         $policy = MachinePolicies::defaultFor($workspace);
         $currency = Currency::forWorkspace($workspace, $request);
 
-        return Inertia::render('welcome/Welcome', [
+        return [
             'workspace' => $workspace->toPageProps(),
             'answers' => [
                 'segment' => $answers['segment'] ?? null,
@@ -69,7 +79,7 @@ class WorkspaceWelcomeController extends Controller
             'canConnect' => (bool) config('daemon.install_ready'),
             'apiUrl' => rtrim((string) config('app.url'), '/').'/api/v1/machines',
             'choosePlan' => ! Edition::selfHosted(),
-        ]);
+        ];
     }
 
     #[NotAudited('Answers to the welcome questions, kept on the workspace')]
