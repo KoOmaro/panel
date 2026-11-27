@@ -1,33 +1,34 @@
 <script setup lang="ts">
-import { themeColour } from '@/lib/themeColour';
-import { workspacePath } from '@/lib/workspaceRoute';
-import { trans } from 'laravel-vue-i18n';
-import { Head, router, usePage } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { Ellipsis } from '@lucide/vue';
-import {
-    SolarBellOff as BellOff,
-    SolarPause as Pause,
-    SolarPencil as Pencil,
-    SolarPlay as Play,
-    SolarRefreshCw as RefreshCw,
-    SolarTrash2 as Trash2,
-} from '@/lib/solarIcons';
-import MaintenanceBanner from '@/components/maintenance/MaintenanceBanner.vue';
+import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import TimeSeriesChart from '@/components/machines/TimeSeriesChart.vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import MonitorCard from '@/components/monitors/MonitorCard.vue';
 import MonitorDialog from '@/components/monitors/MonitorDialog.vue';
+import ResponseChart from '@/components/monitors/ResponseChart.vue';
+import UptimeDays from '@/components/monitors/UptimeDays.vue';
 import {
-    ago,
-    dayTone,
+    address,
+    cadence,
+    clock,
+    dayAndTime,
     daysUntil,
-    duration,
-    every,
     ms,
     percent,
-    span,
-    statusLook,
+    roughly,
+    spelled,
 } from '@/components/monitors/monitors';
-import type { MachineOption, Monitor } from '@/components/monitors/monitors';
+import type {
+    MachineOption,
+    Monitor,
+    MonitorChart,
+    MonitorCheckRow,
+    MonitorDay,
+    MonitorIncidentRow,
+    OutageTone,
+} from '@/components/monitors/monitors';
 import {
     Dialog,
     DialogContent,
@@ -38,46 +39,33 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import AppButton from '@/components/workspace/AppButton.vue';
-import DangerButton from '@/components/workspace/DangerButton.vue';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
+import { onWorkspace } from '@/lib/workspaceRoute';
+import agentsRoutes from '@/routes/workspace/agents';
+import machinesRoutes from '@/routes/workspace/machines';
+import monitorsRoutes from '@/routes/workspace/monitors';
 import type { Workspace, WorkspaceAccess } from '@/types';
+
+type Range = '24h' | '7d';
 
 const props = defineProps<{
     workspace: Workspace;
     monitor: Monitor;
     machines: MachineOption[];
     minInterval: number;
-    range: '24h' | '7d';
-    chart: {
-        timestamps: number[];
-        response: (number | null)[];
-        failed: number[];
+    range: Range;
+    figures: {
+        uptime30: number | null;
+        uptime90: number | null;
+        averageMs: number | null;
+        lastIncident: { startedAt: string; resolvedAt: string | null } | null;
     };
-    uptime: {
-        day: number | null;
-        week: number | null;
-        month: number | null;
-        quarter: number | null;
-    };
-    days: { day: string; percent: number | null }[];
-    incidents: {
-        id: number;
-        startedAt: string;
-        resolvedAt: string | null;
-        cause: string;
-        seconds: number;
-    }[];
-    checks: {
-        id: number;
-        at: string;
-        ok: boolean;
-        ms: number | null;
-        code: number | null;
-        error: string | null;
-    }[];
+    chart: MonitorChart;
+    days: MonitorDay[];
+    incidents: { count: number; list: MonitorIncidentRow[] };
+    checks: MonitorCheckRow[];
 }>();
 
 const page = usePage<{
@@ -91,12 +79,13 @@ const canManage = computed(
         false,
 );
 
-const look = computed(() => statusLook[props.monitor.status]);
-const machine = computed(
-    () => props.machines.find((m) => m.id === props.monitor.machineId) ?? null,
-);
-
 const now = ref(Date.now());
+const busy = ref<'check' | 'pause' | null>(null);
+const editing = ref(false);
+const removing = ref(false);
+const allIncidents = ref(false);
+const range = ref<Range>(props.range);
+
 let tick: ReturnType<typeof setInterval> | undefined;
 let reload: ReturnType<typeof setInterval> | undefined;
 
@@ -114,611 +103,542 @@ onBeforeUnmount(() => {
     clearInterval(reload);
 });
 
-const statusLine = computed(() => {
+const route = computed(() => ({
+    workspace: props.workspace.slug,
+    monitor: props.monitor.id,
+}));
+
+const monitorsUrl = computed(
+    () => onWorkspace(monitorsRoutes.index(props.workspace.slug)).url,
+);
+
+const machine = computed(
+    () => props.machines.find((m) => m.id === props.monitor.machineId) ?? null,
+);
+
+const machineUrl = computed(() =>
+    machine.value
+        ? onWorkspace(
+              machinesRoutes.show({
+                  workspace: props.workspace.slug,
+                  machine: machine.value.id,
+              }),
+          ).url
+        : null,
+);
+
+const agentUrl = computed(
+    () =>
+        onWorkspace(
+            agentsRoutes.index(props.workspace.slug, {
+                query: { from: `monitor:${props.monitor.id}` },
+            }),
+        ).url,
+);
+
+const dot = computed(
+    () =>
+        ({
+            up: 'bg-status-live',
+            down: 'bg-status-down',
+            pending: 'bg-fg-faint',
+            paused: 'bg-fg-faint',
+        })[props.monitor.status],
+);
+
+const status = computed(() => {
     const m = props.monitor;
-    if (m.status === 'paused') return trans('Paused');
-    if (m.status === 'pending')
+    if (m.status === 'paused') {
+        return { text: trans('Paused'), tone: 'text-fg-muted' };
+    }
+    if (m.status === 'pending') {
         return m.error
-            ? trans('Failing: :error', { error: String(m.error) })
-            : trans('Waiting for the first check');
-    if (!m.since) return look.value.label;
-
-    return `${look.value.label} for ${span(m.since, now.value)}`;
-});
-
-const certificate = computed(() => {
-    const days = daysUntil(props.monitor.sslExpiresAt, now.value);
-    if (days === null) return null;
+            ? {
+                  text: trans('Failing: :error', { error: String(m.error) }),
+                  tone: 'text-status-pending',
+              }
+            : {
+                  text: trans('Waiting for the first check'),
+                  tone: 'text-fg-muted',
+              };
+    }
+    const up = m.status === 'up';
+    const tone = up ? 'text-status-live' : 'text-status-down';
+    if (!m.since) return { text: up ? trans('Up') : trans('Down'), tone };
+    const seconds = (now.value - new Date(m.since).getTime()) / 1000;
 
     return {
-        days,
-        date: new Date(props.monitor.sslExpiresAt!).toLocaleDateString(
-            undefined,
-            { day: 'numeric', month: 'short', year: 'numeric' },
-        ),
-        tone:
-            days < 7 ? 'text-(--ds-red)' : days < 14 ? 'text-(--ds-amber)' : '',
+        text: up
+            ? trans('Up for :time', { time: roughly(m.since, now.value) })
+            : trans('Down for :time', { time: spelled(seconds) }),
+        tone,
     };
 });
 
-const averageMs = computed(() => {
-    const values = props.chart.response.filter((v): v is number => v !== null);
+const mutedUntil = computed(() =>
+    props.monitor.mutedUntil
+        ? dayAndTime(props.monitor.mutedUntil, now.value)
+        : null,
+);
 
-    return values.length
-        ? Math.round(values.reduce((a, b) => a + b, 0) / values.length)
-        : null;
+type Figure = { value: string; label: string; tone?: string };
+
+const tiles = computed<Figure[]>(() => {
+    const m = props.monitor;
+    const f = props.figures;
+    const list: Figure[] = [
+        { value: percent(f.uptime30), label: trans('Uptime, 30 days') },
+        { value: ms(f.averageMs), label: trans('Average response, 24 hours') },
+    ];
+
+    if (!f.lastIncident) {
+        list.push({ value: trans('None'), label: trans('Incidents so far') });
+    } else if (!f.lastIncident.resolvedAt) {
+        list.push({
+            value: roughly(f.lastIncident.startedAt, now.value),
+            label: trans('Into the current incident'),
+            tone: 'text-status-down',
+        });
+    } else {
+        list.push({
+            value: roughly(f.lastIncident.resolvedAt, now.value),
+            label: trans('Since the last incident'),
+        });
+    }
+
+    const https =
+        m.type === 'http' && (m.url ?? '').toLowerCase().startsWith('https');
+    if (https) {
+        const days = daysUntil(m.sslExpiresAt, now.value);
+        list.push({
+            value:
+                days === null
+                    ? '–'
+                    : days < 0
+                      ? trans('Expired')
+                      : trans(days === 1 ? '1 day' : ':count days', {
+                            count: String(days),
+                        }),
+            label: trans('Until the certificate expires'),
+            tone:
+                days === null
+                    ? undefined
+                    : days < 7
+                      ? 'text-status-down'
+                      : days < 14
+                        ? 'text-status-pending'
+                        : undefined,
+        });
+    } else {
+        list.push({
+            value: m.lastCheckedAt ? roughly(m.lastCheckedAt, now.value) : '–',
+            label: trans('Since the last check'),
+        });
+    }
+
+    return list;
 });
 
-const failedBuckets = computed(() => props.chart.failed.some((f) => f > 0));
+const incidentRows = computed(() =>
+    allIncidents.value
+        ? props.incidents.list
+        : props.incidents.list.slice(0, 5),
+);
 
-const busy = ref<'check' | 'pause' | null>(null);
-const editing = ref(false);
-const removing = ref(false);
+const incidentDot: Record<OutageTone, string> = {
+    none: 'bg-fg-faint',
+    up: 'bg-status-live',
+    short: 'bg-[#f5a833]',
+    long: 'bg-status-down',
+    ongoing: 'bg-status-down',
+};
+
+function incidentTitle(incident: MonitorIncidentRow): string {
+    const time = spelled(incident.seconds);
+
+    return incident.resolvedAt
+        ? trans('Down for :time', { time })
+        : trans('Down for :time so far', { time });
+}
+
+function incidentWhen(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    });
+}
+
+function setRange(value: Range): void {
+    range.value = value;
+    router.get(
+        onWorkspace(
+            monitorsRoutes.show(route.value, {
+                query: value === '24h' ? {} : { range: value },
+            }),
+        ).url,
+        {},
+        {
+            only: ['chart', 'range'],
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        },
+    );
+}
 
 function checkNow(): void {
     busy.value = 'check';
     router.post(
-        workspacePath(`/monitors/${props.monitor.id}/check`),
+        onWorkspace(monitorsRoutes.check(route.value)).url,
         {},
         { preserveScroll: true, onFinish: () => (busy.value = null) },
-    );
-}
-
-function mute(minutes: number): void {
-    router.post(
-        workspacePath(`/monitors/${props.monitor.id}/mute`),
-        { minutes },
-        { preserveScroll: true },
     );
 }
 
 function togglePause(): void {
     busy.value = 'pause';
     router.patch(
-        workspacePath(`/monitors/${props.monitor.id}/pause`),
+        onWorkspace(monitorsRoutes.pause(route.value)).url,
         { paused: !props.monitor.paused },
         { preserveScroll: true, onFinish: () => (busy.value = null) },
     );
 }
 
-function remove(): void {
-    router.delete(workspacePath(`/monitors/${props.monitor.id}`));
-}
-
-function setRange(range: '24h' | '7d'): void {
-    router.get(
-        workspacePath(`/monitors/${props.monitor.id}`),
-        range === '24h' ? {} : { range },
-        { only: ['chart', 'range'], preserveScroll: true, replace: true },
+function mute(minutes: number): void {
+    router.post(
+        onWorkspace(monitorsRoutes.mute(route.value)).url,
+        { minutes },
+        { preserveScroll: true },
     );
 }
 
-function when(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
+function unmute(): void {
+    router.delete(onWorkspace(monitorsRoutes.unmute(route.value)).url, {
+        preserveScroll: true,
     });
 }
 
-function dayLabel(day: string, value: number | null): string {
-    const date = new Date(`${day}T00:00:00`).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-    });
-
-    return value === null
-        ? trans(':date: no checks', { date: String(date) })
-        : `${date}: ${value}% up`;
+function remove(): void {
+    router.delete(onWorkspace(monitorsRoutes.destroy(route.value)).url);
 }
 
-const focusRing =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)';
+const muteOptions = [
+    { minutes: 60, label: trans('1 hour') },
+    { minutes: 240, label: trans('4 hours') },
+    { minutes: 1440, label: trans('1 day') },
+];
+
+function figureBorder(i: number): string {
+    return [
+        i < 3 ? 'xl:border-r-[0.5px]' : '',
+        i % 2 === 0 ? 'max-xl:border-r-[0.5px]' : '',
+        i < 2 ? 'max-xl:border-b-[0.5px]' : '',
+    ].join(' ');
+}
 </script>
 
 <template>
     <Head :title="monitor.name" />
 
-    <WorkspacePage :title="monitor.name">
-        <template #title>
-            <span class="flex min-w-0 items-center gap-3">
-                <span
-                    class="relative flex size-2.5 shrink-0"
-                    aria-hidden="true"
-                >
-                    <span
-                        v-if="monitor.status === 'down'"
-                        class="absolute inline-flex size-full animate-ping rounded-full bg-(--ds-red) opacity-60 motion-reduce:hidden"
-                    />
-                    <span
-                        class="relative inline-flex size-2.5 rounded-full"
-                        :class="look.dot"
-                    />
-                </span>
-                <h1
-                    class="truncate text-[21px]/7 font-semibold tracking-[-0.01em]"
-                >
-                    {{ monitor.name }}
-                </h1>
-            </span>
-        </template>
-
-        <template #description>
-            <span :class="look.text" class="font-medium">{{ statusLine }}</span>
-            ·
-            <a
-                v-if="monitor.type === 'http'"
-                :href="monitor.url ?? undefined"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="font-ui-mono text-[13px] text-(--ds-text) hover:underline hover:underline-offset-4"
-                >{{ monitor.target }}</a
-            >
-            <span v-else class="font-ui-mono text-[13px] text-(--ds-text)">{{
-                monitor.target
-            }}</span>
-            {{ $t('· every :value', { value: every(monitor.interval) }) }}
-            <template v-if="machine">
-                {{ ' ' + $t('· on') }}
-                <a
-                    :href="workspacePath(`/machines/${machine.id}`)"
-                    class="text-(--ds-text) hover:underline hover:underline-offset-4"
-                    >{{ machine.name }}</a
-                >
-            </template>
-        </template>
-
+    <DashHeader
+        :crumbs="[
+            { label: $t('Monitors'), href: monitorsUrl },
+            { label: monitor.name },
+        ]"
+    >
         <template v-if="canManage" #actions>
-            <a
+            <DashButton
                 v-if="monitor.status === 'down' && agentsPreview"
-                :href="workspacePath(`/agents?from=monitor:${monitor.id}`)"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-            >
-                {{ $t('Fix with an agent') }}
-            </a>
-            <button
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-                :disabled="busy !== null || monitor.paused"
-                @click="checkNow"
-            >
-                <RefreshCw
-                    class="size-3.5 opacity-60"
-                    :class="{ 'mi-spin': busy === 'check' }"
-                    :stroke-width="1.75"
-                />
-                {{ $t('Check now') + ' ' }}
-            </button>
-            <button
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
+                :label="$t('Fix with an agent')"
+                :href="agentUrl"
+            />
+            <DashButton
+                :label="monitor.paused ? $t('Resume') : $t('Pause')"
+                :loading="busy === 'pause'"
                 :disabled="busy !== null"
                 @click="togglePause"
-            >
-                <component
-                    :is="monitor.paused ? Play : Pause"
-                    class="size-3.5 opacity-60"
-                    :stroke-width="1.75"
-                />
-                {{ monitor.paused ? $t('Resume') : $t('Pause') }}
-            </button>
+            />
+            <DashButton
+                :label="$t('Check now')"
+                :loading="busy === 'check'"
+                :disabled="busy !== null || monitor.paused"
+                @click="checkNow"
+            />
             <DropdownMenu>
                 <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer px-2!"
-                        :class="focusRing"
+                    <DashButton
+                        :icon="Ellipsis"
                         :aria-label="$t('More actions')"
-                    >
-                        <Ellipsis class="size-4" />
-                    </button>
+                        :title="$t('More actions')"
+                    />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    class="ds-modal min-w-44 font-ui"
+                    class="ds-modal min-w-52 font-ui"
                     align="end"
                 >
                     <DropdownMenuItem @select="editing = true">
-                        <Pencil class="size-4" :stroke-width="1.75" />
-                        {{ $t('Edit monitor') + ' ' }}
+                        {{ $t('Edit monitor') }}
                     </DropdownMenuItem>
-                    <template v-if="!monitor.mutedUntil">
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        v-if="monitor.mutedUntil"
+                        @select="unmute"
+                    >
+                        {{ $t('Unmute alerts') }}
+                    </DropdownMenuItem>
+                    <template v-else>
                         <DropdownMenuItem
-                            v-for="[minutes, label] in [
-                                [60, '1 hour'],
-                                [240, '4 hours'],
-                                [1440, '1 day'],
-                            ] as const"
-                            :key="minutes"
-                            @select="mute(minutes)"
+                            v-for="option in muteOptions"
+                            :key="option.minutes"
+                            @select="mute(option.minutes)"
                         >
-                            <BellOff class="size-4" :stroke-width="1.75" />
-                            {{ $t('Mute alerts for :label', { label }) }}
+                            {{
+                                $t('Mute alerts for :label', {
+                                    label: option.label,
+                                })
+                            }}
                         </DropdownMenuItem>
                     </template>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem
-                        class="text-(--ds-red) focus:bg-(--ds-red)/10 focus:text-(--ds-red)"
+                        variant="destructive"
+                        class="text-status-down!"
                         @select="removing = true"
                     >
-                        <Trash2
-                            class="size-4 text-current"
-                            :stroke-width="1.75"
-                        />
-                        {{ $t('Delete monitor') + ' ' }}
+                        {{ $t('Delete monitor') }}
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
         </template>
+    </DashHeader>
 
-        <div class="flex flex-col gap-5">
-            <MaintenanceBanner
-                v-if="monitor.mutedUntil"
-                :until="monitor.mutedUntil"
-                :end-url="workspacePath(`/monitors/${monitor.id}/mute`)"
-                :can-manage="canManage"
-                noun="Alerts muted"
-            />
-            <div
-                v-if="monitor.status === 'down'"
-                class="ds-tile px-5 py-3.5 text-[13px]/5 shadow-[inset_3px_0_0_var(--ds-red)]"
-                role="status"
-            >
-                <span class="font-medium text-(--ds-red)">{{
-                    $t('Down since :value.', {
-                        value: monitor.since
-                            ? when(monitor.since)
-                            : $t('just now'),
-                    })
-                }}</span
-                >{{ ' ' }}
-                <span class="text-(--ds-text-secondary)">
-                    {{
-                        $t(
-                            ":error Checking again every :value; you'll hear when it's back.",
-                            {
-                                error: String(monitor.error ?? ''),
-                                value: every(monitor.interval),
-                            },
-                        )
-                    }}
-                </span>
-            </div>
-
-            <div
-                class="ds-tile grid grid-cols-2 divide-(--ds-divider) md:grid-cols-5 md:divide-x"
-            >
-                <div
-                    v-for="item in [
-                        { label: 'Uptime, 24 h', value: percent(uptime.day) },
-                        { label: '7 days', value: percent(uptime.week) },
-                        { label: '30 days', value: percent(uptime.month) },
-                        {
-                            label: 'Response, avg',
-                            value: ms(averageMs),
-                        },
-                    ]"
-                    :key="item.label"
-                    class="flex flex-col gap-1 px-5 py-4"
-                >
-                    <span class="text-xs/4 text-(--ds-text-muted)">
-                        {{ item.label }}
-                    </span>
-                    <span class="text-xl/7 font-semibold tabular-nums">
-                        {{ item.value }}
-                    </span>
-                </div>
-                <div class="flex flex-col gap-1 px-5 py-4">
-                    <span class="text-xs/4 text-(--ds-text-muted)">
-                        {{
-                            monitor.type === 'http' &&
-                            monitor.url?.startsWith('https')
-                                ? $t('Certificate')
-                                : $t('Last check')
-                        }}
-                    </span>
-                    <template
-                        v-if="
-                            monitor.type === 'http' &&
-                            monitor.url?.startsWith('https')
-                        "
-                    >
-                        <span
-                            v-if="certificate"
-                            class="text-xl/7 font-semibold tabular-nums"
-                            :class="certificate.tone"
-                            :title="
-                                $t('Expires :date', {
-                                    date: String(certificate.date),
-                                })
-                            "
-                        >
-                            {{
-                                certificate.days < 0
-                                    ? $t('Expired')
-                                    : `${certificate.days} days`
-                            }}
-                        </span>
-                        <span v-else class="text-xl/7 font-semibold">–</span>
-                    </template>
-                    <span v-else class="text-xl/7 font-semibold tabular-nums">
-                        {{ ago(monitor.lastCheckedAt, now) }}
-                    </span>
-                </div>
-            </div>
-
-            <section
-                class="flex flex-col gap-3"
-                :aria-label="$t('Response time')"
-            >
-                <div class="flex items-center justify-between gap-4">
-                    <h2 class="text-[13px]/5 font-semibold">
-                        {{ $t('Response time') }}
-                    </h2>
-                    <div
-                        class="ds-segments"
-                        role="group"
-                        :aria-label="$t('Range')"
-                    >
-                        <button
-                            v-for="option in ['24h', '7d'] as const"
-                            :key="option"
-                            type="button"
-                            class="cursor-pointer"
-                            :class="focusRing"
-                            :aria-pressed="range === option"
-                            @click="setRange(option)"
-                        >
-                            {{ option === '24h' ? '24 hours' : '7 days' }}
-                        </button>
-                    </div>
-                </div>
-                <TimeSeriesChart
-                    :title="
-                        range === '24h'
-                            ? $t('Average every 10 minutes')
-                            : $t('Average every 70 minutes')
-                    "
-                    :timestamps="chart.timestamps"
-                    :series="[
-                        {
-                            label: $t('Response'),
-                            color: themeColour('--ds-chart', '#60A5FA'),
-                            values: chart.response,
-                        },
-                    ]"
-                    :format="(v: number) => ms(Math.round(v))"
-                    :min-max="100"
+    <div class="flex flex-col gap-6 px-5 pt-7 pb-8 md:px-8">
+        <div class="flex min-w-0 flex-col gap-1">
+            <div class="flex min-w-0 items-center gap-2.5">
+                <span
+                    class="size-2 shrink-0 rounded-full"
+                    :class="dot"
+                    aria-hidden="true"
                 />
-                <div
-                    v-if="failedBuckets"
-                    class="flex items-center gap-3 text-[11px]/4 text-(--ds-text-muted)"
+                <h1
+                    class="truncate text-[20px]/7 font-medium tracking-[-0.015em] text-fg-primary"
                 >
-                    <span class="shrink-0">{{ $t('Failed checks') }}</span>
-                    <span
-                        class="flex h-1.5 grow gap-px"
-                        role="img"
-                        :aria-label="$t('When checks failed over the range')"
-                    >
-                        <span
-                            v-for="(failed, i) in chart.failed"
-                            :key="i"
-                            class="flex-1 rounded-[1px]"
-                            :class="
-                                failed > 0
-                                    ? 'bg-(--ds-red)'
-                                    : 'bg-(--ds-active)'
-                            "
-                        />
-                    </span>
-                </div>
-            </section>
-
-            <section class="ds-tile px-5 py-4" :aria-label="$t('Last 90 days')">
-                <div class="flex items-baseline justify-between gap-4">
-                    <h2 class="text-[13px]/5 font-semibold">
-                        {{ $t('Last 90 days') }}
-                    </h2>
-                    <span class="text-xs/4 text-(--ds-text-muted) tabular-nums">
-                        {{
-                            $t(':value up', {
-                                value: percent(uptime.quarter),
-                            }) + ' '
-                        }}
-                    </span>
-                </div>
-                <div class="mt-3 flex h-7 gap-px">
-                    <span
-                        v-for="(day, i) in days"
-                        :key="day.day"
-                        class="min-w-0 flex-1 rounded-[1px]"
-                        :class="[
-                            dayTone(day.percent),
-                            { 'max-sm:hidden': i < days.length - 30 },
-                        ]"
-                        :title="dayLabel(day.day, day.percent)"
-                    />
-                </div>
-                <div
-                    class="mt-1.5 flex justify-between text-[11px]/4 text-(--ds-text-faint)"
-                >
-                    <span class="max-sm:hidden">{{ $t('90 days ago') }}</span>
-                    <span class="sm:hidden">{{ $t('30 days ago') }}</span>
-                    <span>{{ $t('Today') }}</span>
-                </div>
-            </section>
-
-            <div class="grid gap-5 lg:grid-cols-2">
-                <section
-                    class="ds-tile overflow-hidden"
-                    :aria-label="$t('Incidents')"
-                >
-                    <h2
-                        class="border-b border-(--ds-divider) px-5 py-3 text-[13px]/5 font-semibold"
-                    >
-                        {{ ' ' + $t('Incidents') + ' ' }}
-                    </h2>
-                    <ul v-if="incidents.length">
-                        <li
-                            v-for="incident in incidents"
-                            :key="incident.id"
-                            class="ds-tile-row flex flex-col gap-0.5 px-5 py-3 text-[13px]/5"
-                        >
-                            <span
-                                class="flex items-baseline justify-between gap-3"
-                            >
-                                <span class="font-medium">
-                                    {{ when(incident.startedAt) }}
-                                </span>
-                                <span
-                                    class="shrink-0 text-xs tabular-nums"
-                                    :class="
-                                        incident.resolvedAt
-                                            ? 'text-(--ds-text-muted)'
-                                            : 'font-medium text-(--ds-red)'
-                                    "
-                                >
-                                    {{
-                                        incident.resolvedAt
-                                            ? $t('Down :duration', {
-                                                  duration: String(
-                                                      duration(
-                                                          incident.seconds,
-                                                      ),
-                                                  ),
-                                              })
-                                            : $t('Ongoing, :span', {
-                                                  span: String(
-                                                      span(
-                                                          incident.startedAt,
-                                                          now,
-                                                      ),
-                                                  ),
-                                              })
-                                    }}
-                                </span>
-                            </span>
-                            <span class="text-(--ds-text-secondary)">
-                                {{ incident.cause }}
-                            </span>
-                        </li>
-                    </ul>
-                    <p
-                        v-else
-                        class="px-5 py-8 text-center text-[13px]/5 text-(--ds-text-muted)"
-                    >
-                        {{ ' ' + $t('No downtime recorded.') + ' ' }}
-                    </p>
-                </section>
-
-                <section
-                    class="ds-tile overflow-hidden"
-                    :aria-label="$t('Recent checks')"
-                >
-                    <h2
-                        class="border-b border-(--ds-divider) px-5 py-3 text-[13px]/5 font-semibold"
-                    >
-                        {{ ' ' + $t('Recent checks') + ' ' }}
-                    </h2>
-                    <ul v-if="checks.length">
-                        <li
-                            v-for="check in checks"
-                            :key="check.id"
-                            class="ds-tile-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-5 py-2 text-[13px]/5"
-                        >
-                            <span
-                                class="size-1.5 rounded-full"
-                                :class="
-                                    check.ok
-                                        ? 'bg-(--ds-green)'
-                                        : 'bg-(--ds-red)'
-                                "
-                            />
-                            <span
-                                class="truncate"
-                                :class="
-                                    check.ok
-                                        ? 'text-(--ds-text-secondary)'
-                                        : 'text-(--ds-red)'
-                                "
-                                :title="check.error ?? undefined"
-                            >
-                                <template v-if="check.ok">
-                                    {{ check.code ? `${check.code} · ` : ''
-                                    }}{{ ms(check.ms) }}
-                                </template>
-                                <template v-else>{{ check.error }}</template>
-                            </span>
-                            <time
-                                class="text-xs text-(--ds-text-muted) tabular-nums"
-                                :datetime="check.at"
-                            >
-                                {{ ago(check.at, now) }}
-                            </time>
-                        </li>
-                    </ul>
-                    <p
-                        v-else
-                        class="px-5 py-8 text-center text-[13px]/5 text-(--ds-text-muted)"
-                    >
-                        {{
-                            ' ' +
-                            $t('The first check runs within a few seconds.') +
-                            ' '
-                        }}
-                    </p>
-                </section>
+                    {{ monitor.name }}
+                </h1>
             </div>
+            <p
+                class="flex flex-wrap items-center text-[13px]/5 tracking-[-0.005em] text-fg-tertiary"
+            >
+                <span :class="status.tone">{{ status.text }}</span>
+                <span class="mx-1.5" aria-hidden="true">·</span>
+                <a
+                    v-if="monitor.type === 'http' && monitor.url"
+                    :href="monitor.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="hover:text-fg-secondary hover:underline hover:underline-offset-4"
+                    >{{ address(monitor) }}</a
+                >
+                <span v-else>{{ address(monitor) }}</span>
+                <span class="mx-1.5" aria-hidden="true">·</span>
+                <span>
+                    {{ cadence(monitor.interval)
+                    }}<template v-if="machine && machineUrl"
+                        >{{ $t(', on') + ' '
+                        }}<Link
+                            :href="machineUrl"
+                            class="hover:text-fg-secondary hover:underline hover:underline-offset-4"
+                            >{{ machine.name }}</Link
+                        ></template
+                    >
+                </span>
+                <template v-if="mutedUntil">
+                    <span class="mx-1.5" aria-hidden="true">·</span>
+                    <span class="text-status-pending">{{
+                        $t('Alerts muted until :time', { time: mutedUntil })
+                    }}</span>
+                </template>
+                <template v-else-if="!monitor.alerts">
+                    <span class="mx-1.5" aria-hidden="true">·</span>
+                    <span>{{ $t('Alerts off') }}</span>
+                </template>
+            </p>
         </div>
 
-        <MonitorDialog
-            v-model:open="editing"
-            :monitor="monitor"
-            :machines="machines"
-            :min-interval="minInterval"
+        <MonitorCard icon="house-fill" :title="$t('Overview')">
+            <div class="grid grid-cols-2 xl:grid-cols-4">
+                <div
+                    v-for="(figure, i) in tiles"
+                    :key="figure.label"
+                    class="flex min-w-0 flex-col gap-0.5 border-edge-tabs px-4 py-3.5"
+                    :class="figureBorder(i)"
+                >
+                    <span
+                        class="truncate text-[24px]/8 font-medium tracking-[-0.02em] tabular-nums"
+                        :class="figure.tone ?? 'text-fg-primary'"
+                        >{{ figure.value }}</span
+                    >
+                    <span
+                        class="truncate text-[13px]/5 tracking-[-0.005em] text-fg-tertiary"
+                        >{{ figure.label }}</span
+                    >
+                </div>
+            </div>
+        </MonitorCard>
+
+        <ResponseChart
+            :chart="chart"
+            :range="range"
+            :now="now"
+            @update:range="setRange"
         />
 
-        <Dialog v-model:open="removing">
-            <DialogContent
-                class="workspace-panel ds-modal gap-0 p-0 font-ui text-foreground sm:max-w-md"
+        <UptimeDays :days="days" :uptime="figures.uptime90" />
+
+        <div class="grid gap-4 lg:grid-cols-2">
+            <MonitorCard
+                icon="info-fill"
+                :title="$t('Incidents')"
+                :meta="
+                    $t(':count in 90 days', {
+                        count: String(incidents.count),
+                    })
+                "
             >
-                <div class="flex flex-col gap-1 p-5">
-                    <DialogTitle class="text-base/6 font-semibold">
-                        {{
-                            ' ' +
-                            $t('Delete :name?', { name: monitor.name }) +
-                            ' '
-                        }}
-                    </DialogTitle>
-                    <DialogDescription
-                        class="text-[13px]/5 text-(--ds-text-muted)"
+                <ul v-if="incidents.list.length" class="pt-3">
+                    <li
+                        v-for="incident in incidentRows"
+                        :key="incident.id"
+                        class="flex items-center gap-3 border-b-[0.5px] border-edge-tabs px-4 py-2.5 last:border-b-0"
                     >
-                        {{
-                            ' ' +
-                            $t(
-                                'Its checks, incidents and uptime history go with it. Pause it instead to keep the history.',
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </div>
-                <div
-                    class="flex items-center justify-end gap-2 border-t border-(--ds-border) px-4 py-3"
+                        <span
+                            class="size-2 shrink-0 rounded-full"
+                            :class="incidentDot[incident.tone]"
+                            aria-hidden="true"
+                        />
+                        <span class="flex min-w-0 flex-1 flex-col">
+                            <span
+                                class="truncate text-[13px]/5 tracking-[-0.005em] text-fg-primary"
+                                >{{ incidentTitle(incident) }}</span
+                            >
+                            <span
+                                class="truncate text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
+                                :title="incident.cause"
+                                >{{ incident.cause }}</span
+                            >
+                        </span>
+                        <time
+                            class="shrink-0 text-[12px]/4 tracking-[-0.005em] whitespace-nowrap text-fg-muted"
+                            :datetime="incident.startedAt"
+                            >{{ incidentWhen(incident.startedAt) }}</time
+                        >
+                    </li>
+                </ul>
+                <p
+                    v-else
+                    class="flex flex-1 items-center justify-center px-4 py-10 text-center text-[13px]/5 text-fg-muted"
                 >
-                    <AppButton
-                        size="sm"
-                        variant="quiet"
-                        @click="removing = false"
+                    {{ $t('No downtime in the last 90 days.') }}
+                </p>
+                <button
+                    v-if="incidents.list.length > 5"
+                    type="button"
+                    class="cursor-pointer border-t-[0.5px] border-edge-tabs px-4 py-2.5 text-left text-[12.5px]/4 font-medium text-fg-tertiary hover:text-fg-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring)"
+                    @click="allIncidents = !allIncidents"
+                >
+                    {{
+                        allIncidents
+                            ? $t('Show fewer')
+                            : $t('Show all :count', {
+                                  count: String(incidents.list.length),
+                              })
+                    }}
+                </button>
+            </MonitorCard>
+
+            <MonitorCard
+                icon="activity-fill"
+                :title="$t('Recent checks')"
+                :meta="cadence(monitor.interval)"
+            >
+                <ul v-if="checks.length" class="pt-3">
+                    <li
+                        v-for="check in checks"
+                        :key="check.id"
+                        class="flex h-9 items-center gap-3 border-b-[0.5px] border-edge-tabs px-4 last:border-b-0"
                     >
-                        {{ ' ' + $t('Cancel') + ' ' }}
-                    </AppButton>
-                    <form @submit.prevent="remove">
-                        <DangerButton :label="$t('Delete monitor')" />
-                    </form>
-                </div>
-            </DialogContent>
-        </Dialog>
-    </WorkspacePage>
+                        <time
+                            class="w-11 shrink-0 font-ui-mono text-[12px]/4 text-fg-muted"
+                            :datetime="check.at"
+                            :title="dayAndTime(check.at, now)"
+                            >{{ clock(check.at) }}</time
+                        >
+                        <span
+                            class="size-1.5 shrink-0 rounded-full"
+                            :class="
+                                check.ok ? 'bg-status-live' : 'bg-status-down'
+                            "
+                            aria-hidden="true"
+                        />
+                        <span
+                            class="min-w-0 flex-1 truncate text-[13px]/5 tracking-[-0.005em] text-fg-secondary"
+                            :title="check.error ?? undefined"
+                            >{{ check.label }}</span
+                        >
+                        <span
+                            class="shrink-0 text-[13px]/5 tracking-[-0.005em] whitespace-nowrap text-fg-primary tabular-nums"
+                            >{{ ms(check.ms) }}</span
+                        >
+                    </li>
+                </ul>
+                <p
+                    v-else
+                    class="flex flex-1 items-center justify-center px-4 py-10 text-center text-[13px]/5 text-fg-muted"
+                >
+                    {{
+                        monitor.paused
+                            ? $t('Paused. Resume it to check again.')
+                            : monitor.lastCheckedAt
+                              ? $t('No checks in the last 7 days.')
+                              : $t('The first check runs within a few seconds.')
+                    }}
+                </p>
+            </MonitorCard>
+        </div>
+    </div>
+
+    <MonitorDialog
+        v-model:open="editing"
+        :monitor="monitor"
+        :machines="machines"
+        :min-interval="minInterval"
+    />
+
+    <Dialog v-model:open="removing">
+        <DialogContent class="gap-0 p-0 font-ui sm:max-w-md">
+            <div class="flex flex-col gap-1 p-5">
+                <DialogTitle class="text-[15px]/6 font-medium text-fg-primary">
+                    {{ $t('Delete :name?', { name: monitor.name }) }}
+                </DialogTitle>
+                <DialogDescription class="text-[13px]/5 text-fg-tertiary">
+                    {{
+                        $t(
+                            'Its checks, incidents and uptime history go with it. Pause it instead to keep the history.',
+                        )
+                    }}
+                </DialogDescription>
+            </div>
+            <div class="dash-card-footer gap-2">
+                <DashButton :label="$t('Cancel')" @click="removing = false" />
+                <DashButton
+                    variant="danger"
+                    :label="$t('Delete monitor')"
+                    @click="remove"
+                />
+            </div>
+        </DialogContent>
+    </Dialog>
 </template>

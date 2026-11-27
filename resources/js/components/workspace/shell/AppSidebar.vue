@@ -9,6 +9,7 @@ import AccountMenu from '@/components/workspace/AccountMenu.vue';
 import SidebarItem from '@/components/workspace/shell/SidebarItem.vue';
 import SidebarSubItem from '@/components/workspace/shell/SidebarSubItem.vue';
 import SidebarUpgrade from '@/components/workspace/shell/SidebarUpgrade.vue';
+import { useCommandPalette } from '@/composables/useCommandPalette';
 import {
     openGroupFor,
     useWorkspaceNav,
@@ -32,6 +33,7 @@ const emit = defineEmits<{ toggle: []; close: [] }>();
 
 const page = usePage();
 const items = useWorkspaceNav();
+const palette = useCommandPalette();
 
 const menu = computed(() =>
     items.value.filter((item) => item.section === 'menu'),
@@ -146,7 +148,40 @@ const focusRing =
                 class="flex flex-col gap-1 pt-2.5 pb-3.5"
                 :class="collapsed ? 'items-center px-3' : 'px-3'"
             >
-                <SectionLabel v-if="!collapsed">{{ $t('Menu') }}</SectionLabel>
+                <div v-if="!collapsed" class="w-full pb-1.5">
+                    <button
+                        type="button"
+                        class="flex h-8 w-full cursor-pointer items-center gap-2 rounded-[7px] border-[0.5px] border-edge-row bg-surface-well px-[9px] text-left shadow-[inset_0_1px_2px_rgb(0_0_0/0.4)] transition-colors hover:border-edge-field"
+                        :class="focusRing"
+                        data-test="sidebar-search"
+                        @click="palette.show()"
+                    >
+                        <FilledIcon
+                            name="search-fill"
+                            :size="14"
+                            class="text-fg-muted"
+                        />
+                        <span
+                            class="min-w-0 flex-1 truncate text-[12.5px]/4 tracking-[-0.005em] text-fg-faint"
+                            >{{ $t('Search') }}</span
+                        >
+                        <kbd
+                            class="flex h-[18px] shrink-0 items-center rounded-[4px] border-[0.5px] border-edge-control bg-surface-badge px-[5px] font-ui-mono text-[11px]/3.5 text-fg-tertiary dark:bg-[#1f1f1f] pointer-coarse:hidden"
+                            aria-hidden="true"
+                            >⌘K</kbd
+                        >
+                    </button>
+                </div>
+                <button
+                    v-else
+                    type="button"
+                    class="flex size-8 cursor-pointer items-center justify-center rounded-[8px] text-fg-tertiary transition-colors hover:bg-surface-hover hover:text-fg-secondary"
+                    :class="focusRing"
+                    :aria-label="$t('Search')"
+                    @click="palette.show()"
+                >
+                    <FilledIcon name="search-fill" />
+                </button>
                 <template v-for="item in menu" :key="item.key">
                     <SidebarItem
                         :label="item.label"
@@ -212,8 +247,8 @@ const focusRing =
         >
             <AccountMenu
                 :display="collapsed ? 'avatar' : 'sidebar'"
-                side="right"
-                align="end"
+                :side="collapsed ? 'right' : 'top'"
+                :align="collapsed ? 'end' : 'start'"
             />
         </div>
     </div>

@@ -175,7 +175,7 @@ export function useSubscriptionNotice(): ComputedRef<SubscriptionNotice | null> 
         const credit = page.props.cloudCredit;
         if (
             credit &&
-            page.component !== 'workspace/Cloud' &&
+            !page.component.startsWith('workspace/Cloud') &&
             !isCreditHidden(workspace.id)
         ) {
             return {

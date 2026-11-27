@@ -402,6 +402,10 @@ Route::domain(Dashboard::host())
             ->where('service', '[A-Za-z0-9:._@-]+')
             ->middleware('throttle:10,1')
             ->name('workspace.machines.services.clone');
+        Route::get('machines/{machine}/services/{service}/log-lines', [MachineServiceController::class, 'logLines'])
+            ->where('service', '[A-Za-z0-9:._@-]+')
+            ->middleware('throttle:240,1')
+            ->name('workspace.machines.services.log-lines');
         Route::post('machines/{machine}/scan', [MachineScanController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.scan.store');
         Route::post('machines/{machine}/refresh', [MachineScanController::class, 'discover'])->middleware('throttle:20,1')->name('workspace.machines.refresh');
         Route::post('machines/{machine}/disk-usage', [MachineDiskUsageController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.disk-usage.store');

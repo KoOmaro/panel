@@ -1,49 +1,35 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import { Link, router, usePage } from '@inertiajs/vue3';
-import { ArrowUpRight, Check, Search } from '@lucide/vue';
-import {
-    SolarAskAi as AskAi,
-    SolarBookOpen as BookOpen,
-    SolarCircleHelp as CircleHelp,
-    SolarLanguages as Languages,
-    SolarLogOut as LogOut,
-    SolarMessageSquare as MessageSquare,
-    SolarMonitor as Monitor,
-    SolarMoon as Moon,
-    SolarSettings as Settings,
-    SolarSparkles as Sparkles,
-    SolarSun as Sun,
-    SolarSunMoon as SunMoon,
-} from '@/lib/solarIcons';
 import { computed } from 'vue';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
-    DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
+    DropdownMenuPortal,
+    DropdownMenuRoot,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from 'reka-ui';
+import serverosMark from '@/components/dash/assets/serveros-mark.svg?raw';
 import DashAvatar from '@/components/dash/DashAvatar.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
+import logoutFill from '@/components/workspace/account/logout-fill.svg?raw';
+import moonFill from '@/components/workspace/account/moon-fill.svg?raw';
+import proFill from '@/components/workspace/account/pro-fill.svg?raw';
 import { useAssistant } from '@/composables/useAssistant';
-import { useCommandPalette } from '@/composables/useCommandPalette';
 import { useWhatsNew } from '@/composables/useWhatsNew';
 import { useAppearance } from '@/composables/useAppearance';
 import type { Appearance } from '@/composables/useAppearance';
-import { getInitials } from '@/composables/useInitials';
 import { docsUrl } from '@/lib/docs';
 import { flagUrl } from '@/lib/flags';
 import { changeLocale } from '@/lib/locale';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import { logout } from '@/routes';
 import { edit } from '@/routes/profile';
 import { profile as workspaceProfile } from '@/routes/workspace/settings';
-import { onWorkspace } from '@/lib/workspaceRoute';
+import type { Workspace } from '@/types';
 
 type Props = {
     display?: 'full' | 'avatar' | 'sidebar';
@@ -59,17 +45,14 @@ const {
 
 const page = usePage<{
     appUrl: string;
-    staff?: { admin: boolean; sales: boolean };
     locale: string;
     locales: Record<string, string>;
-    workspace?: { slug: string };
+    panelVersion?: string | null;
+    workspace?: Workspace;
     extensions?: { nav: { key: string; label: string; path: string }[] } | null;
 }>();
 const user = computed(() => page.props.auth.user);
-// The profile lives in a workspace's Settings. Inside one, it's that
-// workspace's; outside one (like the workspaces list), it's the pinned
-// workspace's, or the first one's, on its own host. Only someone with no
-// workspace at all gets the standalone page.
+
 const accountSettings = computed<{ href: string; external: boolean }>(() => {
     if (page.props.workspace) {
         return {
@@ -102,30 +85,94 @@ const feedback = computed(() =>
 
 const { appearance, updateAppearance } = useAppearance();
 const whatsNew = useWhatsNew();
-
-const themes = [
-    { value: 'light', label: trans('Light'), icon: Sun },
-    { value: 'dark', label: trans('Dark'), icon: Moon },
-    { value: 'system', label: trans('System'), icon: Monitor },
-] as const satisfies { value: Appearance; label: string; icon: unknown }[];
-
-const palette = useCommandPalette();
 const assistant = useAssistant();
 
+const themes = computed(
+    () =>
+        [
+            { value: 'light', label: trans('Light') },
+            { value: 'dark', label: trans('Dark') },
+            { value: 'system', label: trans('System') },
+        ] as const satisfies { value: Appearance; label: string }[],
+);
+const themeLabel = computed(
+    () =>
+        themes.value.find((theme) => theme.value === appearance.value)?.label ??
+        trans('System'),
+);
+
+const version = computed(() => {
+    const value = page.props.panelVersion;
+
+    return value ? (/^\d/.test(value) ? `v${value}` : value) : null;
+});
+
+const ROLES: Record<string, string> = {
+    owner: 'Owner',
+    admin: 'Admin',
+    member: 'Member',
+    viewer: 'Viewer',
+};
+
+const role = computed(() => {
+    const key = page.props.workspace ? page.props.workspaceAccess?.role : null;
+
+    return key ? trans(ROLES[key] ?? key) : null;
+});
+
+const upgrade = computed(() => {
+    const workspace = page.props.workspace;
+    const link = page.props.upgrade;
+    const canManage =
+        page.props.workspaceAccess?.permissions.includes('manage-billing') ??
+        false;
+
+    if (!workspace || !link || !canManage || workspace.billing.selfHosted) {
+        return null;
+    }
+
+    const { onTrial, plan, planLabel } = workspace.billing;
+
+    if (onTrial && planLabel) {
+        return {
+            label: trans('Upgrade to :plan', { plan: planLabel }),
+            href: link.href,
+            highlight: true,
+        };
+    }
+
+    if (plan === null) {
+        return {
+            label: trans('Pick a plan'),
+            href: link.href,
+            highlight: true,
+        };
+    }
+
+    return { label: trans('Billing'), href: link.href, highlight: false };
+});
+
+const content =
+    'z-50 flex w-[260px] flex-col overflow-clip rounded-[12px] border-[0.5px] border-edge-strong bg-surface-hover font-ui shadow-[0_8px_16px_-6px_rgb(0_0_0/0.6),0_1px_2px_rgb(0_0_0/0.5)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2';
+const subContent =
+    'z-50 flex min-w-44 flex-col rounded-[10px] border-[0.5px] border-edge-strong bg-surface-hover p-1.5 font-ui shadow-[0_8px_16px_-6px_rgb(0_0_0/0.6),0_1px_2px_rgb(0_0_0/0.5)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95';
 const row =
-    'flex h-8 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 text-[13.5px]/5 text-(--ds-text-secondary) data-highlighted:text-(--ds-text)';
+    'group/row flex h-[34px] w-full cursor-pointer items-center gap-3 rounded-[7px] pr-2 pl-2.5 text-left text-[13px]/5 tracking-[-0.005em] text-fg-secondary outline-none select-none data-highlighted:bg-surface-raised data-highlighted:text-fg-primary data-[state=open]:bg-surface-raised data-[state=open]:text-fg-primary';
+const subRow =
+    'flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[7px] px-2 text-left text-[13px]/5 tracking-[-0.005em] text-fg-secondary outline-none select-none data-highlighted:bg-surface-raised data-highlighted:text-fg-primary';
+const icon =
+    'flex size-4 shrink-0 text-fg-tertiary transition-colors group-data-highlighted/row:text-fg-secondary group-data-[state=open]/row:text-fg-secondary [&>svg]:size-full';
+const value = 'shrink-0 text-fg-muted';
 const shortcut =
-    'ml-auto font-ui text-[11px]/3.5 text-(--ds-text-faint) pointer-coarse:hidden';
-const icon = 'size-4 shrink-0 text-(--ds-text-muted)';
-const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
+    'ml-auto font-ui-mono text-[11px]/3.5 text-fg-faint pointer-coarse:hidden';
 </script>
 
 <template>
-    <DropdownMenu>
+    <DropdownMenuRoot>
         <DropdownMenuTrigger v-if="display === 'sidebar'" as-child>
             <button
                 type="button"
-                class="group flex w-full min-w-0 cursor-pointer items-center gap-2 px-3.5 py-3 text-left font-ui transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring) data-[state=open]:bg-surface-hover"
+                class="group flex w-full min-w-0 cursor-pointer items-center gap-2 px-3.5 py-3 text-left font-ui transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--ds-ring) data-[state=open]:bg-surface-raised"
                 :aria-label="
                     $t('Account menu for :name', {
                         name: String(user.name),
@@ -160,8 +207,8 @@ const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
                     >
                 </span>
                 <FilledIcon
-                    name="chevron-right"
-                    class="text-fg-muted transition-colors group-hover:text-fg-tertiary"
+                    name="chevrons-up-down"
+                    class="text-fg-muted transition-colors group-hover:text-fg-tertiary group-data-[state=open]:text-fg-tertiary"
                 />
             </button>
         </DropdownMenuTrigger>
@@ -184,19 +231,11 @@ const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
                 data-test="workspace-user-menu"
             >
                 <span class="relative shrink-0">
-                    <Avatar class="size-8 bg-(--ds-avatar)">
-                        <AvatarImage
-                            v-if="user.avatar"
-                            :src="user.avatar"
-                            :alt="user.name"
-                            class="object-cover"
-                        />
-                        <AvatarFallback
-                            class="bg-(--ds-avatar) text-[11px] font-medium text-(--ds-text)"
-                        >
-                            {{ getInitials(user.name) }}
-                        </AvatarFallback>
-                    </Avatar>
+                    <DashAvatar
+                        :src="user.avatar"
+                        :name="user.name"
+                        :size="32"
+                    />
                     <span
                         v-if="whatsNew.unread.value"
                         class="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-(--ds-blue) ring-2 ring-(--ds-frame)"
@@ -219,195 +258,309 @@ const external = 'ml-auto size-3.5 text-(--ds-text-faint)';
                 </span>
             </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-            class="ds-modal min-w-56 rounded-[12px] p-1.5 font-ui"
-            :class="{
-                'w-(--reka-dropdown-menu-trigger-width)': display === 'full',
-                'w-60': display === 'sidebar',
-            }"
-            :side="side"
-            :align="align"
-            :side-offset="6"
-        >
-            <DropdownMenuLabel class="flex min-w-0 flex-col px-2 py-1.5">
-                <span class="truncate text-[13.5px]/5 font-medium">{{
-                    user.name
-                }}</span>
-                <span
-                    class="truncate text-[12.5px]/4 font-normal text-(--ds-text-muted)"
-                    >{{ user.email }}</span
-                >
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator class="-mx-1.5 my-1.5" />
-            <template v-if="page.props.workspace">
-                <DropdownMenuItem :class="row" @select="palette.show()">
-                    <Search :class="icon" :stroke-width="1.6" />
-                    {{ $t('Search') }}
-                    <kbd :class="shortcut">⌘K</kbd>
-                </DropdownMenuItem>
-                <DropdownMenuItem :class="row" @select="assistant.toggle()">
-                    <AskAi :class="icon" :stroke-width="1.6" />
-                    {{ $t('Ask AI') }}
-                    <kbd :class="shortcut">⌘J</kbd>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator class="-mx-1.5 my-1.5" />
-            </template>
-            <DropdownMenuItem as-child>
-                <a
-                    v-if="accountSettings.external"
-                    :href="accountSettings.href"
-                    :class="row"
-                >
-                    <Settings :class="icon" :stroke-width="1.6" />
-                    {{ $t('Account settings') }}
-                </a>
-                <Link v-else :href="accountSettings.href" prefetch :class="row">
-                    <Settings :class="icon" :stroke-width="1.6" />
-                    {{ $t('Account settings') }}
-                </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSub>
-                <DropdownMenuSubTrigger :class="row">
-                    <SunMoon :class="icon" :stroke-width="1.6" />
-                    {{ $t('Theme') }}
-                    <span class="ml-auto text-[13px] text-(--ds-text-faint)">{{
-                        $t(
-                            themes.find((theme) => theme.value === appearance)
-                                ?.label ?? 'System',
-                        )
-                    }}</span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent class="ds-modal min-w-40 p-1.5 font-ui">
-                    <DropdownMenuItem
-                        v-for="theme in themes"
-                        :key="theme.value"
-                        :class="row"
-                        @select="updateAppearance(theme.value)"
-                    >
-                        <component
-                            :is="theme.icon"
-                            :class="icon"
-                            :stroke-width="1.6"
-                        />
-                        {{ $t(theme.label) }}
-                        <Check
-                            v-if="appearance === theme.value"
-                            class="ml-auto size-3.5 text-(--ds-text)"
-                            :stroke-width="2"
-                        />
-                    </DropdownMenuItem>
-                </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-                <DropdownMenuSubTrigger :class="row">
-                    <Languages :class="icon" :stroke-width="1.6" />
-                    {{ $t('Language') }}
-                    <span class="ml-auto text-[13px] text-(--ds-text-faint)">{{
-                        page.props.locales[page.props.locale]
-                    }}</span>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent class="ds-modal min-w-40 p-1.5 font-ui">
-                    <DropdownMenuItem
-                        v-for="(name, code) in page.props.locales"
-                        :key="code"
-                        :class="row"
-                        @select="
-                            page.props.locale !== code && changeLocale(code)
-                        "
-                    >
-                        <img
-                            :src="flagUrl(code)"
-                            alt=""
-                            class="h-2.5 w-3.75 rounded-[2px] object-cover"
-                        />
-                        {{ name }}
-                        <Check
-                            v-if="page.props.locale === code"
-                            class="ml-auto size-3.5 text-(--ds-text)"
-                            :stroke-width="2"
-                        />
-                    </DropdownMenuItem>
-                </DropdownMenuSubContent>
-            </DropdownMenuSub>
 
-            <DropdownMenuSub>
-                <DropdownMenuSubTrigger :class="row">
-                    <CircleHelp :class="icon" :stroke-width="1.6" />
-                    {{ $t('Help') }}
+        <DropdownMenuPortal>
+            <DropdownMenuContent
+                :class="content"
+                :side="side"
+                :align="align"
+                :side-offset="6"
+                :align-offset="display === 'sidebar' ? 8 : 0"
+                :collision-padding="8"
+            >
+                <div class="flex items-center gap-2 px-3.5 py-3">
                     <span
-                        v-if="whatsNew.unread.value"
-                        class="ml-auto size-1.5 rounded-full bg-(--ds-blue)"
-                        :aria-label="$t('New updates')"
+                        class="flex h-3.5 w-[12.39px] shrink-0 text-fg-primary [&>svg]:size-full"
+                        aria-hidden="true"
+                        v-html="serverosMark"
                     />
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent class="ds-modal min-w-48 p-1.5 font-ui">
-                    <DropdownMenuItem :class="row" @select="whatsNew.show()">
-                        <Sparkles :class="icon" :stroke-width="1.6" />
-                        {{ $t('What’s new') }}
-                        <span
-                            v-if="whatsNew.unread.value"
-                            class="ml-auto rounded-full bg-(--ds-blue) px-1.5 text-[10.5px]/4 font-semibold text-white tabular-nums"
-                            >{{
-                                whatsNew.unread.value > 9
-                                    ? '9+'
-                                    : whatsNew.unread.value
-                            }}</span
-                        >
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                        v-if="page.props.workspace && support"
-                        as-child
+                    <span
+                        class="text-[13px]/5 font-medium tracking-[-0.005em] text-fg-primary"
+                        >{{ page.props.name }}</span
                     >
-                        <Link :href="support.path" :class="row">
-                            <CircleHelp :class="icon" :stroke-width="1.6" />
-                            {{ support.label }}
-                        </Link>
-                    </DropdownMenuItem>
+                    <span class="flex-1" />
+                    <span
+                        v-if="version"
+                        class="max-w-28 truncate font-ui text-[12px]/4 tracking-[-0.005em] text-fg-faint"
+                        >{{ version }}</span
+                    >
+                </div>
+
+                <div
+                    class="-mx-[0.5px] flex flex-col rounded-t-[12px] border-[0.5px] border-edge-strong bg-surface-main p-1.5"
+                >
                     <DropdownMenuItem as-child>
                         <a
-                            :href="docs"
-                            target="_blank"
-                            rel="noopener"
+                            v-if="accountSettings.external"
+                            :href="accountSettings.href"
                             :class="row"
                         >
-                            <BookOpen :class="icon" :stroke-width="1.6" />
-                            {{ $t('Docs') }}
-                            <ArrowUpRight
-                                :class="external"
-                                :stroke-width="1.75"
-                            />
+                            <FilledIcon name="user-fill" :class="icon" />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                $t('Account settings')
+                            }}</span>
                         </a>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem v-if="feedback" as-child>
-                        <a
-                            :href="feedback"
-                            target="_blank"
-                            rel="noopener"
+                        <Link
+                            v-else
+                            :href="accountSettings.href"
+                            prefetch
                             :class="row"
                         >
-                            <MessageSquare :class="icon" :stroke-width="1.6" />
-                            {{ $t('Feedback') }}
-                            <ArrowUpRight
-                                :class="external"
-                                :stroke-width="1.75"
-                            />
-                        </a>
+                            <FilledIcon name="user-fill" :class="icon" />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                $t('Account settings')
+                            }}</span>
+                        </Link>
                     </DropdownMenuItem>
-                </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator class="-mx-1.5 my-1.5" />
-            <DropdownMenuItem as-child>
-                <Link
-                    :href="logout()"
-                    as="button"
-                    :class="[row, 'w-full']"
-                    data-test="logout-button"
-                    @click="router.flushAll()"
+
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger :class="row">
+                            <span
+                                :class="icon"
+                                aria-hidden="true"
+                                v-html="moonFill"
+                            />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                $t('Theme')
+                            }}</span>
+                            <span :class="value">{{ themeLabel }}</span>
+                            <FilledIcon
+                                name="chevron-right"
+                                :size="14"
+                                class="text-fg-faint"
+                            />
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuPortal>
+                            <DropdownMenuSubContent
+                                :class="subContent"
+                                :side-offset="6"
+                            >
+                                <DropdownMenuItem
+                                    v-for="theme in themes"
+                                    :key="theme.value"
+                                    :class="subRow"
+                                    @select="updateAppearance(theme.value)"
+                                >
+                                    <span class="flex-1">{{
+                                        theme.label
+                                    }}</span>
+                                    <FilledIcon
+                                        v-if="appearance === theme.value"
+                                        name="check"
+                                        :size="14"
+                                        class="text-fg-primary"
+                                    />
+                                </DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuPortal>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger :class="row">
+                            <FilledIcon name="globe-fill" :class="icon" />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                $t('Language')
+                            }}</span>
+                            <span :class="value">{{
+                                page.props.locales[page.props.locale]
+                            }}</span>
+                            <FilledIcon
+                                name="chevron-right"
+                                :size="14"
+                                class="text-fg-faint"
+                            />
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuPortal>
+                            <DropdownMenuSubContent
+                                :class="subContent"
+                                :side-offset="6"
+                            >
+                                <DropdownMenuItem
+                                    v-for="(name, code) in page.props.locales"
+                                    :key="code"
+                                    :class="subRow"
+                                    @select="
+                                        page.props.locale !== code &&
+                                        changeLocale(code)
+                                    "
+                                >
+                                    <img
+                                        :src="flagUrl(code)"
+                                        alt=""
+                                        class="h-2.5 w-3.75 shrink-0 rounded-[2px] object-cover"
+                                    />
+                                    <span class="flex-1">{{ name }}</span>
+                                    <FilledIcon
+                                        v-if="page.props.locale === code"
+                                        name="check"
+                                        :size="14"
+                                        class="text-fg-primary"
+                                    />
+                                </DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuPortal>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger :class="row">
+                            <FilledIcon name="help-fill" :class="icon" />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                $t('Help')
+                            }}</span>
+                            <span
+                                v-if="whatsNew.unread.value"
+                                class="size-1.5 shrink-0 rounded-full bg-(--ds-blue)"
+                                :aria-label="$t('New updates')"
+                            />
+                            <FilledIcon
+                                name="chevron-right"
+                                :size="14"
+                                class="text-fg-faint"
+                            />
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuPortal>
+                            <DropdownMenuSubContent
+                                :class="subContent"
+                                :side-offset="6"
+                            >
+                                <DropdownMenuItem
+                                    v-if="page.props.workspace"
+                                    :class="subRow"
+                                    @select="assistant.toggle()"
+                                >
+                                    <span class="flex-1">{{
+                                        $t('Ask AI')
+                                    }}</span>
+                                    <kbd :class="shortcut">⌘J</kbd>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    :class="subRow"
+                                    @select="whatsNew.show()"
+                                >
+                                    <span class="flex-1">{{
+                                        $t('What’s new')
+                                    }}</span>
+                                    <span
+                                        v-if="whatsNew.unread.value"
+                                        class="rounded-full bg-(--ds-blue) px-1.5 text-[10.5px]/4 font-semibold text-white tabular-nums"
+                                        >{{
+                                            whatsNew.unread.value > 9
+                                                ? '9+'
+                                                : whatsNew.unread.value
+                                        }}</span
+                                    >
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    v-if="page.props.workspace && support"
+                                    as-child
+                                >
+                                    <Link :href="support.path" :class="subRow">
+                                        <span class="flex-1">{{
+                                            support.label
+                                        }}</span>
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem as-child>
+                                    <a
+                                        :href="docs"
+                                        target="_blank"
+                                        rel="noopener"
+                                        :class="subRow"
+                                    >
+                                        <span class="flex-1">{{
+                                            $t('Docs')
+                                        }}</span>
+                                        <FilledIcon
+                                            name="open-fill"
+                                            :size="14"
+                                            class="text-fg-faint"
+                                        />
+                                    </a>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem v-if="feedback" as-child>
+                                    <a
+                                        :href="feedback"
+                                        target="_blank"
+                                        rel="noopener"
+                                        :class="subRow"
+                                    >
+                                        <span class="flex-1">{{
+                                            $t('Feedback')
+                                        }}</span>
+                                        <FilledIcon
+                                            name="open-fill"
+                                            :size="14"
+                                            class="text-fg-faint"
+                                        />
+                                    </a>
+                                </DropdownMenuItem>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuPortal>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuItem v-if="upgrade" as-child>
+                        <Link :href="upgrade.href" :class="row">
+                            <span
+                                v-if="upgrade.highlight"
+                                class="flex size-4 shrink-0 text-[#99a8ff] [&>svg]:size-full"
+                                aria-hidden="true"
+                                v-html="proFill"
+                            />
+                            <FilledIcon
+                                v-else
+                                name="setup-fill"
+                                :class="icon"
+                            />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                upgrade.label
+                            }}</span>
+                        </Link>
+                    </DropdownMenuItem>
+
+                    <div class="px-2.5 py-[5px]" role="separator">
+                        <div class="h-[0.5px] bg-edge-field" />
+                    </div>
+
+                    <DropdownMenuItem as-child>
+                        <Link
+                            :href="logout()"
+                            as="button"
+                            :class="row"
+                            data-test="logout-button"
+                            @click="router.flushAll()"
+                        >
+                            <span
+                                :class="icon"
+                                aria-hidden="true"
+                                v-html="logoutFill"
+                            />
+                            <span class="min-w-0 flex-1 truncate">{{
+                                $t('Log out')
+                            }}</span>
+                        </Link>
+                    </DropdownMenuItem>
+                </div>
+
+                <div
+                    class="flex min-w-0 flex-col gap-0.5 px-3.5 pt-3 pb-[13px]"
                 >
-                    <LogOut :class="icon" :stroke-width="1.6" />
-                    {{ $t('Log out') }}
-                </Link>
-            </DropdownMenuItem>
-        </DropdownMenuContent>
-    </DropdownMenu>
+                    <p
+                        class="truncate text-[13px]/5 font-medium tracking-[-0.005em] text-fg-primary"
+                    >
+                        {{ user.name }}
+                    </p>
+                    <p
+                        class="truncate text-[12px]/4 tracking-[-0.005em] text-fg-tertiary"
+                    >
+                        <template v-if="role"
+                            ><span class="text-[#87a3ff]">{{ role }}</span
+                            ><span class="text-fg-faint">{{
+                                ' · '
+                            }}</span></template
+                        >{{ user.email }}
+                    </p>
+                </div>
+            </DropdownMenuContent>
+        </DropdownMenuPortal>
+    </DropdownMenuRoot>
 </template>

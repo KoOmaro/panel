@@ -5,8 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Activity;
 use App\Models\Machine;
 use App\Models\Monitor;
-use App\Models\MonitorCheck;
-use App\Models\MonitorIncident;
 use App\Models\StatusIncident;
 use App\Models\Workspace;
 use App\Models\WorkspaceStatusPage;
@@ -18,6 +16,7 @@ use App\Support\Deploys\ServiceLabels;
 use App\Support\Monitors\AlertKinds;
 use App\Support\Monitors\HostResolver;
 use App\Support\Monitors\MonitorAlerts;
+use App\Support\Monitors\MonitorReport;
 use App\Support\Monitors\MonitorRunner;
 use App\Support\Monitors\MonitorSettings;
 use App\Support\Monitors\TelegramAlerts;
@@ -35,8 +34,6 @@ use function Illuminate\Support\defer;
 
 class MonitorController extends Controller
 {
-    public const BUCKETS = 144;
-
     public const RANGES = ['24h' => 24, '7d' => 168];
 
     public function index(Workspace $workspace): Response
@@ -156,7 +153,7 @@ class MonitorController extends Controller
     {
         $this->own($workspace, $monitor);
         $range = $request->validate(['range' => ['nullable', Rule::in(array_keys(self::RANGES))]])['range'] ?? '24h';
-        $hours = self::RANGES[$range];
+        $report = new MonitorReport($monitor);
 
         return Inertia::render('workspace/MonitorShow', [
             'workspace' => $workspace->toPageProps(),
@@ -164,25 +161,11 @@ class MonitorController extends Controller
             'machines' => $this->machines($workspace),
             'minInterval' => $workspace->minMonitorInterval(),
             'range' => $range,
-            'chart' => $this->chart($monitor, $hours),
-            'uptime' => [
-                'day' => $this->uptimeSince($monitor, now()->subDay()),
-                'week' => $this->uptimeSince($monitor, now()->subWeek()),
-                'month' => $monitor->uptime(30),
-                'quarter' => $monitor->uptime(Monitor::DAYS),
-            ],
-            'days' => $monitor->days(Monitor::DAYS),
-            'incidents' => $monitor->incidents()->latest('started_at')->limit(20)->get()
-                ->map(fn (MonitorIncident $i) => $i->toPageProps())->values(),
-            'checks' => $monitor->checks()->latest('checked_at')->limit(20)->get()
-                ->map(fn (MonitorCheck $c) => [
-                    'id' => $c->id,
-                    'at' => $c->checked_at->toIso8601String(),
-                    'ok' => $c->ok,
-                    'ms' => $c->response_ms,
-                    'code' => $c->status_code,
-                    'error' => $c->error,
-                ])->values(),
+            'figures' => $report->figures(),
+            'chart' => $report->chart($range),
+            'days' => $report->days(),
+            'incidents' => $report->incidents(),
+            'checks' => $report->checks(),
         ]);
     }
 
@@ -321,44 +304,6 @@ class MonitorController extends Controller
     private function validated(Request $request, Workspace $workspace): array
     {
         return app(MonitorSettings::class)->validate($request->all(), $workspace);
-    }
-
-    private function uptimeSince(Monitor $monitor, \DateTimeInterface $since): ?float
-    {
-        $row = $monitor->checks()->where('checked_at', '>=', $since)
-            ->selectRaw('count(*) as total, sum(case when ok then 1 else 0 end) as passed')
-            ->toBase()->first();
-
-        return $row === null || (int) $row->total === 0 ? null : round((int) $row->passed / (int) $row->total * 100, 3);
-    }
-
-    /** @return array{timestamps: list<int>, response: list<int|null>, failed: list<int>} */
-    private function chart(Monitor $monitor, int $hours): array
-    {
-        $end = now()->getTimestamp();
-        $start = $end - $hours * 3600;
-        $size = intdiv($hours * 3600, self::BUCKETS);
-        $totalMs = $timed = $failed = array_fill(0, self::BUCKETS, 0);
-
-        $checks = $monitor->checks()->where('checked_at', '>=', now()->subHours($hours))
-            ->orderBy('checked_at')
-            ->get(['checked_at', 'ok', 'response_ms']);
-        foreach ($checks as $check) {
-            $i = min(self::BUCKETS - 1, max(0, intdiv($check->checked_at->getTimestamp() - $start, $size)));
-            if ($check->ok && $check->response_ms !== null) {
-                $totalMs[$i] += $check->response_ms;
-                $timed[$i]++;
-            }
-            if (! $check->ok) {
-                $failed[$i]++;
-            }
-        }
-
-        return [
-            'timestamps' => array_map(fn (int $i) => $start + $i * $size, range(0, self::BUCKETS - 1)),
-            'response' => array_map(fn (int $ms, int $n) => $n > 0 ? (int) round($ms / $n) : null, $totalMs, $timed),
-            'failed' => array_values($failed),
-        ];
     }
 
     /**

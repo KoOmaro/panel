@@ -121,3 +121,40 @@ test('a busy workspace’s finished deploys are capped and never push out one st
             ->where('deploys.50.id', $running->id)
             ->etc());
 });
+
+test('the services page sends each machine’s memory so service meters have a scale', function () {
+    $workspace = Workspace::factory()->create();
+    $machine = Machine::factory()->for($workspace)->create(['name' => 'alpha']);
+    $machine->forceFill(['facts' => ['memory_bytes' => 8589934592]])->save();
+    Machine::factory()->for($workspace)->create(['name' => 'beta']);
+
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('machines.0.memoryBytes', 8589934592)
+            ->where('machines.1.memoryBytes', null)
+            ->etc());
+});
+
+test('the services page sends this workspace’s recent adopts, so a found service shows it is being adopted', function () {
+    $workspace = Workspace::factory()->create();
+    $machine = Machine::factory()->for($workspace)->create();
+    $theirs = Machine::factory()->create();
+
+    $running = servicesDeploy($machine, 'systemd:pgbouncer.service', 'running', 1, 0, 'adopt');
+    $failed = servicesDeploy($machine, 'docker:abc', 'failed', 2, 2, 'adopt');
+    $failed->forceFill(['error' => ['message' => 'Adopting failed.', 'next_step' => 'Try again.', 'output_tail' => ['secret line']]])->save();
+    servicesDeploy($machine, 'docker:old', 'succeeded', 30, 30, 'adopt');
+    servicesDeploy($machine, 'docker:deploy', 'running', 1, 0);
+    servicesDeploy($theirs, 'docker:theirs', 'running', 1, 0, 'adopt');
+
+    $this->actingAs($workspace->owner)->get($workspace->url().'/services')
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('adopts', 2)
+            ->where('adopts.0', [
+                'id' => $running->id, 'machineId' => $machine->id, 'service' => 'systemd:pgbouncer.service',
+                'state' => 'running', 'error' => null,
+            ])
+            ->where('adopts.1.id', $failed->id)
+            ->where('adopts.1.error', ['message' => 'Adopting failed.', 'next_step' => 'Try again.'])
+            ->etc());
+});

@@ -1,63 +1,56 @@
 <script setup lang="ts">
-import { themeColour } from '@/lib/themeColour';
-import { useUpgradeLink } from '@/composables/useUpgradeLink';
-import { trans } from 'laravel-vue-i18n';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { Ellipsis, LoaderCircle, Search, X } from '@lucide/vue';
-import {
-    SolarCopyPlus as CopyPlus,
-    SolarCpu as Cpu,
-    SolarEye as Eye,
-    SolarEyeOff as EyeOff,
-    SolarFileText as FileText,
-    SolarFileX as FileX,
-    SolarGlobe as Globe,
-    SolarHistory as History,
-    SolarLock as Lock,
-    SolarPackage as Package,
-    SolarPencil as Pencil,
-    SolarPlay as Play,
-    SolarRefreshCw as RefreshCw,
-    SolarRotateCcw as RotateCcw,
-    SolarShieldCheck as ShieldCheck,
-    SolarSquareTerminal as SquareTerminal,
-    SolarSparkles as Sparkles,
-    SolarSettings as Settings,
-    SolarSquare as Square,
-    SolarTrash2 as Trash2,
-} from '@/lib/solarIcons';
+import { Ellipsis, Plus } from '@lucide/vue';
+import { trans } from 'laravel-vue-i18n';
 import {
     computed,
-    nextTick,
     onBeforeUnmount,
     onMounted,
     ref,
     useTemplateRef,
     watch,
 } from 'vue';
-import { toast } from '@/lib/toast';
+import BrandLogo from '@/components/dash/BrandLogo.vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTab from '@/components/dash/DashTab.vue';
+import DashTabs from '@/components/dash/DashTabs.vue';
+import StatusBadge from '@/components/dash/StatusBadge.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { FilledIconName } from '@/components/icons/filledIcons';
 import InputError from '@/components/InputError.vue';
-import AppSiteDialog from '@/components/machines/AppSiteDialog.vue';
-import type { SiteSwitches } from '@/components/machines/AppSiteDialog.vue';
 import AppLimitsDialog from '@/components/machines/AppLimitsDialog.vue';
-import type { AppLimits } from '@/components/machines/AppLimitsDialog.vue';
+import AppSiteDialog from '@/components/machines/AppSiteDialog.vue';
 import AppVariablesDialog from '@/components/machines/AppVariablesDialog.vue';
 import CloneServiceDialog from '@/components/machines/CloneServiceDialog.vue';
 import DatabaseBrowser from '@/components/machines/DatabaseBrowser.vue';
-import FileBrowser from '@/components/machines/FileBrowser.vue';
-import type { FilePlace } from '@/components/machines/FileBrowser.vue';
-import JobStatusBadge from '@/components/machines/JobStatusBadge.vue';
-import type { Machine } from '@/components/machines/machines';
-import ServiceLogo from '@/components/machines/ServiceLogo.vue';
 import ExistingSitesTraffic from '@/components/machines/ExistingSitesTraffic.vue';
 import type { ExistingSitesTrafficProps } from '@/components/machines/ExistingSitesTraffic.vue';
+import FileBrowser from '@/components/machines/FileBrowser.vue';
+import type { FilePlace } from '@/components/machines/FileBrowser.vue';
+import type { Machine } from '@/components/machines/machines';
+import type { Service, ServiceStat } from '@/components/machines/serviceFormat';
 import SiteTraffic from '@/components/machines/SiteTraffic.vue';
-import type { SiteTrafficState } from '@/components/machines/SiteTraffic.vue';
+import DeploySettingsDialog from '@/components/service/DeploySettingsDialog.vue';
+import ServiceCharts from '@/components/service/ServiceCharts.vue';
+import ServiceConsole from '@/components/service/ServiceConsole.vue';
+import ServiceDeploys from '@/components/service/ServiceDeploys.vue';
+import ServiceDetails from '@/components/service/ServiceDetails.vue';
+import ServiceDomain from '@/components/service/ServiceDomain.vue';
+import ServiceLogs from '@/components/service/ServiceLogs.vue';
+import ServiceRail from '@/components/service/ServiceRail.vue';
+import ServiceUsage from '@/components/service/ServiceUsage.vue';
+import ServiceVariables from '@/components/service/ServiceVariables.vue';
 import type {
-    Service,
-    ServiceStat,
-} from '@/components/machines/ServicesTable.vue';
-import TimeSeriesChart from '@/components/machines/TimeSeriesChart.vue';
+    AppVersion,
+    LinkedDatabase,
+    LogSummary,
+    ServiceApp,
+    ServiceStack,
+    ServiceUsage as Usage,
+    UsagePoint,
+} from '@/components/service/serviceTypes';
+import { statusOf } from '@/components/service/serviceTypes';
 import {
     Dialog,
     DialogContent,
@@ -73,42 +66,23 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { SelectMenu } from '@/components/ui/select';
-import {
-    InputOTP,
-    InputOTPGroup,
-    InputOTPSlot,
-} from '@/components/ui/input-otp';
-import ContainerConfig from '@/components/workspace/ContainerConfig.vue';
 import AppButton from '@/components/workspace/AppButton.vue';
+import ContainerConfig from '@/components/workspace/ContainerConfig.vue';
 import DangerButton from '@/components/workspace/DangerButton.vue';
 import ImageUploadField from '@/components/workspace/ImageUploadField.vue';
 import SubmitButton from '@/components/workspace/SubmitButton.vue';
 import TickBox from '@/components/workspace/TickBox.vue';
-import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
 import { usePathTab } from '@/composables/usePathTab';
 import { useZipUpload } from '@/composables/useZipUpload';
-import { fixed } from '@/lib/formatting';
-import { timeAgo } from '@/lib/timeAgo';
-import { edit as securityEdit } from '@/routes/security';
+import { describe, errorMessage, jobReason, reasonIn } from '@/lib/errors';
+import { toast } from '@/lib/toast';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import appsRoutes from '@/routes/workspace/apps';
-import consoleRoutes from '@/routes/workspace/console';
 import fixesRoutes from '@/routes/workspace/fixes';
 import logsRoutes from '@/routes/workspace/logs';
 import machinesRoutes from '@/routes/workspace/machines';
+import servicesRoutes from '@/routes/workspace/services';
 import type { Workspace, WorkspaceAccess } from '@/types';
-import {
-    describe,
-    errorMessage,
-    jobReason,
-    networkMessage,
-    reasonIn,
-    responseError,
-} from '@/lib/errors';
-
-const upgrade = useUpgradeLink();
 
 type ServiceJob = {
     id: string;
@@ -122,18 +96,16 @@ type ServiceJob = {
     createdAt: string | null;
 };
 
-type Point = {
-    ts: number;
-    cpu: number | null;
-    mem: number | null;
-    rx: number | null;
-    tx: number | null;
-};
-
 const props = defineProps<{
     workspace: Workspace;
     machine: Machine;
     service: Service & { managed: boolean; container: boolean };
+    brand: { slug: string; name: string } | null;
+    stack: ServiceStack;
+    linked: LinkedDatabase;
+    usage: Usage;
+    logs: LogSummary;
+    messages?: Record<string, string>;
     stats: ServiceStat | null;
     removable: boolean;
     inspect: { available: boolean } | null;
@@ -141,7 +113,7 @@ const props = defineProps<{
     clone: { unavailable: string | null; name: string; port: number } | null;
     links: string[];
     range: string;
-    history: Point[];
+    history: UsagePoint[];
     jobs: ServiceJob[];
     commandsEnabled: boolean;
     files: { places: FilePlace[]; maxWrite: number; maxRead: number };
@@ -150,43 +122,9 @@ const props = defineProps<{
         unlockedUntil: string | null;
         minutes: number;
     };
-    app: {
-        service: string;
-        commit: string | null;
-        fromUpload: boolean;
-        repo: string | null;
-        domains: string[];
-        mentions: string[];
-        canMove: boolean;
-        deployedAt: string | null;
-        snapshotBefore: boolean;
-        deployOnPush: {
-            on: boolean;
-            branch: string;
-            onlyNewest: boolean;
-        } | null;
-        site: SiteSwitches;
-        traffic: SiteTrafficState;
-        database: {
-            setting: string;
-            current: { name: string; display: string } | null;
-            options: { value: string; label: string }[];
-        };
-        versions: AppVersion[];
-        variables: string[];
-        limits: AppLimits;
-    } | null;
+    app: ServiceApp | null;
     siteTraffic: ExistingSitesTrafficProps | null;
 }>();
-
-type AppVersion = {
-    commit: string;
-    live: boolean;
-    deployedAt: string | null;
-    by: string | null;
-    data: boolean;
-    dataAt: string | null;
-};
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
 const canManage = computed(
@@ -217,9 +155,12 @@ const machineArgs = computed(() => ({
     workspace: props.workspace.slug,
     machine: props.machine.id!,
 }));
+const routeKey = computed(() =>
+    props.service.app ? `app:${props.service.app}` : props.service.key,
+);
 const serviceArgs = computed(() => ({
     ...machineArgs.value,
-    service: props.service.app ? `app:${props.service.app}` : props.service.key,
+    service: routeKey.value,
 }));
 const appArgs = computed(() => ({
     ...machineArgs.value,
@@ -228,6 +169,9 @@ const appArgs = computed(() => ({
 const machineUrl = computed(
     () => onWorkspace(machinesRoutes.show(machineArgs.value)).url,
 );
+const servicesUrl = computed(
+    () => onWorkspace(servicesRoutes.index(props.workspace.slug)).url,
+);
 const serviceUrl = computed(
     () => onWorkspace(machinesRoutes.services.show(serviceArgs.value)).url,
 );
@@ -235,12 +179,16 @@ const serviceIconUrl = computed(
     () =>
         onWorkspace(machinesRoutes.services.icon.update(serviceArgs.value)).url,
 );
+const actionUrl = computed(
+    () => onWorkspace(machinesRoutes.services.action(serviceArgs.value)).url,
+);
 
 function jobUrl(job: string): string {
     return onWorkspace(
         machinesRoutes.show(machineArgs.value, { query: { job } }),
     ).url;
 }
+
 const displayName = computed(
     () =>
         props.service.label ??
@@ -248,6 +196,56 @@ const displayName = computed(
         props.service.found ??
         props.service.name,
 );
+
+const logo = computed(() =>
+    props.brand?.slug
+        ? props.brand.slug
+        : `${props.service.name} ${props.service.details?.image ?? ''}`,
+);
+
+const chips = computed(() => {
+    const list: {
+        key: string;
+        label: string;
+        logo?: string;
+        icon?: FilledIconName;
+        href?: string;
+    }[] = [];
+    if (props.stack) {
+        list.push(
+            props.stack.kind === 'compose'
+                ? {
+                      key: 'stack',
+                      label: trans(':name stack', { name: props.stack.name }),
+                      logo: 'docker',
+                  }
+                : {
+                      key: 'stack',
+                      label: trans(':name project', {
+                          name: props.stack.name,
+                      }),
+                      icon: 'projects-fill',
+                      href: props.stack.url ?? undefined,
+                  },
+        );
+    }
+    list.push({
+        key: 'machine',
+        label: [
+            props.machine.name,
+            props.machine.provider === 'Other' ? null : props.machine.provider,
+        ]
+            .filter(Boolean)
+            .join(' · '),
+        logo: props.machine.provider,
+        href: machineUrl.value,
+    });
+    if (props.service.details?.image) {
+        list.push({ key: 'image', label: props.service.details.image });
+    }
+
+    return list;
+});
 
 const renaming = ref(false);
 const newLabel = ref('');
@@ -282,11 +280,8 @@ function saveLabel(label: string | null): void {
         },
     );
 }
-const actionUrl = computed(
-    () => onWorkspace(machinesRoutes.services.action(serviceArgs.value)).url,
-);
 
-const tab = usePathTab(serviceUrl.value, [
+const TAB_KEYS = [
     'overview',
     'traffic',
     'logs',
@@ -294,23 +289,42 @@ const tab = usePathTab(serviceUrl.value, [
     'files',
     'database',
     'details',
-] as const);
+] as const;
+type TabKey = (typeof TAB_KEYS)[number];
+
+const tab = usePathTab(serviceUrl.value, TAB_KEYS);
 
 const tabs = computed(() =>
     (
         [
-            'overview',
-            ...(props.app || props.siteTraffic ? (['traffic'] as const) : []),
-            'logs',
-            'files',
-            ...(props.database ? (['database'] as const) : []),
-            'details',
-        ] as const
-    ).map((value) => ({
-        value,
-        label: value[0].toUpperCase() + value.slice(1),
-        current: tab.value === value,
-    })),
+            {
+                key: 'overview',
+                label: trans('Overview'),
+                icon: 'monitors-fill',
+            },
+            ...(props.app || props.siteTraffic
+                ? [
+                      {
+                          key: 'traffic',
+                          label: trans('Traffic'),
+                          icon: 'globe-fill',
+                      },
+                  ]
+                : []),
+            { key: 'logs', label: trans('Logs'), icon: 'file-fill' },
+            { key: 'files', label: trans('Files'), icon: 'folder-fill' },
+            ...(props.database
+                ? [
+                      {
+                          key: 'database',
+                          label: trans('Database'),
+                          icon: 'database-fill',
+                      },
+                  ]
+                : []),
+            { key: 'details', label: trans('Details'), icon: 'info-fill' },
+        ] as { key: TabKey; label: string; icon: FilledIconName }[]
+    ).map((item) => ({ ...item, current: tab.value === item.key })),
 );
 
 const activeJob = computed(() =>
@@ -346,123 +360,20 @@ function poll(): void {
     timer = setTimeout(
         () =>
             router.reload({
-                only: ['service', 'stats', 'history', 'jobs', 'machine', 'app'],
+                only: [
+                    'service',
+                    'stats',
+                    'history',
+                    'jobs',
+                    'machine',
+                    'app',
+                    'usage',
+                ],
                 onFinish: poll,
             }),
         activeJob.value || awaitingScan.value ? 1500 : 5000,
     );
 }
-
-onMounted(() => {
-    poll();
-});
-
-onBeforeUnmount(() => {
-    clearTimeout(timer);
-});
-
-function bytes(value: number | null | undefined): string {
-    if (value === null || value === undefined) return '—';
-    if (value >= 1024 ** 3) return `${fixed(value / 1024 ** 3, 2)} GiB`;
-    if (value >= 1024 ** 2) return `${fixed(value / 1024 ** 2, 1)} MiB`;
-    if (value >= 1024) return `${Math.round(value / 1024)} KiB`;
-
-    return `${Math.round(value)} B`;
-}
-
-function uptime(startedAt: number | null | undefined): string {
-    if (!startedAt) return '—';
-
-    const s = Math.max(0, Math.floor(Date.now() / 1000 - startedAt));
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-
-    return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
-}
-
-const appliedLimits = computed(() => props.app?.limits?.applied ?? null);
-const memLimit = computed(() =>
-    appliedLimits.value?.memoryMb
-        ? appliedLimits.value.memoryMb * 1024 * 1024
-        : props.stats?.memLimit && props.stats.memLimit < 2 ** 50
-          ? props.stats.memLimit
-          : null,
-);
-
-function cpusLabel(cpus: number): string {
-    return cpus === 1
-        ? trans('1 CPU')
-        : trans(':count CPUs', { count: String(cpus) });
-}
-
-function limitsLabel(
-    limits: { cpus: number | null; memoryMb: number | null } | null,
-): string {
-    if (!limits) return trans('No limits');
-
-    return [
-        limits.cpus ? cpusLabel(limits.cpus) : null,
-        limits.memoryMb
-            ? limits.memoryMb >= 1024 && limits.memoryMb % 1024 === 0
-                ? `${limits.memoryMb / 1024} GB`
-                : `${limits.memoryMb} MB`
-            : null,
-    ]
-        .filter(Boolean)
-        .join(', ');
-}
-
-const limitsPending = computed(() => {
-    const limits = props.app?.limits;
-    if (!limits?.setting) return false;
-
-    return (
-        limits.setting.cpus !== (limits.applied?.cpus ?? null) ||
-        limits.setting.memoryMb !== (limits.applied?.memoryMb ?? null)
-    );
-});
-
-const statusTone: Record<string, { dot: string; label: string }> = {
-    running: { dot: 'bg-(--ds-green)', label: trans('Running') },
-    stopped: { dot: 'bg-(--ds-text-faint)', label: trans('Stopped') },
-    restarting: { dot: 'bg-(--ds-amber)', label: trans('Restarting') },
-    failed: { dot: 'bg-(--ds-red)', label: trans('Failed') },
-};
-const status = computed(() =>
-    pending.value && pending.value.action !== 'adopt'
-        ? {
-              dot: 'bg-(--ds-amber) animate-pulse',
-              label: `${lifecycleLabels[pending.value.action]}…`,
-          }
-        : (statusTone[
-              awaitingScan.value && expected.value
-                  ? expected.value.status
-                  : props.service.status
-          ] ?? {
-              dot: 'bg-(--ds-text-faint)',
-              label: props.service.status,
-          }),
-);
-
-const ranges = ['15m', '1h', '6h', '24h'];
-
-function setRange(range: string): void {
-    router.get(
-        window.location.pathname,
-        { range },
-        {
-            only: ['history', 'range'],
-            preserveState: true,
-            preserveScroll: true,
-            replace: true,
-        },
-    );
-}
-
-const timestamps = computed(() => props.history.map((p) => p.ts));
-const percent = (v: number) => `${v < 10 ? v.toFixed(1) : Math.round(v)}%`;
-const rate = (v: number) => `${bytes(v)}/s`;
 
 const busy = ref<string | null>(null);
 
@@ -479,10 +390,7 @@ async function act(
             headers: {
                 Accept: 'application/json',
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN':
-                    document.querySelector<HTMLMetaElement>(
-                        'meta[name="csrf-token"]',
-                    )?.content ?? '',
+                'X-CSRF-TOKEN': csrf(),
             },
             body: JSON.stringify({ action, ...extra }),
         });
@@ -504,6 +412,13 @@ async function act(
     } finally {
         busy.value = null;
     }
+}
+
+function csrf(): string {
+    return (
+        document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
+            ?.content ?? ''
+    );
 }
 
 const lifecycleLabels: Record<string, string> = {
@@ -537,6 +452,21 @@ const pendingJob = computed(() =>
 );
 const working = computed(() => busy.value ?? pending.value?.action ?? null);
 
+const status = computed(() => {
+    if (pending.value && pending.value.action !== 'adopt') {
+        return {
+            status: 'deploying' as const,
+            label: `${lifecycleLabels[pending.value.action] ?? trans('Working')}…`,
+        };
+    }
+
+    return statusOf(
+        awaitingScan.value && expected.value
+            ? expected.value.status
+            : props.service.status,
+    );
+});
+
 async function track(action: string, verb: string): Promise<void> {
     const { ok, body } = await act(action);
     if (!ok) return;
@@ -552,9 +482,7 @@ async function track(action: string, verb: string): Promise<void> {
                 verb: doneLabels[action],
                 name: displayName.value,
             }),
-            {
-                id: toastId,
-            },
+            { id: toastId },
         );
     }
 }
@@ -581,9 +509,7 @@ watch(
                     verb: doneLabels[current.action],
                     name: displayName.value,
                 }),
-                {
-                    id: current.toast,
-                },
+                { id: current.toast },
             );
             if (current.action === 'adopt') {
                 adoptedNow.value = true;
@@ -627,11 +553,37 @@ watch(
     },
 );
 
-const liveCommit = computed(
-    () =>
-        props.app?.versions.find((v) => v.live)?.commit ??
-        props.app?.commit ??
-        null,
+watch(
+    () => pending.value?.id,
+    (id) => {
+        if (!id) return;
+        setTimeout(() => {
+            if (pending.value?.id === id) {
+                toast.error(
+                    trans(
+                        'No answer from the machine yet. It may still finish; check back in a minute.',
+                    ),
+                    { id: pending.value.toast },
+                );
+                pending.value = null;
+            }
+        }, 90_000);
+    },
+);
+
+function lifecycle(action: 'start' | 'stop' | 'restart' | 'reload'): void {
+    void track(action, lifecycleLabels[action]);
+}
+
+function adopt(): void {
+    void track('adopt', trans('Adopting'));
+}
+
+const liveVersion = computed(
+    () => props.app?.versions.find((version) => version.live) ?? null,
+);
+const olderVersion = computed(
+    () => props.app?.versions.find((version) => !version.live) ?? null,
 );
 
 const rollingBack = ref<AppVersion | null>(null);
@@ -647,13 +599,6 @@ function askRollback(version: AppVersion): void {
     rollbackConfirm.value = '';
     rollbackError.value = null;
     rollbackOpen.value = true;
-}
-
-function csrf(): string {
-    return (
-        document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
-            ?.content ?? ''
-    );
 }
 
 async function rollback(): Promise<void> {
@@ -707,174 +652,46 @@ async function rollback(): Promise<void> {
     }
 }
 
-const snapshotBefore = ref(props.app?.snapshotBefore ?? true);
-watch(
-    () => props.app?.snapshotBefore,
-    (on) => {
-        if (on !== undefined) snapshotBefore.value = on;
-    },
-);
+const redeploying = ref(false);
 
-const databaseOptions = computed(() => {
-    const database = props.app?.database;
-    if (!database) return [];
-
-    return [
-        {
-            value: 'auto',
-            label:
-                database.setting === 'auto' && database.current
-                    ? trans('From its settings: :display', {
-                          display: String(database.current.display),
-                      })
-                    : trans('From its settings'),
-        },
-        ...database.options.map((option) => ({
-            value: option.value,
-            label: option.label,
-        })),
-        { value: 'none', label: trans('None') },
-    ];
-});
-
-async function saveDatabase(value: string): Promise<void> {
-    if (!props.app) return;
-    const response = await fetch(
-        onWorkspace(appsRoutes.settings(appArgs.value)).url,
-        {
-            method: 'PUT',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
+async function redeploy(): Promise<void> {
+    const version = liveVersion.value;
+    if (!version || redeploying.value) return;
+    redeploying.value = true;
+    try {
+        const response = await fetch(
+            onWorkspace(
+                machinesRoutes.jobs.retry({
+                    ...machineArgs.value,
+                    job: version.id,
+                }),
+            ).url,
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrf(),
+                },
             },
-            body: JSON.stringify({ database: value }),
-        },
-    ).catch(() => null);
-    if (!response?.ok) {
-        toast.error(
-            response ? await responseError(response) : networkMessage(),
         );
-    }
-    router.reload({ only: ['app'] });
-}
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            toast.error(describe(response.status, body));
 
-const deployOnPush = ref(props.app?.deployOnPush?.on ?? false);
-const pushBranch = ref(props.app?.deployOnPush?.branch ?? 'main');
-const pushOnlyNewest = ref(props.app?.deployOnPush?.onlyNewest ?? true);
-const pushBranchError = ref<string | null>(null);
-watch(
-    () => props.app?.deployOnPush,
-    (setting) => {
-        if (!setting) return;
-        deployOnPush.value = setting.on;
-        pushBranch.value = setting.branch;
-        pushOnlyNewest.value = setting.onlyNewest;
-    },
-);
-
-async function savePushSettings(body: {
-    deploy_on_push?: boolean;
-    push_branch?: string;
-    push_only_newest?: boolean;
-}): Promise<boolean> {
-    if (!props.app) return false;
-    pushBranchError.value = null;
-    const response = await fetch(
-        onWorkspace(appsRoutes.settings(appArgs.value)).url,
-        {
-            method: 'PUT',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
-            },
-            body: JSON.stringify(body),
-        },
-    ).catch(() => null);
-    if (!response?.ok) {
-        const message = response
-            ? await responseError(response)
-            : networkMessage();
-        if (body.push_branch !== undefined) pushBranchError.value = message;
-        else toast.error(message);
-        return false;
-    }
-
-    return true;
-}
-
-async function saveDeployOnPush(on: boolean): Promise<void> {
-    const saved = await savePushSettings({
-        deploy_on_push: on,
-        push_branch: pushBranch.value.trim() || 'main',
-    });
-    if (!saved) deployOnPush.value = !on;
-}
-
-async function savePushOnlyNewest(on: boolean): Promise<void> {
-    if (!(await savePushSettings({ push_only_newest: on }))) {
-        pushOnlyNewest.value = !on;
-    }
-}
-
-async function savePushBranch(): Promise<void> {
-    const branch = pushBranch.value.trim();
-    if (!branch || branch === props.app?.deployOnPush?.branch) return;
-    if (await savePushSettings({ push_branch: branch })) {
-        router.reload({ only: ['app'] });
-    }
-}
-
-async function saveSnapshotBefore(on: boolean): Promise<void> {
-    if (!props.app) return;
-    const response = await fetch(
-        onWorkspace(appsRoutes.settings(appArgs.value)).url,
-        {
-            method: 'PUT',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrf(),
-            },
-            body: JSON.stringify({ snapshot_before: on }),
-        },
-    ).catch(() => null);
-    if (!response?.ok) {
-        snapshotBefore.value = !on;
-        toast.error(
-            response ? await responseError(response) : networkMessage(),
+            return;
+        }
+        toast.success(
+            trans('Deploying :commit again…', {
+                commit: version.commit.slice(0, 7),
+            }),
         );
+        router.visit(jobUrl(body.jobId));
+    } catch (cause) {
+        toast.error(errorMessage(cause));
+    } finally {
+        redeploying.value = false;
     }
-}
-
-watch(
-    () => pending.value?.id,
-    (id) => {
-        if (!id) return;
-        setTimeout(() => {
-            if (pending.value?.id === id) {
-                toast.error(
-                    trans(
-                        'No answer from the machine yet. It may still finish; check back in a minute.',
-                    ),
-                    { id: pending.value.toast },
-                );
-                pending.value = null;
-            }
-        }, 90_000);
-    },
-);
-
-function lifecycle(action: 'start' | 'stop' | 'restart' | 'reload') {
-    void track(action, lifecycleLabels[action]);
-}
-
-function adopt() {
-    void track('adopt', trans('Adopting'));
 }
 
 function toggleHidden(): void {
@@ -931,47 +748,16 @@ const needsRepair = computed(
 );
 const repairing = ref(false);
 
-function repair() {
+function repair(): void {
     repairing.value = false;
     void track('repair', trans('Repairing'));
 }
 
 const variablesOpen = ref(false);
 const siteOpen = ref(false);
-const siteRows = computed(() => {
-    const site = props.app?.site;
-    if (!site) return [];
+const limitsOpen = ref(false);
+const deploySettingsOpen = ref(false);
 
-    return [
-        {
-            label: trans('Maintenance page'),
-            value: site.maintenance ? trans('Up') : trans('Off'),
-            on: site.maintenance,
-            warn: site.maintenance,
-        },
-        {
-            label: trans('Password'),
-            value: site.password ? (site.user ?? '') : trans('Off'),
-            on: site.password,
-            warn: false,
-        },
-        {
-            label: trans('www redirect'),
-            value:
-                site.wwwRedirect && site.wwwName ? site.wwwName : trans('Off'),
-            on: site.wwwRedirect,
-            warn: false,
-        },
-        {
-            label: trans('Redirects'),
-            value: site.redirects.length
-                ? String(site.redirects.length)
-                : trans('None'),
-            on: site.redirects.length > 0,
-            warn: false,
-        },
-    ];
-});
 const siteApplying = computed(() => {
     const state = props.app?.site.job?.state;
 
@@ -991,10 +777,6 @@ watch(
     },
     { immediate: true },
 );
-onBeforeUnmount(() => {
-    if (sitePoll) clearInterval(sitePoll);
-});
-const limitsOpen = ref(false);
 
 function variablesSaved(jobId: string | null): void {
     if (jobId && props.machine.id) {
@@ -1005,9 +787,8 @@ function variablesSaved(jobId: string | null): void {
 const zip = useZipUpload();
 const zipInput = useTemplateRef<HTMLInputElement>('zipInput');
 const shipping = ref(false);
-const dragging = ref(false);
 
-async function shipVersion(file: File | undefined) {
+async function shipVersion(file: File | undefined): Promise<void> {
     if (!props.app || !props.machine.id || shipping.value) return;
     const source = await zip.upload(props.machine.id, file);
     if (!source) return;
@@ -1037,14 +818,21 @@ async function shipVersion(file: File | undefined) {
     }
 }
 
-function pickVersion(event: Event) {
-    void shipVersion((event.target as HTMLInputElement).files?.[0]);
-}
+watch(zip.error, (message) => {
+    if (message) toast.error(message);
+});
 
-function dropVersion(event: DragEvent) {
-    dragging.value = false;
-    void shipVersion(event.dataTransfer?.files[0]);
-}
+const deployLabel = computed(() => {
+    if (zip.uploading.value) {
+        return zip.progress.value >= 1
+            ? trans('Unpacking…')
+            : trans('Uploading :round%', {
+                  round: String(Math.round(zip.progress.value * 100)),
+              });
+    }
+
+    return shipping.value ? trans('Starting…') : trans('Deploy');
+});
 
 type DomainCheck = {
     status: 'ready' | 'missing' | 'proxied' | 'elsewhere';
@@ -1082,7 +870,7 @@ const movingAway = computed(
         bareDomain(newDomain.value) !== props.app.domains[0],
 );
 
-function openMove() {
+function openMove(): void {
     newDomain.value = props.app?.domains[0] ?? '';
     moveError.value = null;
     moveDns.value = null;
@@ -1111,7 +899,7 @@ watch([newDomain, moveWildcard], ([value]) => {
     }, 500);
 });
 
-async function moveDomain() {
+async function moveDomain(): Promise<void> {
     if (!props.app || moveBusy.value) return;
     moveBusy.value = true;
     moveError.value = null;
@@ -1143,8 +931,6 @@ async function moveDomain() {
     }
 }
 
-const logLines = ref(300);
-const logFilter = ref('');
 const historyUrl = computed(
     () =>
         onWorkspace(
@@ -1171,19 +957,10 @@ const fixesUrl = computed(
 const logsJob = computed(
     () => props.jobs.find((job) => job.kind === 'service_logs') ?? null,
 );
-const logs = computed(() => {
-    const lines = (logsJob.value?.result?.lines as string[] | undefined) ?? [];
-    const needle = logFilter.value.trim().toLowerCase();
 
-    return needle
-        ? lines.filter((line) => line.toLowerCase().includes(needle))
-        : lines;
-});
-const logBox = useTemplateRef<HTMLElement>('logBox');
-
-function fetchLogs(): void {
+function fetchLogs(lines: number): void {
     if (canControl.value) {
-        void act('logs', { lines: logLines.value });
+        void act('logs', { lines });
     }
 }
 
@@ -1212,180 +989,42 @@ watch(
     { immediate: true },
 );
 
-watch(tab, (next) => {
-    if (next === 'logs' && !logsJob.value) {
-        fetchLogs();
-    }
-});
-
 const consoleSheet = ref(false);
-
-function openConsole(): void {
-    consoleSheet.value = true;
-    void nextTick(() => consoleInput.value?.focus());
-}
 
 watch(
     tab,
     (next) => {
         if (next === 'console') {
             tab.value = 'overview';
-            openConsole();
+            consoleSheet.value = true;
         }
     },
     { immediate: true },
 );
 
-watch(
-    () => logs.value.length,
-    () =>
-        nextTick(() => {
-            if (logBox.value) {
-                logBox.value.scrollTop = logBox.value.scrollHeight;
-            }
-        }),
-);
-
-const unlockCode = ref('');
-const unlockError = ref<string | null>(null);
-const unlocking = ref(false);
-const now = ref(Date.now());
-let clock: ReturnType<typeof setInterval> | undefined;
-
-const unlockedMs = computed(() =>
-    props.consoleLock.unlockedUntil
-        ? Date.parse(props.consoleLock.unlockedUntil) - now.value
-        : 0,
-);
-const consoleOpen = computed(() => unlockedMs.value > 0);
-const countdown = computed(() => {
-    const total = Math.max(0, Math.floor(unlockedMs.value / 1000));
-
-    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-});
-
-onMounted(() => (clock = setInterval(() => (now.value = Date.now()), 1000)));
-onBeforeUnmount(() => clearInterval(clock));
-
-async function consoleRequest(path: 'unlock' | 'lock', body = {}) {
-    return fetch(
-        onWorkspace(
-            path === 'unlock'
-                ? consoleRoutes.unlock(props.workspace.slug)
-                : consoleRoutes.lock(props.workspace.slug),
-        ).url,
+function setRange(range: string): void {
+    router.get(
+        window.location.pathname,
+        { range },
         {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN':
-                    document.querySelector<HTMLMetaElement>(
-                        'meta[name="csrf-token"]',
-                    )?.content ?? '',
-            },
-            body: JSON.stringify(body),
+            only: ['history', 'range'],
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
         },
     );
 }
 
-async function unlock(): Promise<void> {
-    if (unlockCode.value.length !== 6 || unlocking.value) {
-        return;
-    }
+const memLimit = computed(() => {
+    const applied = props.app?.limits?.applied?.memoryMb;
+    if (applied) return applied * 1024 * 1024;
+    const reported = props.stats?.memLimit ?? null;
+    const total = props.machine.facts?.memory_bytes ?? null;
 
-    unlocking.value = true;
-    unlockError.value = null;
-
-    try {
-        const response = await consoleRequest('unlock', {
-            code: unlockCode.value,
-        });
-        const body = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            unlockError.value = describe(response.status, body);
-            unlockCode.value = '';
-
-            return;
-        }
-
-        unlockCode.value = '';
-        router.reload({
-            only: ['consoleLock'],
-            onFinish: () => nextTick(() => consoleInput.value?.focus()),
-        });
-    } catch (cause) {
-        unlockError.value = errorMessage(cause);
-    } finally {
-        unlocking.value = false;
-    }
-}
-
-async function lockConsole(): Promise<void> {
-    await consoleRequest('lock');
-    router.reload({ only: ['consoleLock'] });
-}
-
-const command = ref('');
-const consoleInput = useTemplateRef<HTMLInputElement>('consoleInput');
-const consoleBox = useTemplateRef<HTMLElement>('consoleBox');
-const commandError = ref<string | null>(null);
-let historyIndex = -1;
-
-const transcript = computed(() =>
-    props.jobs
-        .filter((job) => job.kind === 'service_exec')
-        .slice()
-        .reverse(),
-);
-
-async function run(): Promise<void> {
-    const text = command.value.trim();
-
-    if (!text || busy.value) {
-        return;
-    }
-
-    commandError.value = null;
-    const { ok, body } = await act('exec', { command: text });
-
-    if (ok) {
-        command.value = '';
-        historyIndex = -1;
-    } else if (body.code === 'console_locked') {
-        router.reload({ only: ['consoleLock'] });
-    } else if (body.errors) {
-        commandError.value = Object.values(
-            body.errors as Record<string, string[]>,
-        )[0]?.[0];
-    }
-}
-
-function recall(direction: 1 | -1): void {
-    const past = transcript.value.map((job) => job.command ?? '').reverse();
-
-    historyIndex = Math.max(
-        -1,
-        Math.min(past.length - 1, historyIndex + direction),
-    );
-    command.value = historyIndex === -1 ? '' : past[historyIndex];
-}
-
-watch(
-    () => transcript.value.map((job) => job.log.length).join(),
-    () =>
-        nextTick(() => {
-            if (consoleBox.value) {
-                consoleBox.value.scrollTop = consoleBox.value.scrollHeight;
-            }
-        }),
-);
-
-function output(job: ServiceJob): string[] {
-    return job.log[0]?.startsWith('$ ') ? job.log.slice(1) : job.log;
-}
+    return reported && reported < 2 ** 50 && (!total || reported < total)
+        ? reported
+        : null;
+});
 
 const removing = ref(false);
 const removeConfirm = ref('');
@@ -1438,195 +1077,45 @@ watch(removeData, (on) => {
     }
 });
 
-const focusRing =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)';
+onMounted(() => {
+    poll();
+});
+
+onBeforeUnmount(() => {
+    clearTimeout(timer);
+    if (sitePoll) clearInterval(sitePoll);
+});
 </script>
 
 <template>
     <Head :title="displayName" />
 
-    <WorkspacePage :title="displayName">
-        <template #title>
-            <div class="flex min-w-0 items-center gap-3">
-                <ServiceLogo
-                    :name="service.name"
-                    :kind="service.kind"
-                    :service-key="service.key"
-                    :image="service.details?.image"
-                    :icon-url="service.icon"
-                />
-                <h1
-                    class="truncate text-[21px]/7 font-semibold tracking-[-0.01em]"
-                >
-                    {{ displayName }}
-                </h1>
-                <button
-                    v-if="canManage"
-                    type="button"
-                    class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--ds-text-faint) hover:bg-(--ds-hover) hover:text-(--ds-text)"
-                    :class="focusRing"
-                    :title="$t('Edit name and icon')"
-                    :aria-label="$t('Edit service')"
-                    @click="openRename"
-                >
-                    <Pencil class="size-3.5" :stroke-width="1.75" />
-                </button>
-                <span
-                    class="flex shrink-0 items-center gap-1.5 rounded-full border border-(--ds-border-strong) px-2.5 py-0.5 text-xs/4 font-medium"
-                >
-                    <span class="size-1.5 rounded-full" :class="status.dot" />
-                    {{ status.label }}
-                </span>
-            </div>
-        </template>
-        <template #description>
-            {{ service.manager }} · {{ service.kind }}
-            <template v-if="service.ports.length">
-                ·
-                <span class="font-ui-mono text-[13px]">{{
-                    service.ports.map((p) => `:${p}`).join(' ')
-                }}</span>
-            </template>
-            <template v-for="link in links" :key="link">
-                ·
-                <a
-                    :href="link"
-                    target="_blank"
-                    rel="noopener"
-                    class="font-ui-mono text-[13px] text-(--ds-text) hover:underline hover:underline-offset-4"
-                    >{{ link.replace('http://', '') }}</a
-                >
-            </template>
-            {{ $t('· on') }}
-            <a
-                :href="machineUrl"
-                class="text-(--ds-text) hover:underline hover:underline-offset-4"
-                >{{ machine.name }}</a
-            >
-        </template>
-
-        <template #tabs>
-            <div class="max-w-full overflow-x-auto">
-                <div
-                    class="ds-segments"
-                    role="group"
-                    :aria-label="$t('Service')"
-                >
-                    <button
-                        v-for="option in tabs"
-                        :key="option.value"
-                        type="button"
-                        class="cursor-pointer"
-                        :aria-pressed="option.current"
-                        @click="tab = option.value"
-                    >
-                        {{ option.label }}
-                    </button>
-                </div>
-            </div>
-        </template>
-
-        <template v-if="managed && canManage" #actions>
-            <Link
-                :href="fixesUrl"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-                :title="
-                    $t('The agent reads its logs and explains what’s wrong')
-                "
-            >
-                <Sparkles class="size-3.5 opacity-60" :stroke-width="1.75" />
-                {{ $t('Look into it') }}
-            </Link>
-            <button
-                v-if="service.container"
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-                @click="openConsole"
-            >
-                <SquareTerminal
-                    class="size-3.5 opacity-60"
-                    :stroke-width="1.75"
-                />
-                {{ $t('Console') }}
-            </button>
-            <button
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-                :disabled="!canControl || working !== null"
-                @click="lifecycle('restart')"
-            >
-                <LoaderCircle
-                    v-if="working === 'restart'"
-                    class="size-3.5 animate-spin opacity-60"
-                    :stroke-width="2"
-                />
-                <RotateCcw
-                    v-else
-                    class="size-3.5 opacity-60"
-                    :stroke-width="1.75"
-                />
-                {{ $t('Restart') + ' ' }}
-            </button>
-            <button
-                v-if="running"
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-                :disabled="!canControl || working !== null"
-                @click="lifecycle('stop')"
-            >
-                <LoaderCircle
-                    v-if="working === 'stop'"
-                    class="size-3.5 animate-spin opacity-60"
-                    :stroke-width="2"
-                />
-                <Square
-                    v-else
-                    class="size-3.5 opacity-60"
-                    :stroke-width="1.75"
-                />
-                {{ $t('Stop') + ' ' }}
-            </button>
-            <button
-                v-else
-                type="button"
-                class="ds-raised-button cursor-pointer"
-                :class="focusRing"
-                :disabled="!canControl || working !== null"
-                @click="lifecycle('start')"
-            >
-                <LoaderCircle
-                    v-if="working === 'start'"
-                    class="size-3.5 animate-spin opacity-60"
-                    :stroke-width="2"
-                />
-                <Play v-else class="size-3.5 opacity-60" :stroke-width="1.75" />
-                {{ $t('Start') + ' ' }}
-            </button>
+    <DashHeader
+        :crumbs="[
+            { label: $t('Services'), href: servicesUrl },
+            { label: displayName },
+        ]"
+    >
+        <template #actions>
             <DropdownMenu>
                 <DropdownMenuTrigger as-child>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer px-2!"
-                        :class="focusRing"
+                    <DashButton
+                        :icon="Ellipsis"
                         :aria-label="$t('More actions')"
-                    >
-                        <Ellipsis class="size-4" />
-                    </button>
+                        :title="$t('More actions')"
+                    />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
-                    class="ds-modal min-w-48 font-ui"
+                    class="ds-modal min-w-52 font-ui"
                     align="end"
                 >
                     <DropdownMenuItem
+                        v-if="needsRepair && managed && canManage"
                         :disabled="!canControl || working !== null"
-                        @select="lifecycle('reload')"
+                        @select="repairing = true"
                     >
-                        <RefreshCw class="size-4" :stroke-width="1.75" />
-                        {{ $t('Reload config') + ' ' }}
+                        <FilledIcon name="settings-fill" />
+                        {{ $t('Repair') }}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                         v-if="canManage && clone"
@@ -1636,1039 +1125,427 @@ const focusRing =
                         :title="clone.unavailable ?? undefined"
                         @select="cloning = true"
                     >
-                        <CopyPlus class="size-4" :stroke-width="1.75" />
+                        <FilledIcon name="copy" />
                         {{ $t('Clone') }}
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                        v-if="canManage && app && olderVersion"
+                        :disabled="!online || working !== null || !hasPlan"
+                        @select="askRollback(olderVersion)"
+                    >
+                        <FilledIcon name="history" />
+                        {{ $t('Roll back') }}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem v-if="canManage" @select="openRename">
+                        <FilledIcon name="sliders" />
+                        {{ $t('Edit name and icon') }}
+                    </DropdownMenuItem>
                     <DropdownMenuItem v-if="canManage" @select="toggleHidden">
-                        <component
-                            :is="service.hidden ? Eye : EyeOff"
-                            class="size-4"
-                            :stroke-width="1.75"
-                        />
+                        <FilledIcon name="layers-fill" />
                         {{
                             service.hidden
                                 ? $t('Show in lists again')
                                 : $t('Hide from lists')
                         }}
                     </DropdownMenuItem>
-                    <DropdownMenuItem v-if="canManage" @select="toggleLogs">
-                        <component
-                            :is="service.logsMuted ? FileText : FileX"
-                            class="size-4"
-                            :stroke-width="1.75"
-                        />
-                        {{
-                            service.logsMuted
-                                ? $t('Keep its logs again')
-                                : $t('Stop keeping its logs')
-                        }}
-                    </DropdownMenuItem>
-                    <template v-if="removable">
+                    <template v-if="managed && canManage">
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                            class="text-(--ds-red) focus:bg-(--ds-red)/10 focus:text-(--ds-red)"
+                            v-if="running"
+                            :disabled="!canControl || working !== null"
+                            @select="lifecycle('stop')"
+                        >
+                            <FilledIcon name="activity" />
+                            {{ $t('Stop') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            :disabled="!canControl || working !== null"
+                            @select="lifecycle('reload')"
+                        >
+                            <FilledIcon name="update-fill" />
+                            {{ $t('Reload config') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            v-if="service.container"
+                            @select="consoleSheet = true"
+                        >
+                            <FilledIcon name="terminal-fill" />
+                            {{ $t('Console') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem as-child>
+                            <Link :href="fixesUrl">
+                                <FilledIcon name="sparkle-fill" />
+                                {{ $t('Look into it') }}
+                            </Link>
+                        </DropdownMenuItem>
+                    </template>
+                    <template v-if="canManage && app">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            v-if="app.domains.length"
+                            :disabled="
+                                !online || !app.site.supported || siteApplying
+                            "
+                            @select="siteOpen = true"
+                        >
+                            <FilledIcon name="globe-fill" />
+                            {{ $t('Site settings') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem @select="deploySettingsOpen = true">
+                            <FilledIcon name="branch-fill" />
+                            {{ $t('Deploy settings') }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            :disabled="
+                                !online || app.limits.unavailable !== null
+                            "
+                            @select="limitsOpen = true"
+                        >
+                            <FilledIcon name="sliders" />
+                            {{ $t('CPU and memory limits') }}
+                        </DropdownMenuItem>
+                    </template>
+                    <template v-if="canManage">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem @select="toggleLogs">
+                            <FilledIcon name="file-fill" />
+                            {{
+                                service.logsMuted
+                                    ? $t('Keep its logs again')
+                                    : $t('Stop keeping its logs')
+                            }}
+                        </DropdownMenuItem>
+                    </template>
+                    <template v-if="removable && canManage">
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            class="text-status-down focus:bg-status-down/10 focus:text-status-down"
                             :disabled="!canRemove"
                             @select="removing = true"
                         >
-                            <Trash2
-                                class="size-4 text-current"
-                                :stroke-width="1.75"
-                            />
-                            {{ $t('Remove service') + ' ' }}
+                            <FilledIcon name="archive" />
+                            {{ $t('Remove service') }}
                         </DropdownMenuItem>
                     </template>
                 </DropdownMenuContent>
             </DropdownMenu>
-        </template>
 
-        <div
-            v-if="!managed"
-            class="ds-tile flex flex-wrap items-center gap-4 px-5 py-4"
-        >
-            <div class="flex min-w-0 grow flex-col gap-1">
-                <p class="text-sm font-medium">
-                    {{
-                        ' ' +
-                        $t(
-                            'ServerOS found this service but doesn’t control it yet',
-                        ) +
-                        ' '
-                    }}
-                </p>
-                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                    {{
-                        ' ' +
-                        $t(
-                            'Adopt it to start, stop and restart it, read its logs and run commands. Adopting changes nothing about the service itself.',
-                        ) +
-                        ' '
-                    }}
-                </p>
-            </div>
-            <AppButton
-                v-if="canManage"
-                variant="primary"
-                size="sm"
-                :disabled="!commandsEnabled || !online || working !== null"
-                @click="adopt"
-            >
-                {{
-                    working === 'adopt' ? $t('Adopting…') : $t('Adopt service')
-                }}
-            </AppButton>
-        </div>
-
-        <div
-            v-if="needsRepair"
-            class="ds-tile flex flex-wrap items-center gap-4 px-5 py-4"
-        >
-            <div class="flex min-w-0 grow flex-col gap-1">
-                <p class="text-sm font-medium">
-                    {{
-                        ' ' +
-                        $t(
-                            'This container needs repairing before it can start',
-                        ) +
-                        ' '
-                    }}
-                </p>
-                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                    {{
-                        ' ' +
-                        $t(
-                            'Pterodactyl set it up with files Wings creates each time it starts a server. Wings isn’t running any more, so Docker won’t start it. :value',
-                            {
-                                value: managed
-                                    ? $t(
-                                          'ServerOS can recreate it without those files and keep its data.',
-                                      )
-                                    : $t(
-                                          'Adopt it first, then ServerOS can repair it.',
-                                      ),
-                            },
-                        )
-                    }}
-                </p>
-            </div>
-            <AppButton
-                v-if="canManage && managed"
-                variant="primary"
-                size="sm"
-                :disabled="!commandsEnabled || !online || working !== null"
-                @click="repairing = true"
-            >
-                {{ working === 'repair' ? $t('Repairing…') : $t('Repair') }}
-            </AppButton>
-        </div>
-
-        <div v-if="tab === 'overview'" class="flex flex-col gap-5">
-            <div v-if="app" class="grid gap-4 lg:grid-cols-2">
-                <section
-                    class="ds-tile flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center"
-                    :class="dragging && 'ring-2 ring-[#3B7BFF]/60'"
-                    :aria-label="$t('Code')"
-                    @dragover.prevent="dragging = canManage"
-                    @dragleave="dragging = false"
-                    @drop.prevent="canManage && dropVersion($event)"
-                >
-                    <span class="ds-icon-chip shrink-0">
-                        <Package class="size-4" />
-                    </span>
-                    <div class="flex min-w-0 grow flex-col gap-0.5">
-                        <span class="text-[13px] text-(--ds-text-muted)">{{
-                            $t('Code')
-                        }}</span>
-                        <span class="truncate text-sm font-medium">
-                            {{
-                                app.fromUpload ? $t('Uploaded .zip') : app.repo
-                            }}
-                            <span
-                                v-if="liveCommit"
-                                class="font-mono text-xs font-normal text-(--ds-text-faint)"
-                                >{{ liveCommit.slice(0, 7) }}</span
-                            >
-                        </span>
-                        <span
-                            v-if="zip.uploading.value"
-                            class="text-xs text-(--ds-text-faint) tabular-nums"
-                        >
-                            {{
-                                zip.progress.value >= 1
-                                    ? $t('Unpacking…')
-                                    : $t('Uploading :round%', {
-                                          round: String(
-                                              Math.round(
-                                                  zip.progress.value * 100,
-                                              ),
-                                          ),
-                                      })
-                            }}
-                        </span>
-                        <span
-                            v-else-if="zip.error.value"
-                            class="text-xs text-(--ds-red)"
-                            >{{ zip.error.value }}</span
-                        >
-                        <span v-else class="text-xs text-(--ds-text-faint)">{{
-                            $t(
-                                'Drop a .zip here to ship a new version. Domain and environment stay the same, and the current version keeps running until the new one is healthy.',
-                            )
-                        }}</span>
-                    </div>
-                    <template v-if="canManage">
-                        <input
-                            ref="zipInput"
-                            type="file"
-                            accept=".zip,application/zip"
-                            class="hidden"
-                            @change="pickVersion"
-                        />
-                        <AppButton
-                            class="shrink-0"
-                            :disabled="
-                                zip.uploading.value ||
-                                shipping ||
-                                !online ||
-                                !hasPlan
-                            "
-                            @click="zipInput?.click()"
-                        >
-                            {{
-                                zip.uploading.value || shipping
-                                    ? $t('Uploading…')
-                                    : $t('Upload new version')
-                            }}
-                        </AppButton>
-                    </template>
-                </section>
-
-                <section
-                    class="ds-tile flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center"
-                    :aria-label="$t('Domain')"
-                >
-                    <span class="ds-icon-chip shrink-0">
-                        <Globe class="size-4" />
-                    </span>
-                    <div class="flex min-w-0 grow flex-col gap-0.5">
-                        <span class="text-[13px] text-(--ds-text-muted)">{{
-                            $t('Domain')
-                        }}</span>
-                        <a
-                            v-if="app.domains.length"
-                            :href="`https://${app.domains[0]}`"
-                            target="_blank"
-                            rel="noopener"
-                            class="truncate text-sm font-medium hover:underline"
-                            >{{ app.domains[0] }}</a
-                        >
-                        <span
-                            v-if="servesWildcard"
-                            class="text-xs text-(--ds-text-muted)"
-                            >{{
-                                $t('and every subdomain, *.:domain', {
-                                    domain: app.domains[0],
-                                })
-                            }}</span
-                        >
-                        <span
-                            v-if="!app.domains.length"
-                            class="text-sm font-medium"
-                            >{{ $t('None yet') }}</span
-                        >
-                        <span class="text-xs text-(--ds-text-faint)">{{
-                            app.canMove
-                                ? $t(
-                                      'Moves with the same code and settings. HTTPS is set up for the new one.',
-                                  )
-                                : $t(
-                                      'Upload the code again as a new version to change this.',
-                                  )
-                        }}</span>
-                    </div>
-                    <AppButton
-                        v-if="canManage"
-                        class="shrink-0"
-                        :disabled="!app.canMove || !online"
-                        @click="openMove"
-                    >
-                        {{
-                            app.domains.length
-                                ? $t('Change domain')
-                                : $t('Add domain')
-                        }}
-                    </AppButton>
-                </section>
-
-                <section
-                    class="ds-tile flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center lg:col-span-2"
-                    :aria-label="$t('Environment variables')"
-                >
-                    <span class="ds-icon-chip shrink-0">
-                        <Settings class="size-4" />
-                    </span>
-                    <div class="flex min-w-0 grow flex-col gap-0.5">
-                        <span class="text-[13px] text-(--ds-text-muted)">{{
-                            $t('Environment variables')
-                        }}</span>
-                        <span
-                            v-if="app.variables.length"
-                            class="truncate font-ui-mono text-xs/5"
-                            :title="app.variables.join(', ')"
-                            >{{ app.variables.join(', ') }}</span
-                        >
-                        <span v-else class="text-sm font-medium">{{
-                            $t('None yet')
-                        }}</span>
-                        <span class="text-xs text-(--ds-text-faint)">{{
-                            $t(
-                                'Saving a change deploys it again. This version keeps serving until the new one is up.',
-                            )
-                        }}</span>
-                    </div>
-                    <AppButton
-                        v-if="canManage"
-                        class="shrink-0"
-                        :disabled="!online"
-                        @click="variablesOpen = true"
-                    >
-                        {{ $t('Edit') }}
-                    </AppButton>
-                </section>
-
-                <section
-                    v-if="app.domains.length"
-                    class="ds-tile flex flex-col gap-4 px-5 py-4 lg:col-span-2"
-                    :aria-label="$t('Site settings')"
-                >
-                    <div class="flex items-center gap-4">
-                        <span class="ds-icon-chip shrink-0">
-                            <ShieldCheck class="size-4" />
-                        </span>
-                        <div class="flex min-w-0 grow flex-col gap-0.5">
-                            <span class="text-[13px] text-(--ds-text-muted)">{{
-                                $t('Site settings')
-                            }}</span>
-                            <span
-                                v-if="siteApplying"
-                                class="flex items-center gap-1.5 text-xs text-(--ds-text-faint)"
-                            >
-                                <LoaderCircle class="size-3 animate-spin" />
-                                {{ $t('Applying the last change…') }}
-                            </span>
-                            <span
-                                v-else-if="
-                                    app.site.job?.state === 'failed' ||
-                                    app.site.job?.state === 'stale'
-                                "
-                                class="text-xs text-(--ds-red)"
-                                >{{
-                                    $t(
-                                        'The last change didn’t apply: :reason',
-                                        {
-                                            reason:
-                                                app.site.job.error ||
-                                                $t('the machine didn’t answer'),
-                                        },
-                                    )
-                                }}</span
-                            >
-                            <span
-                                v-else-if="!app.site.supported"
-                                class="text-xs text-(--ds-text-faint)"
-                                >{{
-                                    $t(
-                                        'Needs a newer ServerOS daemon on this machine. It updates itself.',
-                                    )
-                                }}</span
-                            >
-                            <span
-                                v-else
-                                class="text-xs text-(--ds-text-faint)"
-                                >{{
-                                    $t(
-                                        'Changes apply in seconds, without a redeploy.',
-                                    )
-                                }}</span
-                            >
-                        </div>
-                        <AppButton
-                            v-if="canManage"
-                            class="shrink-0"
-                            :disabled="
-                                !online || !app.site.supported || siteApplying
-                            "
-                            @click="siteOpen = true"
-                        >
-                            {{ $t('Edit') }}
-                        </AppButton>
-                    </div>
-                    <dl
-                        class="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-(--ds-divider) bg-(--ds-divider) sm:grid-cols-4"
-                    >
-                        <div
-                            v-for="row in siteRows"
-                            :key="row.label"
-                            class="flex min-w-0 flex-col gap-0.5 bg-(--ds-card) px-3 py-2.5"
-                        >
-                            <dt class="text-xs text-(--ds-text-faint)">
-                                {{ row.label }}
-                            </dt>
-                            <dd
-                                class="flex min-w-0 items-center gap-1.5 text-[13px]"
-                                :class="
-                                    row.on
-                                        ? 'font-medium text-(--ds-text)'
-                                        : 'text-(--ds-text-muted)'
-                                "
-                            >
-                                <span
-                                    v-if="row.warn"
-                                    class="size-1.5 shrink-0 rounded-full bg-(--ds-amber)"
-                                    aria-hidden="true"
-                                />
-                                <span class="truncate" :title="row.value">{{
-                                    row.value
-                                }}</span>
-                            </dd>
-                        </div>
-                    </dl>
-                </section>
-
-                <section
-                    class="ds-tile flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center lg:col-span-2"
-                    :aria-label="$t('CPU and memory limits')"
-                >
-                    <span class="ds-icon-chip shrink-0">
-                        <Cpu class="size-4" />
-                    </span>
-                    <div class="flex min-w-0 grow flex-col gap-0.5">
-                        <span class="text-[13px] text-(--ds-text-muted)">{{
-                            $t('CPU and memory limits')
-                        }}</span>
-                        <span class="text-sm font-medium">{{
-                            limitsLabel(app.limits.setting)
-                        }}</span>
-                        <span class="text-xs text-(--ds-text-faint)">{{
-                            app.limits.unavailable
-                                ? app.limits.unavailable
-                                : limitsPending
-                                  ? $t(
-                                        'Not applied yet: it runs without them until it deploys again.',
-                                    )
-                                  : $t(
-                                        'The most it may use. Saving a change deploys it again.',
-                                    )
-                        }}</span>
-                    </div>
-                    <AppButton
-                        v-if="canManage"
-                        class="shrink-0"
-                        :disabled="!online || app.limits.unavailable !== null"
-                        @click="limitsOpen = true"
-                    >
-                        {{ $t('Edit') }}
-                    </AppButton>
-                </section>
-            </div>
-            <AppVariablesDialog
-                v-if="canManage && app"
-                v-model:open="variablesOpen"
-                :machine-id="machine.id!"
-                :app="app.service"
-                @saved="variablesSaved"
-            />
-            <AppSiteDialog
-                v-if="canManage && app && app.domains.length"
-                v-model:open="siteOpen"
-                :machine-id="machine.id!"
-                :app="app.service"
-                :site="app.site"
-                @saved="router.reload({ only: ['app'] })"
-            />
-            <AppLimitsDialog
-                v-if="canManage && app"
-                v-model:open="limitsOpen"
-                :machine-id="machine.id!"
-                :app="app.service"
-                :limits="app.limits"
-                @saved="variablesSaved"
-            />
-
-            <section
-                v-if="app && app.versions.length"
-                class="ds-tile overflow-hidden"
-                aria-labelledby="versions-title"
-            >
-                <div
-                    class="ds-tile-head flex flex-wrap items-center justify-between gap-3 border-b border-(--ds-divider) px-5 py-3"
-                >
-                    <div class="flex min-w-0 flex-col">
-                        <h2 id="versions-title" class="text-sm font-medium">
-                            {{ ' ' + $t('Versions') + ' ' }}
-                        </h2>
-                        <p class="text-xs text-(--ds-text-faint)">
-                            {{
-                                ' ' +
-                                $t(
-                                    'The machine keeps the last :value to roll back to.',
-                                    {
-                                        value:
-                                            app.versions.length === 1
-                                                ? $t('one')
-                                                : $t('few'),
-                                    },
-                                ) +
-                                ' '
-                            }}
-                        </p>
-                    </div>
-                    <label
-                        class="flex items-center gap-2.5 text-[13px] text-(--ds-text-secondary)"
-                    >
-                        {{ ' ' + $t('Snapshot data before each deploy') }}
-                        <ToggleSwitch
-                            v-model="snapshotBefore"
-                            :label="$t('Snapshot data before each deploy')"
-                            :disabled="!canManage"
-                            @update:model-value="saveSnapshotBefore"
-                        />
-                    </label>
-                    <div
-                        v-if="app.deployOnPush"
-                        class="flex w-full flex-wrap items-center gap-2.5 text-[13px] text-(--ds-text-secondary)"
-                    >
-                        <label class="flex items-center gap-2.5">
-                            {{ ' ' + $t('Deploy each push to') }}
-                            <Input
-                                v-model="pushBranch"
-                                class="h-8 w-36 font-mono text-xs"
-                                :aria-label="$t('Branch')"
-                                :disabled="!canManage"
-                                spellcheck="false"
-                                @blur="savePushBranch"
-                                @keydown.enter.prevent="savePushBranch"
-                            />
-                            <ToggleSwitch
-                                v-model="deployOnPush"
-                                :label="$t('Deploy each push')"
-                                :disabled="!canManage"
-                                @update:model-value="saveDeployOnPush"
-                            />
-                        </label>
-                        <span
-                            v-if="pushBranchError"
-                            class="text-xs text-(--ds-red)"
-                            >{{ pushBranchError }}</span
-                        >
-                        <span v-else class="text-xs text-(--ds-text-faint)">{{
-                            deployOnPush
-                                ? $t(
-                                      'Each push deploys with the settings it has now. Needs the GitHub app on the repository.',
-                                  )
-                                : $t(
-                                      'Turn on to deploy every push without a workflow.',
-                                  )
-                        }}</span>
-                    </div>
-                    <div
-                        v-if="app.deployOnPush && deployOnPush"
-                        class="flex w-full flex-wrap items-center gap-2.5 text-[13px] text-(--ds-text-secondary)"
-                    >
-                        <label class="flex items-center gap-2.5">
-                            {{ ' ' + $t('Only build the newest push') }}
-                            <ToggleSwitch
-                                v-model="pushOnlyNewest"
-                                :label="$t('Only build the newest push')"
-                                :disabled="!canManage"
-                                @update:model-value="savePushOnlyNewest"
-                            />
-                        </label>
-                        <span class="text-xs text-(--ds-text-faint)">{{
-                            pushOnlyNewest
-                                ? $t(
-                                      'A push that comes in while it’s deploying waits, and a newer push replaces it.',
-                                  )
-                                : $t(
-                                      'Every push deploys as it comes in, even while another is deploying.',
-                                  )
-                        }}</span>
-                    </div>
-                    <label
-                        v-if="snapshotBefore"
-                        class="flex w-full flex-wrap items-center gap-2.5 text-[13px] text-(--ds-text-secondary)"
-                    >
-                        {{ ' ' + $t('Its database') }}
-                        <SelectMenu
-                            class="ds-raised-button h-8 text-[13px]"
-                            :model-value="app.database.setting"
-                            :options="databaseOptions"
-                            :disabled="!canManage"
-                            @update:model-value="saveDatabase"
-                        />
-                        <span class="text-xs text-(--ds-text-faint)">{{
-                            app.database.current
-                                ? $t(
-                                      'Snapshotted with each deploy, and put back by Code and data.',
-                                  )
-                                : app.database.options.length
-                                  ? $t(
-                                        'None found in its settings. Pick one if it keeps its data there.',
-                                    )
-                                  : $t(
-                                        'No database ServerOS manages on this machine.',
-                                    )
-                        }}</span>
-                    </label>
-                </div>
-                <ul class="text-[13px]/5">
-                    <li
-                        v-for="version in app.versions"
-                        :key="version.commit"
-                        class="flex items-center gap-3 border-b border-(--ds-divider) px-5 py-2.5 last:border-b-0"
-                    >
-                        <span class="font-mono text-xs">{{
-                            version.commit.slice(0, 7)
-                        }}</span>
-                        <span
-                            v-if="version.live"
-                            class="rounded-md bg-(--ds-green)/15 px-1.5 text-xs/5 font-medium text-(--ds-green)"
-                            >{{ $t('Live') }}</span
-                        >
-                        <span
-                            class="min-w-0 grow truncate text-(--ds-text-muted)"
-                        >
-                            {{
-                                ' ' +
-                                $t('Deployed :value', {
-                                    value: version.deployedAt
-                                        ? timeAgo(version.deployedAt)
-                                        : '',
-                                })
-                            }}<template v-if="version.by">
-                                {{
-                                    ' ' + $t('by :by', { by: version.by })
-                                }}</template
-                            >
-                        </span>
-                        <AppButton
-                            v-if="!version.live && canManage"
-                            size="sm"
-                            :disabled="!online || working !== null || !hasPlan"
-                            @click="askRollback(version)"
-                        >
-                            <RotateCcw class="size-3.5" :stroke-width="1.75" />
-                            {{ $t('Roll back') + ' ' }}
-                        </AppButton>
-                    </li>
-                </ul>
-            </section>
-
-            <ul
-                class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-                :aria-label="$t('Now')"
-            >
-                <li class="ds-tile flex flex-col gap-1 px-5 py-4">
-                    <span class="text-[13px] text-(--ds-text-muted)">{{
-                        $t('CPU')
-                    }}</span>
-                    <span class="text-[28px]/9 font-medium tabular-nums">{{
-                        stats?.cpu === null || stats?.cpu === undefined
-                            ? '—'
-                            : percent(stats.cpu)
-                    }}</span>
-                    <span class="text-xs text-(--ds-text-faint)">{{
-                        appliedLimits?.cpus
-                            ? $t('of the whole machine, limit :value', {
-                                  value: cpusLabel(appliedLimits.cpus),
-                              })
-                            : $t('of the whole machine')
-                    }}</span>
-                </li>
-                <li class="ds-tile flex flex-col gap-1 px-5 py-4">
-                    <span class="text-[13px] text-(--ds-text-muted)">{{
-                        $t('Memory')
-                    }}</span>
-                    <span class="text-[28px]/9 font-medium tabular-nums">{{
-                        bytes(stats?.memUsed)
-                    }}</span>
-                    <span class="text-xs text-(--ds-text-faint)">{{
-                        memLimit
-                            ? $t('limit :value', { value: bytes(memLimit) })
-                            : $t('no limit set')
-                    }}</span>
-                </li>
-                <li class="ds-tile flex flex-col gap-1 px-5 py-4">
-                    <span class="text-[13px] text-(--ds-text-muted)">{{
-                        $t('Uptime')
-                    }}</span>
-                    <span class="text-[28px]/9 font-medium tabular-nums">{{
-                        uptime(stats?.startedAt)
-                    }}</span>
-                    <span
-                        class="text-xs"
-                        :class="
-                            (stats?.restarts ?? 0) > 0
-                                ? 'text-(--ds-amber)'
-                                : 'text-(--ds-text-faint)'
-                        "
-                        >{{
-                            stats?.restarts === null ||
-                            stats?.restarts === undefined
-                                ? $t('restarts unknown')
-                                : $t(
-                                      stats.restarts === 1
-                                          ? ':count restart'
-                                          : ':count restarts',
-                                      { count: String(stats.restarts) },
-                                  )
-                        }}</span
-                    >
-                </li>
-                <li class="ds-tile flex flex-col gap-1 px-5 py-4">
-                    <span class="text-[13px] text-(--ds-text-muted)">{{
-                        $t('Processes')
-                    }}</span>
-                    <span class="text-[28px]/9 font-medium tabular-nums">{{
-                        stats?.pids ?? '—'
-                    }}</span>
-                    <span class="text-xs text-(--ds-text-faint)">{{
-                        $t('threads and processes')
-                    }}</span>
-                </li>
-            </ul>
-
-            <div class="flex items-center justify-between gap-3">
-                <h2 class="text-[15px] font-medium">{{ $t('Usage') }}</h2>
-                <div
-                    class="ds-segments ds-segments--sm"
-                    role="group"
-                    :aria-label="$t('Time range')"
-                >
-                    <button
-                        v-for="option in ranges"
-                        :key="option"
-                        type="button"
-                        class="cursor-pointer"
-                        :aria-pressed="range === option"
-                        @click="setRange(option)"
-                    >
-                        {{ option }}
-                    </button>
-                </div>
-            </div>
-
-            <div class="grid gap-4 lg:grid-cols-2">
-                <TimeSeriesChart
-                    :title="$t('CPU')"
-                    :timestamps="timestamps"
-                    :series="[
-                        {
-                            label: 'CPU',
-                            color: themeColour('--ds-chart', '#60A5FA'),
-                            values: history.map((p) => p.cpu),
-                        },
-                    ]"
-                    :format="percent"
-                    :min-max="1"
-                    :max="100"
+            <template v-if="canManage">
+                <DashButton
+                    v-if="!managed"
+                    variant="primary"
+                    :label="
+                        working === 'adopt'
+                            ? $t('Adopting…')
+                            : $t('Adopt service')
+                    "
+                    :disabled="!commandsEnabled || !online || working !== null"
+                    @click="adopt"
                 />
-                <TimeSeriesChart
-                    :title="$t('Memory')"
-                    :timestamps="timestamps"
-                    :series="[
-                        {
-                            label: $t('Memory'),
-                            color: '#34D399',
-                            values: history.map((p) => p.mem),
-                        },
-                    ]"
-                    :format="bytes"
-                    :min-max="1024 * 1024"
+                <DashButton
+                    v-else-if="running"
+                    :label="$t('Restart')"
+                    :loading="working === 'restart'"
+                    :disabled="!canControl || working !== null"
+                    @click="lifecycle('restart')"
                 />
-                <TimeSeriesChart
-                    v-if="service.container"
-                    class="lg:col-span-2"
-                    :title="$t('Network')"
-                    :timestamps="timestamps"
-                    :series="[
-                        {
-                            label: $t('In'),
-                            color: '#A78BFA',
-                            values: history.map((p) => p.rx),
-                        },
-                        {
-                            label: $t('Out'),
-                            color: '#FBBF24',
-                            values: history.map((p) => p.tx),
-                        },
-                    ]"
-                    :format="rate"
-                    :min-max="1024"
+                <DashButton
+                    v-else
+                    :variant="app ? 'secondary' : 'primary'"
+                    :label="$t('Start')"
+                    :loading="working === 'start'"
+                    :disabled="!canControl || working !== null"
+                    @click="lifecycle('start')"
                 />
-            </div>
-        </div>
-
-        <div v-else-if="tab === 'logs'" class="flex flex-col gap-3">
-            <div class="flex flex-wrap items-center gap-2">
-                <label class="ds-raised-button w-full cursor-text sm:w-64">
-                    <Search
-                        class="size-3.5 shrink-0 text-(--ds-text-muted)"
-                        :stroke-width="1.6"
-                    />
-                    <span class="sr-only">{{ $t('Filter log lines') }}</span>
+                <template v-if="app && managed">
                     <input
-                        v-model="logFilter"
-                        type="search"
-                        :placeholder="$t('Filter lines')"
-                        class="h-full min-w-0 grow bg-transparent text-[13px]/4 text-(--ds-text) outline-none placeholder:text-(--ds-text-faint)"
-                    />
-                </label>
-                <div class="ml-auto flex items-center gap-2">
-                    <a
-                        :href="historyUrl"
-                        class="ds-raised-button cursor-pointer text-[13px]"
-                        :class="focusRing"
-                        :title="
-                            $t(
-                                'Every line kept for this service, searchable and live',
+                        ref="zipInput"
+                        type="file"
+                        accept=".zip,application/zip"
+                        class="hidden"
+                        @change="
+                            shipVersion(
+                                ($event.target as HTMLInputElement).files?.[0],
                             )
                         "
-                    >
-                        <History
-                            class="size-3.5 opacity-60"
-                            :stroke-width="1.75"
-                        />
-                        {{ $t('Search history') + ' ' }}
-                    </a>
-                    <label class="relative">
-                        <span class="sr-only">{{ $t('Lines') }}</span>
-                        <SelectMenu
-                            v-model="logLines"
-                            :options="[
-                                { value: 100, label: $t('Last 100 lines') },
-                                { value: 300, label: $t('Last 300 lines') },
-                                { value: 1000, label: $t('Last 1000 lines') },
-                            ]"
-                            class="ds-raised-button h-8 text-[13px]"
-                        />
-                    </label>
-                    <button
-                        type="button"
-                        class="ds-raised-button cursor-pointer"
-                        :disabled="!canControl || busy !== null"
-                        @click="fetchLogs"
-                    >
-                        <RefreshCw
-                            class="size-3.5 opacity-60"
-                            :class="{
-                                'mi-spin':
-                                    logsJob &&
-                                    ['queued', 'running'].includes(
-                                        logsJob.state,
-                                    ),
-                            }"
-                            :stroke-width="1.75"
-                        />
-                        {{ $t('Refresh') + ' ' }}
-                    </button>
+                    />
+                    <DropdownMenu>
+                        <DropdownMenuTrigger as-child>
+                            <DashButton
+                                variant="primary"
+                                :icon="Plus"
+                                :label="deployLabel"
+                                :loading="
+                                    zip.uploading.value ||
+                                    shipping ||
+                                    redeploying
+                                "
+                                :disabled="!online || !hasPlan"
+                            />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            class="ds-modal min-w-56 font-ui"
+                            align="end"
+                        >
+                            <DropdownMenuItem
+                                v-if="liveVersion"
+                                @select="redeploy"
+                            >
+                                <FilledIcon name="update-fill" />
+                                {{
+                                    $t('Deploy :commit again', {
+                                        commit: liveVersion.commit.slice(0, 7),
+                                    })
+                                }}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem @select="zipInput?.click()">
+                                <FilledIcon name="upload-fill" />
+                                {{ $t('Upload a new version (.zip)') }}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                @select="deploySettingsOpen = true"
+                            >
+                                <FilledIcon name="branch-fill" />
+                                {{ $t('Deploy settings') }}
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </template>
+            </template>
+        </template>
+    </DashHeader>
+
+    <div class="flex min-h-full flex-col">
+        <div class="flex flex-wrap items-center gap-3 px-6 pt-5 pb-4">
+            <BrandLogo :name="logo" :src="service.icon" :size="22" />
+            <h1
+                class="min-w-0 truncate text-[20px]/7 font-medium tracking-[-0.02em] text-fg-primary"
+            >
+                {{ displayName }}
+            </h1>
+            <StatusBadge :status="status.status" :label="status.label" />
+            <span class="grow" />
+            <component
+                :is="chip.href ? Link : 'span'"
+                v-for="chip in chips"
+                :key="chip.key"
+                :href="chip.href"
+                class="flex h-[26px] max-w-64 min-w-0 items-center gap-1.5 rounded-full border-[0.5px] border-[#dcdcdc] bg-[#f4f4f4] px-2.5 text-[12px]/4 font-medium tracking-[-0.005em] whitespace-nowrap text-fg-secondary dark:border-[#303030] dark:bg-[#202020]"
+                :class="chip.href && 'hover:text-fg-primary'"
+            >
+                <BrandLogo v-if="chip.logo" :name="chip.logo" :size="12" />
+                <FilledIcon
+                    v-else-if="chip.icon"
+                    :name="chip.icon"
+                    :size="12"
+                    class="text-fg-muted"
+                />
+                <span class="truncate">{{ chip.label }}</span>
+            </component>
+        </div>
+
+        <DashTabs>
+            <DashTab
+                v-for="item in tabs"
+                :key="item.key"
+                :label="item.label"
+                :icon="item.icon"
+                :active="item.current"
+                @click="tab = item.key"
+            />
+        </DashTabs>
+
+        <div
+            v-if="!managed || needsRepair"
+            class="flex flex-col gap-3 px-6 pt-4"
+        >
+            <div
+                v-if="!managed"
+                class="dash-card flex flex-wrap items-center gap-4 border-edge-strong! px-[18px] py-3.5"
+            >
+                <div class="flex min-w-0 grow flex-col gap-0.5">
+                    <p class="text-[13px]/5 font-medium text-fg-primary">
+                        {{
+                            $t(
+                                'ServerOS found this service but doesn’t control it yet',
+                            )
+                        }}
+                    </p>
+                    <p class="text-[12px]/4 text-fg-muted">
+                        {{
+                            $t(
+                                'Adopt it to start, stop and restart it, read its logs and run commands. Adopting changes nothing about the service itself.',
+                            )
+                        }}
+                    </p>
                 </div>
             </div>
             <div
-                ref="logBox"
-                class="ds-tile h-[60vh] overflow-auto bg-(--ds-code)! py-3 font-ui-mono text-xs/5"
-                role="log"
-                :aria-label="$t('Service logs')"
+                v-if="needsRepair"
+                class="dash-card flex flex-wrap items-center gap-4 border-edge-strong! px-[18px] py-3.5"
             >
-                <p v-if="!managed" class="px-4 text-(--ds-text-faint)">
-                    {{ ' ' + $t('Adopt the service to read its logs.') + ' ' }}
-                </p>
-                <p
-                    v-else-if="
-                        !logsJob ||
-                        (['queued', 'running'].includes(logsJob.state) &&
-                            logs.length === 0)
-                    "
-                    class="px-4 text-(--ds-text-faint)"
-                >
-                    {{ ' ' + $t('Fetching logs…') + ' ' }}
-                </p>
-                <p v-else-if="logsJob.error" class="px-4 text-(--ds-red)">
-                    {{ jobReason(logsJob.error, $t('That didn’t finish.')) }}
-                </p>
-                <p
-                    v-else-if="logs.length === 0"
-                    class="px-4 text-(--ds-text-faint)"
-                >
-                    {{
-                        logFilter ? $t('No lines match.') : $t('No log output.')
-                    }}
-                </p>
-                <div
-                    v-for="(line, index) in logs"
-                    :key="index"
-                    class="px-4 break-words whitespace-pre-wrap text-(--ds-text-secondary) hover:bg-white/3"
-                >
-                    {{ line }}
+                <div class="flex min-w-0 grow flex-col gap-0.5">
+                    <p class="text-[13px]/5 font-medium text-fg-primary">
+                        {{
+                            $t(
+                                'This container needs repairing before it can start',
+                            )
+                        }}
+                    </p>
+                    <p class="text-[12px]/4 text-fg-muted">
+                        {{
+                            $t(
+                                'Pterodactyl set it up with files Wings creates each time it starts a server. Wings isn’t running any more, so Docker won’t start it. :value',
+                                {
+                                    value: managed
+                                        ? $t(
+                                              'ServerOS can recreate it without those files and keep its data.',
+                                          )
+                                        : $t(
+                                              'Adopt it first, then ServerOS can repair it.',
+                                          ),
+                                },
+                            )
+                        }}
+                    </p>
                 </div>
+                <DashButton
+                    v-if="canManage && managed"
+                    size="sm"
+                    variant="primary"
+                    :label="
+                        working === 'repair' ? $t('Repairing…') : $t('Repair')
+                    "
+                    :disabled="!commandsEnabled || !online || working !== null"
+                    @click="repairing = true"
+                />
             </div>
         </div>
 
-        <FileBrowser
-            v-else-if="tab === 'files'"
-            :machine-id="machine.id ?? 0"
-            :places="files.places"
-            :max-write="files.maxWrite"
-            :max-read="files.maxRead"
-            :console-lock="consoleLock"
-            :available="canManage && commandsEnabled && online"
-            :empty-hint="
-                managed
-                    ? $t(
-                          'ServerOS didn’t find a folder for this service when it adopted it, so there’s nowhere it may look.',
-                      )
-                    : $t(
-                          'ServerOS can open the files of services it deployed or adopted. Adopt this service to browse its files here.',
-                      )
-            "
+        <div v-if="tab === 'overview'" class="flex grow flex-col xl:flex-row">
+            <div class="flex min-w-0 flex-1 flex-col gap-3 px-6 py-4">
+                <ServiceUsage
+                    :stats="stats"
+                    :usage="usage"
+                    :traffic="!!app || !!siteTraffic"
+                    :mem-limit="memLimit"
+                    :cpu-limit="app?.limits?.applied?.cpus ?? null"
+                    :machine-memory="machine.facts?.memory_bytes ?? null"
+                />
+                <ServiceDomain
+                    :app="app"
+                    :sites="siteTraffic?.sites"
+                    :serves="siteTraffic?.role === 'server'"
+                    :ports="service.ports"
+                    :workspace-slug="workspace.slug"
+                    :machine-id="machine.id!"
+                    :can-manage="canManage"
+                    :online="online"
+                    @change="openMove"
+                    @site="siteOpen = true"
+                />
+                <ServiceDeploys
+                    :app="app"
+                    :workspace-slug="workspace.slug"
+                    :machine-id="machine.id!"
+                    :can-manage="canManage"
+                    :can-roll-back="online && working === null && hasPlan"
+                    :messages="messages"
+                    @rollback="askRollback"
+                    @settings="deploySettingsOpen = true"
+                    @drop="shipVersion"
+                />
+                <ServiceVariables
+                    :variables="app?.variables ?? null"
+                    :linked="linked"
+                    :can-manage="canManage"
+                    :online="online"
+                    :container="!!inspect"
+                    @edit="variablesOpen = true"
+                    @config="tab = 'details'"
+                />
+            </div>
+            <ServiceRail
+                :service="{ ...service, managed }"
+                :stats="stats"
+                :stack="stack"
+                :linked="linked"
+                :limits="app?.limits ?? null"
+                :mem-limit="memLimit"
+                :machine-name="machine.name"
+                :links="links"
+                :can-manage="canManage"
+                @limits="limitsOpen = true"
+            />
+        </div>
+
+        <div v-else-if="tab === 'traffic'" class="px-6 py-4">
+            <SiteTraffic
+                v-if="app"
+                :machine-id="machine.id ?? 0"
+                :machine-name="machine.name"
+                :app="app.service"
+                :state="app.traffic"
+                :can-manage="canManage"
+            />
+            <ExistingSitesTraffic
+                v-else-if="siteTraffic"
+                :machine-id="machine.id ?? 0"
+                :machine-name="machine.name"
+                :service-url="serviceUrl"
+                :service-name="service.name"
+                :traffic="siteTraffic"
+                :can-manage="canManage"
+            />
+        </div>
+
+        <ServiceLogs
+            v-else-if="tab === 'logs'"
+            :workspace-slug="workspace.slug"
+            :machine-id="machine.id!"
+            :service-key="routeKey"
+            :summary="logs"
+            :managed="managed"
+            :can-fetch="canControl"
+            :machine-job="logsJob"
+            :history-url="historyUrl"
+            :plan-label="workspace.billing.planLabel"
+            @fetch="fetchLogs"
         />
 
-        <SiteTraffic
-            v-else-if="tab === 'traffic' && app"
-            :machine-id="machine.id ?? 0"
-            :machine-name="machine.name"
-            :app="app.service"
-            :state="app.traffic"
-            :can-manage="canManage"
-        />
+        <div v-else-if="tab === 'files'" class="px-6 py-4">
+            <FileBrowser
+                :machine-id="machine.id ?? 0"
+                :places="files.places"
+                :max-write="files.maxWrite"
+                :max-read="files.maxRead"
+                :console-lock="consoleLock"
+                :available="canManage && commandsEnabled && online"
+                :empty-hint="
+                    managed
+                        ? $t(
+                              'ServerOS didn’t find a folder for this service when it adopted it, so there’s nowhere it may look.',
+                          )
+                        : $t(
+                              'ServerOS can open the files of services it deployed or adopted. Adopt this service to browse its files here.',
+                          )
+                "
+            />
+        </div>
 
-        <ExistingSitesTraffic
-            v-else-if="tab === 'traffic' && siteTraffic"
-            :machine-id="machine.id ?? 0"
-            :machine-name="machine.name"
-            :service-url="serviceUrl"
-            :service-name="service.name"
-            :traffic="siteTraffic"
-            :can-manage="canManage"
-        />
+        <div v-else-if="tab === 'database' && database" class="px-6 py-4">
+            <DatabaseBrowser
+                :machine-id="machine.id ?? 0"
+                :service-key="routeKey"
+                :engine="database.engine"
+                :console-lock="consoleLock"
+                :available="canManage && commandsEnabled && online"
+            />
+        </div>
 
-        <DatabaseBrowser
-            v-else-if="tab === 'database' && database"
-            :machine-id="machine.id ?? 0"
-            :service-key="service.app ? `app:${service.app}` : service.key"
-            :engine="database.engine"
-            :console-lock="consoleLock"
-            :available="canManage && commandsEnabled && online"
-        />
-
-        <div v-else class="flex flex-col gap-5">
-            <dl
-                class="ds-tile grid gap-x-6 gap-y-4 p-5 text-[13px]/5 sm:grid-cols-2 lg:grid-cols-3"
-            >
-                <div>
-                    <dt class="text-(--ds-text-muted)">{{ $t('Key') }}</dt>
-                    <dd class="font-ui-mono break-all">{{ service.key }}</dd>
-                </div>
-                <div>
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Managed by ServerOS') }}
-                    </dt>
-                    <dd>
-                        {{
-                            managed
-                                ? service.origin === 'created'
-                                    ? $t('Yes, ServerOS created it')
-                                    : 'Yes, adopted'
-                                : $t('No, discovered only')
-                        }}
-                    </dd>
-                </div>
-                <div>
-                    <dt class="text-(--ds-text-muted)">{{ $t('Started') }}</dt>
-                    <dd>
-                        {{
-                            stats?.startedAt
-                                ? new Date(
-                                      stats.startedAt * 1000,
-                                  ).toLocaleString()
-                                : $t('Unknown')
-                        }}
-                    </dd>
-                </div>
-                <div v-if="service.details?.image">
-                    <dt class="text-(--ds-text-muted)">{{ $t('Image') }}</dt>
-                    <dd class="font-ui-mono break-all">
-                        {{ service.details.image }}
-                    </dd>
-                </div>
-                <div v-if="service.details?.compose_project">
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Compose project') }}
-                    </dt>
-                    <dd class="font-ui-mono">
-                        {{ service.details.compose_project }}
-                    </dd>
-                </div>
-                <div v-if="service.details?.restart_policy">
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Restart policy') }}
-                    </dt>
-                    <dd>{{ service.details.restart_policy }}</dd>
-                </div>
-                <div>
-                    <dt class="text-(--ds-text-muted)">{{ $t('Version') }}</dt>
-                    <dd>{{ service.version || $t('Unknown') }}</dd>
-                </div>
-                <div>
-                    <dt class="text-(--ds-text-muted)">{{ $t('Run as') }}</dt>
-                    <dd>{{ service.user || $t('Unknown') }}</dd>
-                </div>
-                <div>
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Capabilities') }}
-                    </dt>
-                    <dd>
-                        {{
-                            service.capabilities?.join(', ') ||
-                            $t('Observation only')
-                        }}
-                    </dd>
-                </div>
-                <div class="sm:col-span-2 lg:col-span-3">
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Working directory') }}
-                    </dt>
-                    <dd class="font-ui-mono break-all">
-                        {{ service.working_dir || $t('Unknown') }}
-                    </dd>
-                </div>
-                <div class="sm:col-span-2 lg:col-span-3">
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Executable') }}
-                    </dt>
-                    <dd class="font-ui-mono break-all">
-                        {{ service.exec || $t('Unknown') }}
-                    </dd>
-                </div>
-                <div
-                    v-if="service.config_paths?.length"
-                    class="sm:col-span-2 lg:col-span-3"
-                >
-                    <dt class="text-(--ds-text-muted)">
-                        {{ $t('Config files') }}
-                    </dt>
-                    <dd class="font-ui-mono break-all">
-                        {{ service.config_paths.join(', ') }}
-                    </dd>
-                </div>
-                <div
-                    v-if="service.details?.warning"
-                    class="sm:col-span-2 lg:col-span-3"
-                >
-                    <dt class="text-(--ds-amber)">{{ $t('Heads up') }}</dt>
-                    <dd>{{ service.details.warning }}</dd>
-                </div>
-            </dl>
-
+        <div v-else class="flex flex-col gap-3 px-6 py-4">
+            <ServiceDetails :service="{ ...service, managed }" :stats="stats" />
             <ContainerConfig
                 v-if="inspect"
                 :job="inspectJob"
@@ -2683,858 +1560,533 @@ const focusRing =
                 :loading="busy === 'inspect'"
                 @load="loadInspect"
             />
+            <ServiceCharts
+                :history="history"
+                :range="range"
+                :network="service.container"
+                @range="setRange"
+            />
         </div>
+    </div>
 
-        <Dialog v-if="app" v-model:open="moving">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
-            >
-                <DialogHeader>
-                    <DialogTitle>{{
-                        app.domains.length
-                            ? $t('Change domain')
-                            : $t('Add a domain')
-                    }}</DialogTitle>
-                    <DialogDescription>
+    <AppVariablesDialog
+        v-if="canManage && app"
+        v-model:open="variablesOpen"
+        :machine-id="machine.id!"
+        :app="app.service"
+        @saved="variablesSaved"
+    />
+    <AppSiteDialog
+        v-if="canManage && app && app.domains.length"
+        v-model:open="siteOpen"
+        :machine-id="machine.id!"
+        :app="app.service"
+        :site="app.site"
+        @saved="router.reload({ only: ['app'] })"
+    />
+    <AppLimitsDialog
+        v-if="canManage && app"
+        v-model:open="limitsOpen"
+        :machine-id="machine.id!"
+        :app="app.service"
+        :limits="app.limits"
+        @saved="variablesSaved"
+    />
+    <DeploySettingsDialog
+        v-if="canManage && app"
+        v-model:open="deploySettingsOpen"
+        :app="app"
+        :workspace-slug="workspace.slug"
+        :machine-id="machine.id!"
+    />
+    <CloneServiceDialog
+        v-if="clone"
+        v-model:open="cloning"
+        :machine-id="machine.id!"
+        :service-key="service.key"
+        :display-name="String(displayName)"
+        :defaults="{ name: clone.name, port: clone.port }"
+        @started="cloneStarted"
+    />
+    <ServiceConsole
+        v-if="service.container && canManage"
+        v-model:open="consoleSheet"
+        :workspace-slug="workspace.slug"
+        :action-url="actionUrl"
+        :display-name="String(displayName)"
+        :machine-name="machine.name"
+        :container="service.container"
+        :has-plan="hasPlan"
+        :can-run="canControl"
+        :jobs="jobs"
+        :console-lock="consoleLock"
+        @ran="router.reload({ only: ['jobs'], onFinish: poll })"
+    />
+
+    <Dialog v-if="app" v-model:open="moving">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
+        >
+            <DialogHeader>
+                <DialogTitle>{{
+                    app.domains.length
+                        ? $t('Change domain')
+                        : $t('Add a domain')
+                }}</DialogTitle>
+                <DialogDescription>
+                    {{
+                        $t(
+                            'The new version starts beside the current one, and traffic moves once it’s healthy.',
+                        )
+                    }}
+                    <template v-if="movingAway">{{
+                        $t(':domains stops working after that.', {
+                            domains: app.domains[0],
+                        })
+                    }}</template>
+                </DialogDescription>
+            </DialogHeader>
+            <form class="flex flex-col gap-4" @submit.prevent="moveDomain">
+                <div class="grid gap-2">
+                    <label for="new-domain" class="text-[13px]/5">{{
+                        $t('Domain')
+                    }}</label>
+                    <Input
+                        id="new-domain"
+                        v-model="newDomain"
+                        :placeholder="$t('app.example.com')"
+                        autocomplete="off"
+                        spellcheck="false"
+                        class="font-ui-mono"
+                    />
+                    <p
+                        v-if="moveDns?.status === 'ready'"
+                        class="text-xs text-status-live"
+                    >
+                        {{ $t('Points at this machine.') }}
+                    </p>
+                    <p
+                        v-else-if="moveDns?.record"
+                        class="text-xs text-fg-muted"
+                    >
                         {{
-                            ' ' +
-                            $t(
-                                'The new version starts beside the current one, and traffic moves once it’s healthy.',
-                            )
+                            moveDns.status === 'proxied'
+                                ? $t(
+                                      'It’s behind Cloudflare’s proxy. Set it to DNS only until HTTPS is issued, with',
+                                  )
+                                : $t('Add a DNS record:')
                         }}
-                        <template v-if="movingAway">{{
-                            $t(':domains stops working after that.', {
-                                domains: app.domains[0],
-                            })
-                        }}</template>
-                    </DialogDescription>
-                </DialogHeader>
-                <form class="flex flex-col gap-4" @submit.prevent="moveDomain">
-                    <div class="grid gap-2">
-                        <label for="new-domain" class="text-[13px]/5">{{
-                            $t('Domain')
-                        }}</label>
-                        <Input
-                            id="new-domain"
-                            v-model="newDomain"
-                            :placeholder="$t('app.example.com')"
-                            autocomplete="off"
-                            spellcheck="false"
-                            class="font-ui-mono"
-                        />
-                        <p
-                            v-if="moveDns?.status === 'ready'"
-                            class="text-xs text-(--ds-green)"
-                        >
-                            {{ ' ' + $t('Points at this machine.') + ' ' }}
-                        </p>
-                        <p
-                            v-else-if="moveDns?.record"
-                            class="text-xs text-(--ds-text-muted)"
-                        >
-                            {{
-                                moveDns.status === 'proxied'
-                                    ? $t(
-                                          'It’s behind Cloudflare’s proxy. Set it to DNS only until HTTPS is issued, with',
-                                      )
-                                    : $t('Add a DNS record:')
-                            }}
-                            <span class="font-ui-mono text-(--ds-text)"
-                                >{{ moveDns.record.type }}
-                                {{ moveDns.record.name }} →
-                                {{ moveDns.record.value }}</span
-                            >{{
-                                $t('. HTTPS starts once it points here.') + ' '
-                            }}
-                        </p>
-                    </div>
-                    <label
-                        class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                    >
-                        <TickBox v-model="moveWildcard" class="mt-0.5" />
-                        <span class="flex flex-col gap-0.5">
-                            <span class="text-(--ds-text)">{{
-                                $t('Allow wildcard subdomains')
-                            }}</span>
-                            <span class="text-xs/4 text-(--ds-text-faint)">{{
-                                $t(
-                                    'Every subdomain, like tenant.:domain, is served by this app and gets its own certificate the first time it’s visited. No DNS provider needed.',
-                                    {
-                                        domain:
-                                            bareDomain(newDomain) ||
-                                            'example.com',
-                                    },
-                                )
-                            }}</span>
-                            <span
-                                v-if="
-                                    moveWildcard &&
-                                    moveDns?.wildcard &&
-                                    moveDns.wildcard.status !== 'ready' &&
-                                    moveDns.wildcard.record
-                                "
-                                class="text-xs/4 text-(--ds-text-muted)"
-                                >{{ $t('Subdomains need a record too:') }}
-                                <span class="font-ui-mono text-(--ds-text)"
-                                    >{{ moveDns.wildcard.record.type }}
-                                    {{ moveDns.wildcard.record.name }} →
-                                    {{ moveDns.wildcard.record.value }}</span
-                                ></span
-                            >
-                        </span>
-                    </label>
-                    <label
-                        v-if="app.mentions.length && movingAway"
-                        class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                    >
-                        <TickBox v-model="moveSettings" class="mt-0.5" />
+                        <span class="font-ui-mono text-fg-primary"
+                            >{{ moveDns.record.type }}
+                            {{ moveDns.record.name }} →
+                            {{ moveDns.record.value }}</span
+                        >{{ $t('. HTTPS starts once it points here.') }}
+                    </p>
+                </div>
+                <label
+                    class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-fg-secondary select-none"
+                >
+                    <TickBox v-model="moveWildcard" class="mt-0.5" />
+                    <span class="flex flex-col gap-0.5">
+                        <span class="text-fg-primary">{{
+                            $t('Allow wildcard subdomains')
+                        }}</span>
+                        <span class="text-xs/4 text-fg-faint">{{
+                            $t(
+                                'Every subdomain, like tenant.:domain, is served by this app and gets its own certificate the first time it’s visited. No DNS provider needed.',
+                                {
+                                    domain:
+                                        bareDomain(newDomain) || 'example.com',
+                                },
+                            )
+                        }}</span>
                         <span
-                            >{{ $t('Also update') }}
-                            <span class="font-ui-mono text-(--ds-text)">{{
-                                app.mentions.join(', ')
-                            }}</span>
-                            {{ $t('to the new domain.') }}</span
+                            v-if="
+                                moveWildcard &&
+                                moveDns?.wildcard &&
+                                moveDns.wildcard.status !== 'ready' &&
+                                moveDns.wildcard.record
+                            "
+                            class="text-xs/4 text-fg-muted"
+                            >{{ $t('Subdomains need a record too:') }}
+                            <span class="font-ui-mono text-fg-primary"
+                                >{{ moveDns.wildcard.record.type }}
+                                {{ moveDns.wildcard.record.name }} →
+                                {{ moveDns.wildcard.record.value }}</span
+                            ></span
                         >
-                    </label>
-                    <InputError :message="moveError ?? undefined" />
-                    <div class="flex justify-end gap-2">
-                        <AppButton size="sm" @click="moving = false">
-                            {{ ' ' + $t('Cancel') + ' ' }}
+                    </span>
+                </label>
+                <label
+                    v-if="app.mentions.length && movingAway"
+                    class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-fg-secondary select-none"
+                >
+                    <TickBox v-model="moveSettings" class="mt-0.5" />
+                    <span
+                        >{{ $t('Also update') }}
+                        <span class="font-ui-mono text-fg-primary">{{
+                            app.mentions.join(', ')
+                        }}</span>
+                        {{ $t('to the new domain.') }}</span
+                    >
+                </label>
+                <InputError :message="moveError ?? undefined" />
+                <div class="flex justify-end gap-2">
+                    <AppButton size="sm" @click="moving = false">
+                        {{ $t('Cancel') }}
+                    </AppButton>
+                    <SubmitButton
+                        :label="
+                            !app.domains.length
+                                ? $t('Add domain')
+                                : movingAway
+                                  ? $t('Change domain')
+                                  : $t('Save')
+                        "
+                        busy-label="Starting…"
+                        :processing="moveBusy"
+                        :disabled="!newDomain.trim()"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="renaming">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
+        >
+            <DialogHeader>
+                <DialogTitle>{{ $t('Edit service') }}</DialogTitle>
+                <DialogDescription>
+                    {{
+                        $t(
+                            'A name and icon to show in ServerOS, so it’s clear what this is. Nothing changes on the machine. It was found as',
+                        )
+                    }}
+                    <span class="font-ui-mono text-fg-primary">{{
+                        service.app ?? service.name
+                    }}</span
+                    >.
+                </DialogDescription>
+            </DialogHeader>
+            <form
+                class="flex min-w-0 flex-col gap-4"
+                @submit.prevent="saveLabel(newLabel.trim() || null)"
+            >
+                <div class="grid gap-2">
+                    <label for="service-label" class="text-[13px]/5">{{
+                        $t('Name')
+                    }}</label>
+                    <Input
+                        id="service-label"
+                        v-model="newLabel"
+                        maxlength="60"
+                        autocomplete="off"
+                        :placeholder="service.app ?? service.name"
+                    />
+                    <InputError :message="renameError ?? undefined" />
+                </div>
+                <ImageUploadField
+                    field="icon"
+                    max-size="2 MB"
+                    :label="$t('Icon')"
+                    :image-url="service.icon ?? null"
+                    :fallback="displayName.charAt(0).toUpperCase()"
+                    :upload-url="serviceIconUrl"
+                    :remove-url="serviceIconUrl"
+                />
+                <div class="flex items-center justify-between gap-2">
+                    <AppButton
+                        v-if="service.label"
+                        size="sm"
+                        variant="quiet"
+                        :disabled="renameBusy"
+                        @click="saveLabel(null)"
+                    >
+                        {{ $t('Use original name') }}
+                    </AppButton>
+                    <span v-else />
+                    <div class="flex gap-2">
+                        <AppButton size="sm" @click="renaming = false">
+                            {{ $t('Cancel') }}
                         </AppButton>
                         <SubmitButton
-                            :label="
-                                !app.domains.length
-                                    ? $t('Add domain')
-                                    : movingAway
-                                      ? $t('Change domain')
-                                      : $t('Save')
-                            "
-                            busy-label="Starting…"
-                            :processing="moveBusy"
-                            :disabled="!newDomain.trim()"
+                            :label="$t('Save')"
+                            busy-label="Saving…"
+                            :processing="renameBusy"
                         />
                     </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="renaming">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
-            >
-                <DialogHeader>
-                    <DialogTitle>{{ $t('Edit service') }}</DialogTitle>
-                    <DialogDescription>
-                        {{
-                            ' ' +
-                            $t(
-                                'A name and icon to show in ServerOS, so it’s clear what this is. Nothing changes on the machine. It was found as',
-                            )
-                        }}
-                        <span class="font-ui-mono text-(--ds-text)">{{
-                            service.app ?? service.name
-                        }}</span
-                        >.
-                    </DialogDescription>
-                </DialogHeader>
-                <form
-                    class="flex min-w-0 flex-col gap-4"
-                    @submit.prevent="saveLabel(newLabel.trim() || null)"
-                >
-                    <div class="grid gap-2">
-                        <label for="service-label" class="text-[13px]/5">{{
-                            $t('Name')
-                        }}</label>
-                        <Input
-                            id="service-label"
-                            v-model="newLabel"
-                            maxlength="60"
-                            autocomplete="off"
-                            :placeholder="service.app ?? service.name"
-                        />
-                        <InputError :message="renameError ?? undefined" />
-                    </div>
-                    <ImageUploadField
-                        field="icon"
-                        max-size="2 MB"
-                        :label="$t('Icon')"
-                        :image-url="service.icon ?? null"
-                        :fallback="displayName.charAt(0).toUpperCase()"
-                        :upload-url="serviceIconUrl"
-                        :remove-url="serviceIconUrl"
-                    />
-                    <div class="flex items-center justify-between gap-2">
-                        <AppButton
-                            v-if="service.label"
-                            size="sm"
-                            variant="quiet"
-                            :disabled="renameBusy"
-                            @click="saveLabel(null)"
-                        >
-                            {{ ' ' + $t('Use original name') + ' ' }}
-                        </AppButton>
-                        <span v-else />
-                        <div class="flex gap-2">
-                            <AppButton size="sm" @click="renaming = false">
-                                {{ ' ' + $t('Cancel') + ' ' }}
-                            </AppButton>
-                            <SubmitButton
-                                :label="$t('Save')"
-                                busy-label="Saving…"
-                                :processing="renameBusy"
-                            />
-                        </div>
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="rollbackOpen">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
-            >
-                <DialogHeader>
-                    <DialogTitle>
-                        {{
-                            ' ' +
-                            $t('Roll :service back to :value?', {
-                                service: String(app?.service ?? ''),
-                                value: String(
-                                    rollingBack?.commit.slice(0, 7) ?? '',
-                                ),
-                            }) +
-                            ' '
-                        }}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {{
-                            ' ' +
-                            $t(
-                                'The version from :value starts again and takes over its address. The newer one stops, and you can roll forward to it later.',
-                                {
-                                    value: rollingBack?.deployedAt
-                                        ? new Date(
-                                              rollingBack.deployedAt,
-                                          ).toLocaleString()
-                                        : 'before',
-                                },
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </DialogHeader>
-                <form class="flex flex-col gap-4" @submit.prevent="rollback">
-                    <div
-                        class="ds-segments self-start"
-                        role="group"
-                        :aria-label="$t('What to roll back')"
-                    >
-                        <button
-                            type="button"
-                            class="cursor-pointer"
-                            :aria-pressed="!rollbackData"
-                            @click="rollbackData = false"
-                        >
-                            {{ ' ' + $t('Code only') + ' ' }}
-                        </button>
-                        <button
-                            type="button"
-                            class="cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                            :aria-pressed="rollbackData"
-                            :disabled="!rollingBack?.data"
-                            @click="rollbackData = true"
-                        >
-                            {{ ' ' + $t('Code and data') + ' ' }}
-                        </button>
-                    </div>
-                    <p class="text-[13px]/5 text-(--ds-text-secondary)">
-                        <template v-if="rollbackData && rollingBack?.dataAt">
-                            {{
-                                ' ' +
-                                $t(
-                                    'Its data goes back to the snapshot from :value, just before the next deploy. Anything written since is replaced. A snapshot is taken first, so you can undo it from Backups.',
-                                    {
-                                        value: new Date(
-                                            rollingBack.dataAt,
-                                        ).toLocaleString(),
-                                    },
-                                ) +
-                                ' '
-                            }}
-                        </template>
-                        <template v-else-if="rollingBack?.data">
-                            {{
-                                ' ' +
-                                $t(
-                                    'Its data stays as it is now. Choose Code and data if the newer version changed it, with a migration say.',
-                                ) +
-                                ' '
-                            }}
-                        </template>
-                        <template v-else>
-                            {{
-                                ' ' +
-                                $t(
-                                    'There’s no snapshot of its data from then, so only the code goes back. Restore a backup for the data.',
-                                ) +
-                                ' '
-                            }}
-                        </template>
-                    </p>
-                    <div class="grid gap-2">
-                        <label for="rollback-confirm" class="text-[13px]/5">
-                            {{ ' ' + $t('Type') }}
-                            <span class="font-ui-mono text-(--ds-text)">{{
-                                app?.service
-                            }}</span>
-                            {{ $t('to confirm.') + ' ' }}
-                        </label>
-                        <Input
-                            id="rollback-confirm"
-                            v-model="rollbackConfirm"
-                            autocomplete="off"
-                            spellcheck="false"
-                            class="font-ui-mono"
-                        />
-                    </div>
-                    <InputError :message="rollbackError ?? undefined" />
-                    <div class="flex justify-end gap-2">
-                        <AppButton size="sm" @click="rollbackOpen = false">
-                            {{ ' ' + $t('Cancel') + ' ' }}
-                        </AppButton>
-                        <DangerButton
-                            :label="$t('Roll back')"
-                            busy-label="Starting…"
-                            :processing="rollbackBusy"
-                            :disabled="
-                                !rollbackBusy &&
-                                rollbackConfirm !== app?.service
-                            "
-                        />
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-
-        <Dialog v-model:open="repairing">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
-            >
-                <DialogHeader>
-                    <DialogTitle>{{
-                        ' ' + $t('Repair :name?', { name: service.name }) + ' '
-                    }}</DialogTitle>
-                    <DialogDescription>
-                        {{
-                            ' ' +
-                            $t(
-                                'ServerOS recreates the container with the same name, image, settings, ports and data, without the Wings files, and starts it. It will also come back after a reboot. If it won’t start, the old one is put back.',
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </DialogHeader>
-                <div class="flex justify-end gap-2">
-                    <AppButton size="sm" @click="repairing = false">
-                        {{ ' ' + $t('Cancel') + ' ' }}
-                    </AppButton>
-                    <AppButton variant="primary" size="sm" @click="repair">
-                        {{ $t('Repair') }}
-                    </AppButton>
                 </div>
-            </DialogContent>
-        </Dialog>
+            </form>
+        </DialogContent>
+    </Dialog>
 
-        <Dialog v-model:open="removing">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
-            >
-                <DialogHeader>
-                    <DialogTitle>{{
-                        $t('Remove :name?', { name: service.name })
-                    }}</DialogTitle>
-                    <DialogDescription v-if="!service.container">
-                        {{
-                            ' ' +
-                            $t(
-                                'It stops, won’t start again at boot, and its unit file is deleted if it was made on this machine. A service installed by a package keeps its files: uninstall the package to remove it completely. Files and data it uses are never touched.',
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                    <DialogDescription v-else-if="removeAdopted">
-                        {{
-                            ' ' +
-                            $t(
-                                'You adopted this one, so only its container stops and is deleted. :value Its volumes are kept unless you choose otherwise, and folders it uses on the machine are never touched.',
-                                {
-                                    value: service.details?.compose_project
-                                        ? $t(
-                                              'Nothing else in the :compose_project project is touched.',
-                                              {
-                                                  compose_project: String(
-                                                      service.details
-                                                          .compose_project,
-                                                  ),
-                                              },
-                                          )
-                                        : '',
-                                },
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                    <DialogDescription v-else>
-                        {{
-                            ' ' +
-                            $t(
-                                'Its containers stop and are deleted. :value Data in volumes is kept unless you choose otherwise.',
-                                {
-                                    value: service.details?.compose_project
-                                        ? $t(
-                                              'Everything in the :compose_project project goes with it.',
-                                              {
-                                                  compose_project: String(
-                                                      service.details
-                                                          .compose_project,
-                                                  ),
-                                              },
-                                          )
-                                        : '',
-                                },
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </DialogHeader>
-                <form class="flex flex-col gap-4" @submit.prevent="remove">
-                    <div class="grid gap-2">
-                        <label for="remove-confirm" class="text-[13px]/5">
-                            {{ ' ' + $t('Type') }}
-                            <span class="font-ui-mono text-(--ds-text)">{{
-                                service.name
-                            }}</span>
-                            {{ $t('to confirm.') + ' ' }}
-                        </label>
-                        <Input
-                            id="remove-confirm"
-                            v-model="removeConfirm"
-                            autocomplete="off"
-                            spellcheck="false"
-                            class="font-ui-mono"
-                        />
-                    </div>
-                    <p
-                        v-if="!managed"
-                        class="text-[13px]/5 text-(--ds-text-muted)"
-                    >
-                        {{
-                            $t(
-                                'ServerOS doesn’t control it yet, so it adopts it first, then removes it.',
-                            )
-                        }}
-                    </p>
-                    <label
-                        v-if="service.container"
-                        class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                    >
-                        <TickBox v-model="removeData" class="mt-0.5" />
-                        <span>{{
-                            $t(
-                                'Also delete its data (volumes). This can’t be undone.',
-                            )
-                        }}</span>
-                    </label>
-                    <label
-                        v-if="removeAdopted && removeData"
-                        class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-(--ds-text-secondary) select-none"
-                    >
-                        <TickBox v-model="removeDataSure" class="mt-0.5" />
-                        <span>{{
-                            $t(
-                                'ServerOS didn’t create this service. Delete its Docker volumes anyway.',
-                            )
-                        }}</span>
-                    </label>
-                    <InputError :message="removeError ?? undefined" />
-                    <div class="flex justify-end gap-2">
-                        <AppButton size="sm" @click="removing = false">
-                            {{ ' ' + $t('Cancel') + ' ' }}
-                        </AppButton>
-                        <DangerButton
-                            :label="$t('Remove service')"
-                            busy-label="Removing…"
-                            :processing="removeBusy"
-                            :disabled="
-                                !removeBusy &&
-                                (removeConfirm !== service.name ||
-                                    (removeAdopted &&
-                                        removeData &&
-                                        !removeDataSure))
-                            "
-                            :error="removeError"
-                        />
-                    </div>
-                </form>
-            </DialogContent>
-        </Dialog>
-        <CloneServiceDialog
-            v-if="clone"
-            v-model:open="cloning"
-            :machine-id="machine.id!"
-            :service-key="service.key"
-            :display-name="String(displayName)"
-            :defaults="{ name: clone.name, port: clone.port }"
-            @started="cloneStarted"
-        />
-        <Teleport to="body">
-            <Transition name="console-sheet">
+    <Dialog v-model:open="rollbackOpen">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
+        >
+            <DialogHeader>
+                <DialogTitle>
+                    {{
+                        $t('Roll :service back to :value?', {
+                            service: String(app?.service ?? ''),
+                            value: String(
+                                rollingBack?.commit.slice(0, 7) ?? '',
+                            ),
+                        })
+                    }}
+                </DialogTitle>
+                <DialogDescription>
+                    {{
+                        $t(
+                            'The version from :value starts again and takes over its address. The newer one stops, and you can roll forward to it later.',
+                            {
+                                value: rollingBack?.deployedAt
+                                    ? new Date(
+                                          rollingBack.deployedAt,
+                                      ).toLocaleString()
+                                    : 'before',
+                            },
+                        )
+                    }}
+                </DialogDescription>
+            </DialogHeader>
+            <form class="flex flex-col gap-4" @submit.prevent="rollback">
                 <div
-                    v-if="consoleSheet"
-                    class="fixed inset-0 z-50 flex flex-col justify-end"
-                    @keydown.esc="consoleSheet = false"
+                    class="ds-segments self-start"
+                    role="group"
+                    :aria-label="$t('What to roll back')"
                 >
-                    <div
-                        class="console-scrim absolute inset-0 bg-black/40"
-                        aria-hidden="true"
-                        @click="consoleSheet = false"
-                    />
-                    <section
-                        role="dialog"
-                        aria-modal="true"
-                        :aria-label="$t('Console')"
-                        class="console-panel dark workspace-panel relative mx-2 mb-2 flex h-[min(80vh,780px)] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#151514] font-ui text-(--ds-text) shadow-[0_-24px_80px_-20px_rgb(0_0_0/0.6)]"
+                    <button
+                        type="button"
+                        class="cursor-pointer"
+                        :aria-pressed="!rollbackData"
+                        @click="rollbackData = false"
                     >
-                        <header
-                            class="flex h-11 shrink-0 items-center gap-2.5 border-b border-white/[0.06] bg-[#1b1b1a] px-4"
-                        >
-                            <SquareTerminal
-                                class="size-4 text-(--ds-text-muted)"
-                                :stroke-width="1.75"
-                                aria-hidden="true"
-                            />
-                            <span class="font-ui-mono text-[13px]/5">{{
-                                displayName
-                            }}</span>
-                            <span
-                                v-if="machine.name"
-                                class="text-[12.5px] text-(--ds-text-faint)"
-                                >{{
-                                    $t('on :machine', { machine: machine.name })
-                                }}</span
-                            >
-                            <span
-                                v-if="hasPlan && consoleOpen"
-                                class="ml-auto flex items-center gap-2 text-[12.5px] text-(--ds-text-faint)"
-                            >
-                                <ShieldCheck
-                                    class="size-3.5 text-(--ds-green)"
-                                    :stroke-width="2"
-                                    aria-hidden="true"
-                                />
-                                {{ $t('Locks in') }}
-                                <span class="font-ui-mono tabular-nums">{{
-                                    countdown
-                                }}</span>
-                                <button
-                                    type="button"
-                                    class="ml-1 flex size-7 cursor-pointer items-center justify-center rounded-md text-(--ds-text-muted) hover:bg-white/[0.06] hover:text-(--ds-text)"
-                                    :title="$t('Lock now')"
-                                    :aria-label="$t('Lock now')"
-                                    @click="lockConsole"
-                                >
-                                    <Lock
-                                        class="size-3.5"
-                                        :stroke-width="1.75"
-                                    />
-                                </button>
-                            </span>
-                            <button
-                                type="button"
-                                class="flex size-7 cursor-pointer items-center justify-center rounded-md text-(--ds-text-muted) hover:bg-white/[0.06] hover:text-(--ds-text)"
-                                :class="{
-                                    'ml-auto': !(hasPlan && consoleOpen),
-                                }"
-                                :aria-label="$t('Close console')"
-                                @click="consoleSheet = false"
-                            >
-                                <X
-                                    class="mi-close size-4"
-                                    :stroke-width="1.75"
-                                />
-                            </button>
-                        </header>
-
-                        <div
-                            v-if="!hasPlan"
-                            class="flex grow flex-col items-center justify-center gap-5 px-6 py-14 text-center"
-                        >
-                            <div class="flex max-w-md flex-col gap-1.5">
-                                <h2 class="text-base font-semibold">
-                                    {{
-                                        ' ' +
-                                        $t('The console needs a plan') +
-                                        ' '
-                                    }}
-                                </h2>
-                                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                                    {{
-                                        $t(
-                                            ':displayName keeps running as it is. Choose a plan to run commands in it again.',
-                                            { displayName },
-                                        ) + ' '
-                                    }}
-                                </p>
-                            </div>
-                            <Link
-                                v-if="upgrade"
-                                :href="upgrade.href"
-                                class="ds-raised-button text-[13px]!"
-                                >{{ $t('Choose a plan') }}</Link
-                            >
-                        </div>
-
-                        <div
-                            v-else-if="
-                                !consoleLock.twoFactorEnabled || !consoleOpen
-                            "
-                            class="flex grow flex-col items-center justify-center gap-5 px-6 py-14 text-center"
-                        >
-                            <span
-                                class="ds-icon-chip size-12! rounded-xl!"
-                                aria-hidden="true"
-                            >
-                                <ShieldCheck class="size-5" :stroke-width="2" />
-                            </span>
-                            <template v-if="!consoleLock.twoFactorEnabled">
-                                <div class="flex max-w-md flex-col gap-1.5">
-                                    <h2 class="text-base font-semibold">
-                                        {{
-                                            ' ' +
-                                            $t(
-                                                'The console needs two-factor authentication',
-                                            ) +
-                                            ' '
-                                        }}
-                                    </h2>
-                                    <p
-                                        class="text-[13px]/5 text-(--ds-text-muted)"
-                                    >
-                                        {{
-                                            ' ' +
-                                            $t(
-                                                'It runs commands on a real machine, so a password alone isn’t enough. Turn on two-factor for your account, then come back to unlock it.',
-                                            ) +
-                                            ' '
-                                        }}
-                                    </p>
-                                </div>
-                                <AppButton
-                                    variant="primary"
-                                    size="sm"
-                                    :href="securityEdit()"
-                                >
-                                    {{ ' ' + $t('Set up two-factor') + ' ' }}
-                                </AppButton>
-                            </template>
-                            <form
-                                v-else
-                                class="flex flex-col items-center gap-4"
-                                @submit.prevent="unlock"
-                            >
-                                <div class="flex max-w-md flex-col gap-1.5">
-                                    <h2 class="text-base font-semibold">
-                                        {{ $t('Unlock the console') }}
-                                    </h2>
-                                    <p
-                                        class="text-[13px]/5 text-(--ds-text-muted)"
-                                    >
-                                        {{
-                                            ' ' +
-                                            $t(
-                                                'Enter the 6-digit code from your authenticator app. The console stays unlocked for :minutes minutes on this device.',
-                                                {
-                                                    minutes: String(
-                                                        consoleLock.minutes ??
-                                                            '',
-                                                    ),
-                                                },
-                                            ) +
-                                            ' '
-                                        }}
-                                    </p>
-                                </div>
-                                <InputOTP
-                                    v-model="unlockCode"
-                                    :maxlength="6"
-                                    :disabled="unlocking"
-                                    autofocus
-                                    @complete="unlock"
-                                >
-                                    <InputOTPGroup>
-                                        <InputOTPSlot
-                                            v-for="index in 6"
-                                            :key="index"
-                                            :index="index - 1"
-                                        />
-                                    </InputOTPGroup>
-                                </InputOTP>
-                                <InputError
-                                    :message="unlockError ?? undefined"
-                                />
-                                <SubmitButton
-                                    :label="$t('Unlock')"
-                                    busy-label="Checking…"
-                                    :processing="unlocking"
-                                    :disabled="unlockCode.length !== 6"
-                                />
-                            </form>
-                        </div>
-
-                        <template v-else>
-                            <div
-                                ref="consoleBox"
-                                class="min-h-0 grow overflow-auto px-5 pt-4 pb-2 font-ui-mono text-[12.5px]/5.5"
-                                role="log"
-                                :aria-label="$t('Command output')"
-                            >
-                                <p class="mb-3 text-(--ds-text-faint)">
-                                    #
-                                    {{
-                                        $t(
-                                            'One-off commands with sh -c, up to a minute each, no interactive input. Each one is recorded with your name.',
-                                        )
-                                    }}
-                                </p>
-                                <p
-                                    v-if="!service.container"
-                                    class="text-(--ds-text-faint)"
-                                >
-                                    {{
-                                        ' ' +
-                                        $t(
-                                            'Commands run inside containers, and this service isn’t one.',
-                                        ) +
-                                        ' '
-                                    }}
-                                </p>
-                                <p
-                                    v-else-if="transcript.length === 0"
-                                    class="text-(--ds-text-faint)"
-                                >
-                                    {{ ' ' + $t('Nothing run yet. Try') }}
-                                    <span class="text-(--ds-text-secondary)">{{
-                                        $t('ls -la')
-                                    }}</span>
-                                    {{ $t('or') }}
-                                    <span class="text-(--ds-text-secondary)">{{
-                                        $t('env')
-                                    }}</span
-                                    >.
-                                </p>
-                                <div
-                                    v-for="job in transcript"
-                                    :key="job.id"
-                                    class="mb-3 flex flex-col gap-0.5"
-                                >
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-(--ds-blue)">$</span>
-                                        <span class="text-(--ds-text)">{{
-                                            job.command
-                                        }}</span>
-                                        <JobStatusBadge
-                                            v-if="job.state !== 'succeeded'"
-                                            :state="job.state"
-                                            class="ml-auto scale-90"
-                                        />
-                                        <span
-                                            v-else-if="
-                                                job.result?.exit_code !==
-                                                undefined
-                                            "
-                                            class="ml-auto text-[11px]"
-                                            :class="
-                                                job.result.exit_code === 0
-                                                    ? 'text-(--ds-text-faint)'
-                                                    : 'text-(--ds-red)'
-                                            "
-                                        >
-                                            {{
-                                                ' ' +
-                                                $t('exit :exit_code', {
-                                                    exit_code: String(
-                                                        job.result.exit_code ??
-                                                            '',
-                                                    ),
-                                                })
-                                            }}
-                                        </span>
-                                    </div>
-                                    <div
-                                        v-for="(line, i) in output(job)"
-                                        :key="i"
-                                        class="break-words whitespace-pre-wrap text-(--ds-text-secondary)"
-                                    >
-                                        {{ line }}
-                                    </div>
-                                    <p v-if="job.error" class="text-(--ds-red)">
-                                        {{
-                                            jobReason(
-                                                job.error,
-                                                $t('That didn’t finish.'),
-                                                false,
-                                            )
-                                        }}
-                                    </p>
-                                </div>
-                            </div>
-                            <form
-                                class="flex shrink-0 items-center gap-2 border-t border-white/[0.06] px-5 py-3 font-ui-mono text-[13px]/5"
-                                @submit.prevent="run"
-                            >
-                                <span
-                                    class="text-(--ds-green)"
-                                    aria-hidden="true"
-                                    >$</span
-                                >
-                                <span class="sr-only">{{ $t('Command') }}</span>
-                                <input
-                                    ref="consoleInput"
-                                    v-model="command"
-                                    type="text"
-                                    autocomplete="off"
-                                    spellcheck="false"
-                                    :disabled="
-                                        !canControl || !service.container
-                                    "
-                                    :placeholder="
-                                        $t('e.g. redis-cli INFO memory')
-                                    "
-                                    class="h-6 min-w-0 grow bg-transparent text-(--ds-text) caret-(--ds-text) outline-none placeholder:text-(--ds-text-faint)"
-                                    @keydown.up.prevent="recall(1)"
-                                    @keydown.down.prevent="recall(-1)"
-                                />
-                                <LoaderCircle
-                                    v-if="busy !== null"
-                                    class="size-3.5 animate-spin text-(--ds-text-faint)"
-                                    :stroke-width="2"
-                                    aria-hidden="true"
-                                />
-                                <span
-                                    v-else
-                                    class="text-[11px] text-(--ds-text-faint)"
-                                    >{{ $t('Enter to run') }}</span
-                                >
-                            </form>
-                            <InputError
-                                v-if="commandError"
-                                class="px-5 pb-3"
-                                :message="commandError"
-                            />
-                        </template>
-                    </section>
+                        {{ $t('Code only') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                        :aria-pressed="rollbackData"
+                        :disabled="!rollingBack?.data"
+                        @click="rollbackData = true"
+                    >
+                        {{ $t('Code and data') }}
+                    </button>
                 </div>
-            </Transition>
-        </Teleport>
-    </WorkspacePage>
+                <p class="text-[13px]/5 text-fg-secondary">
+                    <template v-if="rollbackData && rollingBack?.dataAt">
+                        {{
+                            $t(
+                                'Its data goes back to the snapshot from :value, just before the next deploy. Anything written since is replaced. A snapshot is taken first, so you can undo it from Backups.',
+                                {
+                                    value: new Date(
+                                        rollingBack.dataAt,
+                                    ).toLocaleString(),
+                                },
+                            )
+                        }}
+                    </template>
+                    <template v-else-if="rollingBack?.data">
+                        {{
+                            $t(
+                                'Its data stays as it is now. Choose Code and data if the newer version changed it, with a migration say.',
+                            )
+                        }}
+                    </template>
+                    <template v-else>
+                        {{
+                            $t(
+                                'There’s no snapshot of its data from then, so only the code goes back. Restore a backup for the data.',
+                            )
+                        }}
+                    </template>
+                </p>
+                <div class="grid gap-2">
+                    <label for="rollback-confirm" class="text-[13px]/5">
+                        {{ $t('Type') }}
+                        <span class="font-ui-mono text-fg-primary">{{
+                            app?.service
+                        }}</span>
+                        {{ $t('to confirm.') }}
+                    </label>
+                    <Input
+                        id="rollback-confirm"
+                        v-model="rollbackConfirm"
+                        autocomplete="off"
+                        spellcheck="false"
+                        class="font-ui-mono"
+                    />
+                </div>
+                <InputError :message="rollbackError ?? undefined" />
+                <div class="flex justify-end gap-2">
+                    <AppButton size="sm" @click="rollbackOpen = false">
+                        {{ $t('Cancel') }}
+                    </AppButton>
+                    <DangerButton
+                        :label="$t('Roll back')"
+                        busy-label="Starting…"
+                        :processing="rollbackBusy"
+                        :disabled="
+                            !rollbackBusy && rollbackConfirm !== app?.service
+                        "
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="repairing">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
+        >
+            <DialogHeader>
+                <DialogTitle>{{
+                    $t('Repair :name?', { name: service.name })
+                }}</DialogTitle>
+                <DialogDescription>
+                    {{
+                        $t(
+                            'ServerOS recreates the container with the same name, image, settings, ports and data, without the Wings files, and starts it. It will also come back after a reboot. If it won’t start, the old one is put back.',
+                        )
+                    }}
+                </DialogDescription>
+            </DialogHeader>
+            <div class="flex justify-end gap-2">
+                <AppButton size="sm" @click="repairing = false">
+                    {{ $t('Cancel') }}
+                </AppButton>
+                <AppButton variant="primary" size="sm" @click="repair">
+                    {{ $t('Repair') }}
+                </AppButton>
+            </div>
+        </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="removing">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
+        >
+            <DialogHeader>
+                <DialogTitle>{{
+                    $t('Remove :name?', { name: service.name })
+                }}</DialogTitle>
+                <DialogDescription v-if="!service.container">
+                    {{
+                        $t(
+                            'It stops, won’t start again at boot, and its unit file is deleted if it was made on this machine. A service installed by a package keeps its files: uninstall the package to remove it completely. Files and data it uses are never touched.',
+                        )
+                    }}
+                </DialogDescription>
+                <DialogDescription v-else-if="removeAdopted">
+                    {{
+                        $t(
+                            'You adopted this one, so only its container stops and is deleted. :value Its volumes are kept unless you choose otherwise, and folders it uses on the machine are never touched.',
+                            {
+                                value: service.details?.compose_project
+                                    ? $t(
+                                          'Nothing else in the :compose_project project is touched.',
+                                          {
+                                              compose_project: String(
+                                                  service.details
+                                                      .compose_project,
+                                              ),
+                                          },
+                                      )
+                                    : '',
+                            },
+                        )
+                    }}
+                </DialogDescription>
+                <DialogDescription v-else>
+                    {{
+                        $t(
+                            'Its containers stop and are deleted. :value Data in volumes is kept unless you choose otherwise.',
+                            {
+                                value: service.details?.compose_project
+                                    ? $t(
+                                          'Everything in the :compose_project project goes with it.',
+                                          {
+                                              compose_project: String(
+                                                  service.details
+                                                      .compose_project,
+                                              ),
+                                          },
+                                      )
+                                    : '',
+                            },
+                        )
+                    }}
+                </DialogDescription>
+            </DialogHeader>
+            <form class="flex flex-col gap-4" @submit.prevent="remove">
+                <div class="grid gap-2">
+                    <label for="remove-confirm" class="text-[13px]/5">
+                        {{ $t('Type') }}
+                        <span class="font-ui-mono text-fg-primary">{{
+                            service.name
+                        }}</span>
+                        {{ $t('to confirm.') }}
+                    </label>
+                    <Input
+                        id="remove-confirm"
+                        v-model="removeConfirm"
+                        autocomplete="off"
+                        spellcheck="false"
+                        class="font-ui-mono"
+                    />
+                </div>
+                <p v-if="!managed" class="text-[13px]/5 text-fg-muted">
+                    {{
+                        $t(
+                            'ServerOS doesn’t control it yet, so it adopts it first, then removes it.',
+                        )
+                    }}
+                </p>
+                <label
+                    v-if="service.container"
+                    class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-fg-secondary select-none"
+                >
+                    <TickBox v-model="removeData" class="mt-0.5" />
+                    <span>{{
+                        $t(
+                            'Also delete its data (volumes). This can’t be undone.',
+                        )
+                    }}</span>
+                </label>
+                <label
+                    v-if="removeAdopted && removeData"
+                    class="flex cursor-pointer items-start gap-2.5 text-[13px]/5 text-fg-secondary select-none"
+                >
+                    <TickBox v-model="removeDataSure" class="mt-0.5" />
+                    <span>{{
+                        $t(
+                            'ServerOS didn’t create this service. Delete its Docker volumes anyway.',
+                        )
+                    }}</span>
+                </label>
+                <InputError :message="removeError ?? undefined" />
+                <div class="flex justify-end gap-2">
+                    <AppButton size="sm" @click="removing = false">
+                        {{ $t('Cancel') }}
+                    </AppButton>
+                    <DangerButton
+                        :label="$t('Remove service')"
+                        busy-label="Removing…"
+                        :processing="removeBusy"
+                        :disabled="
+                            !removeBusy &&
+                            (removeConfirm !== service.name ||
+                                (removeAdopted &&
+                                    removeData &&
+                                    !removeDataSure))
+                        "
+                        :error="removeError"
+                    />
+                </div>
+            </form>
+        </DialogContent>
+    </Dialog>
 </template>

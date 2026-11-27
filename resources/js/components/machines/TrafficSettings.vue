@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { Link, router, usePage } from '@inertiajs/vue3';
-import { ChevronRight, LoaderCircle } from '@lucide/vue';
+import { LoaderCircle } from '@lucide/vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
 import { trans } from 'laravel-vue-i18n';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import ToggleSwitch from '@/components/workspace/ToggleSwitch.vue';
+import DashSwitch from '@/components/dash/DashSwitch.vue';
+import SettingsCard from '@/components/machines/settings/SettingsCard.vue';
+import SettingsRow from '@/components/machines/settings/SettingsRow.vue';
 import { describe, errorMessage, jobReason } from '@/lib/errors';
 import { fixed } from '@/lib/formatting';
 import { toast } from '@/lib/toast';
@@ -97,7 +100,7 @@ function compact(value: number): string {
 }
 
 function rate(part: number, whole: number): string {
-    if (whole === 0) return '—';
+    if (whole === 0) return '–';
     const p = (part / whole) * 100;
     if (p === 0) return '0%';
     if (p < 0.1) return '<0.1%';
@@ -286,64 +289,55 @@ onMounted(() => {
 </script>
 
 <template>
-    <section class="ds-tile" :aria-label="$t('Traffic')">
-        <div class="flex items-start justify-between gap-4 px-5 py-4">
-            <div class="flex max-w-xl flex-col gap-0.5">
-                <h2 class="text-[13px]/5 font-medium">{{ $t('Traffic') }}</h2>
-                <p class="text-[13px]/5 text-(--ds-text-muted)">
-                    {{
-                        traffic.existing !== null
-                            ? $t(
-                                  'Counts visits to the sites on :name from their access logs: the apps ServerOS runs, and the sites your own web servers serve, whose logs ServerOS only reads. Visitor IPs never leave the machine.',
-                                  { name: machineName },
-                              )
-                            : $t(
-                                  'Counts visits to the sites ServerOS runs on :name from the proxy’s access logs. Visitor IPs never leave the machine.',
-                                  { name: machineName },
-                              )
-                    }}
-                    <template v-if="restarts">
-                        {{
-                            ' ' +
-                            $t(
-                                'On Traefik, switching it restarts the proxy, so sites blip for a second.',
-                            )
-                        }}
-                    </template>
-                </p>
-            </div>
-            <ToggleSwitch
+    <SettingsCard icon="activity-fill" :title="$t('Traffic')">
+        <SettingsRow
+            :label="$t('Count traffic')"
+            :hint="
+                (traffic.existing !== null
+                    ? $t(
+                          'Counts visits to the sites on :name from their access logs: the apps ServerOS runs, and the sites your own web servers serve, whose logs ServerOS only reads. Visitor IPs never leave the machine.',
+                          { name: machineName },
+                      )
+                    : $t(
+                          'Counts visits to the sites ServerOS runs on :name from the proxy’s access logs. Visitor IPs never leave the machine.',
+                          { name: machineName },
+                      )) +
+                (restarts
+                    ? ' ' +
+                      $t(
+                          'On Traefik, switching it restarts the proxy, so sites blip for a second.',
+                      )
+                    : '')
+            "
+        >
+            <DashSwitch
                 :model-value="on"
-                class="mt-0.5"
                 :label="$t('Count traffic')"
                 :disabled="!canManage || busy || traffic.blocked !== null"
                 @update:model-value="change"
             />
-        </div>
+        </SettingsRow>
 
-        <p
-            v-if="traffic.blocked"
-            class="border-t border-(--ds-border) px-5 py-3 text-[13px]/5 text-(--ds-text-muted)"
-        >
+        <p v-if="traffic.blocked" class="py-2.5 text-[12px]/4 text-fg-muted">
             {{ traffic.blocked }}
         </p>
         <p
             v-else-if="busy"
-            class="flex items-center gap-2 border-t border-(--ds-border) px-5 py-3 text-[13px]/5 text-(--ds-text-muted)"
+            class="flex items-center gap-2 py-2.5 text-[12px]/4 text-fg-muted"
         >
             <LoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />
             {{ on ? $t('Turning it on…') : $t('Turning it off…') }}
         </p>
         <p
             v-else-if="error"
-            class="border-t border-(--ds-border) px-5 py-3 text-[13px]/5 text-(--ds-red)"
+            class="py-2.5 text-[12px]/4 text-status-down"
             role="alert"
         >
             {{ $t('That didn’t apply: :reason', { reason: error }) }}
         </p>
         <p
             v-else-if="traffic.enabled && counted !== null && !rows?.length"
-            class="border-t border-(--ds-border) px-5 py-3 text-[13px]/5 text-(--ds-text-muted)"
+            class="py-2.5 text-[12px]/4 text-fg-muted"
         >
             {{
                 $t(
@@ -355,143 +349,77 @@ onMounted(() => {
             }}
         </p>
 
-        <div
-            v-if="traffic.enabled && !busy && !error && rows?.length"
-            class="border-t border-(--ds-border)"
-        >
-            <table
-                class="w-full table-fixed border-collapse text-left text-[13px]/5"
-                :aria-label="$t('Sites counted')"
-            >
-                <thead>
-                    <tr class="text-[12px]/4 text-(--ds-text-faint)">
-                        <th class="py-2 pr-3 pl-5 font-normal">
-                            {{ $t('Site') }}
-                        </th>
-                        <th
-                            class="hidden w-36 border-l border-(--ds-divider) px-3 font-normal sm:table-cell"
-                        >
-                            {{ $t('Served by') }}
-                        </th>
-                        <th
-                            class="w-20 border-l border-(--ds-divider) px-3 text-right font-normal sm:w-24"
-                        >
-                            {{ $t('Requests') }}
-                        </th>
-                        <th
-                            class="hidden w-20 border-l border-(--ds-divider) px-3 text-right font-normal sm:table-cell"
-                        >
-                            {{ $t('Errors') }}
-                        </th>
-                        <th
-                            class="w-20 border-l border-(--ds-divider) px-3 text-right font-normal sm:w-24"
-                        >
-                            {{ $t('Visitors') }}
-                        </th>
-                        <th class="w-10 pr-4" aria-hidden="true" />
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr
-                        v-for="row in rows"
-                        :key="row.site"
-                        class="border-t border-(--ds-divider)"
-                        :class="row.url && 'hover:bg-(--ds-hover)'"
+        <template v-if="traffic.enabled && !busy && !error && rows?.length">
+            <SettingsRow v-for="row in rows" :key="row.site">
+                <template #label>
+                    <component
+                        :is="row.url ? Link : 'span'"
+                        :href="row.url ? workspacePath(row.url) : undefined"
+                        class="truncate text-[13px]/5 tracking-[-0.005em] text-fg-primary"
+                        :class="row.url ? 'hover:underline' : ''"
+                        :title="row.names.join(', ') || row.name"
+                        >{{ row.name }}</component
                     >
-                        <td class="min-w-0 py-2 pr-3 pl-5">
-                            <component
-                                :is="row.url ? Link : 'span'"
-                                :href="
-                                    row.url ? workspacePath(row.url) : undefined
-                                "
-                                class="block truncate font-medium text-(--ds-text)"
-                                :title="row.names.join(', ') || row.name"
-                                >{{ row.name }}</component
-                            >
-                            <span
-                                class="block truncate text-xs text-(--ds-text-faint)"
-                                :title="detail(row)"
-                                >{{ detail(row) }}</span
-                            >
-                        </td>
-                        <td
-                            class="hidden min-w-0 px-3 text-(--ds-text-muted) sm:table-cell"
+                    <span
+                        class="truncate text-[12px]/4 tracking-[-0.005em] text-fg-muted"
+                        :title="detail(row)"
+                        >{{ detail(row)
+                        }}{{
+                            row.server
+                                ? ` · ${row.server}${row.container ? ' ' + $t('in :container', { container: row.container }) : ''}`
+                                : ''
+                        }}</span
+                    >
+                </template>
+                <span
+                    class="flex items-center gap-4 text-[12px]/4 whitespace-nowrap text-fg-muted tabular-nums"
+                >
+                    <span>
+                        <span class="text-fg-secondary">{{
+                            row.unlogged ? '–' : compact(row.requests)
+                        }}</span>
+                        {{ $t('requests') }}
+                    </span>
+                    <span class="max-sm:hidden">
+                        <span
+                            :class="
+                                !row.unlogged &&
+                                row.requests > 0 &&
+                                row.errors / row.requests >= 0.05
+                                    ? 'text-status-down'
+                                    : 'text-fg-secondary'
+                            "
+                            >{{
+                                row.unlogged
+                                    ? '–'
+                                    : rate(row.errors, row.requests)
+                            }}</span
                         >
-                            <span class="block truncate">{{ row.server }}</span>
-                            <span
-                                v-if="row.container"
-                                class="block truncate text-xs text-(--ds-text-faint)"
-                                :title="row.container"
-                                >{{
-                                    $t('in :container', {
-                                        container: row.container,
-                                    })
-                                }}</span
-                            >
-                        </td>
-                        <template v-if="row.unlogged">
-                            <td
-                                class="px-3 text-right text-(--ds-text-faint) tabular-nums"
-                            >
-                                —
-                            </td>
-                            <td
-                                class="hidden px-3 text-right text-(--ds-text-faint) tabular-nums sm:table-cell"
-                            >
-                                —
-                            </td>
-                            <td
-                                class="px-3 text-right text-(--ds-text-faint) tabular-nums"
-                            >
-                                —
-                            </td>
-                        </template>
-                        <template v-else>
-                            <td class="px-3 text-right tabular-nums">
-                                {{ compact(row.requests) }}
-                            </td>
-                            <td
-                                class="hidden px-3 text-right tabular-nums sm:table-cell"
-                                :class="
-                                    row.requests > 0 &&
-                                    row.errors / row.requests >= 0.05
-                                        ? 'text-(--ds-red)'
-                                        : 'text-(--ds-text-muted)'
-                                "
-                            >
-                                {{ rate(row.errors, row.requests) }}
-                            </td>
-                            <td class="px-3 text-right tabular-nums">
-                                {{ compact(row.visitors) }}
-                            </td>
-                        </template>
-                        <td class="pr-4 text-right">
-                            <Link
-                                v-if="row.url"
-                                :href="workspacePath(row.url)"
-                                class="inline-flex size-6 items-center justify-center rounded-md text-(--ds-text-faint) hover:bg-(--ds-hover) hover:text-(--ds-text)"
-                                :aria-label="
-                                    $t('Traffic for :name', { name: row.name })
-                                "
-                            >
-                                <ChevronRight
-                                    class="size-4"
-                                    aria-hidden="true"
-                                />
-                            </Link>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            <p
-                class="border-t border-(--ds-divider) px-5 py-2.5 text-xs text-(--ds-text-faint)"
-            >
+                        {{ $t('errors') }}
+                    </span>
+                    <span>
+                        <span class="text-fg-secondary">{{
+                            row.unlogged ? '–' : compact(row.visitors)
+                        }}</span>
+                        {{ $t('visitors') }}
+                    </span>
+                </span>
+                <Link
+                    v-if="row.url"
+                    :href="workspacePath(row.url)"
+                    class="flex size-6 items-center justify-center rounded-md text-fg-muted hover:bg-surface-hover hover:text-fg-primary"
+                    :aria-label="$t('Traffic for :name', { name: row.name })"
+                >
+                    <FilledIcon name="chevron-right" :size="14" />
+                </Link>
+            </SettingsRow>
+            <p class="py-2.5 text-[12px]/4 text-fg-muted">
                 {{
                     $t(
                         'The last 24 hours. Errors are the share of server errors (5xx). A site that writes no access log has no numbers; its page says how to start one.',
                     )
                 }}
             </p>
-        </div>
-    </section>
+        </template>
+    </SettingsCard>
 </template>

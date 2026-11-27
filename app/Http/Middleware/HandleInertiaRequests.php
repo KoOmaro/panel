@@ -10,6 +10,7 @@ use App\Support\Docs\DocsUrl;
 use App\Support\Extensions\Extensions;
 use App\Support\Extensions\MarketingSite;
 use App\Support\GitHub\GitHubApp;
+use App\Support\InstallPing;
 use App\Support\SetupGuide;
 use App\Support\Theme\DashboardTheme;
 use App\Support\Workspaces\Dashboard;
@@ -147,6 +148,7 @@ class HandleInertiaRequests extends Middleware
             'githubAppSetup' => fn () => $request->routeIs('workspace.*') && ($workspace = $request->route('workspace')) instanceof Workspace
                 && GitHubAppSetupController::canManage($request->user(), $workspace),
             'agentsPreview' => (bool) config('serveros.agents'),
+            'panelVersion' => fn () => $request->user() === null ? null : InstallPing::version(),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'staff' => fn () => [
                 'admin' => $request->user()?->can('viewAdmin') === true || StaffTwoFactor::missing($request->user()),

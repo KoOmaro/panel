@@ -712,6 +712,12 @@ onBeforeUnmount(() => {
                     "
                 />
             </span>
+            <DashTab
+                v-if="machine.id"
+                :label="$t('Settings')"
+                icon="settings-fill"
+                :href="settingsUrl"
+            />
         </DashTabs>
 
         <MachineOverview

@@ -201,3 +201,121 @@ export function byUrgency<T extends Pick<Monitor, 'status' | 'name'>>(
 ): number {
     return ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name);
 }
+
+export type OutageTone = 'none' | 'up' | 'short' | 'long' | 'ongoing';
+
+export type MonitorDay = {
+    day: string;
+    percent: number | null;
+    down: number;
+    tone: OutageTone;
+};
+
+export type MonitorBar = { at: string; ms: number | null; failed: number };
+
+export type MonitorChart = {
+    step: number;
+    bars: MonitorBar[];
+    averageMs: number | null;
+};
+
+export type MonitorIncidentRow = {
+    id: number;
+    startedAt: string;
+    resolvedAt: string | null;
+    cause: string;
+    seconds: number;
+    tone: OutageTone;
+};
+
+export type MonitorCheckRow = {
+    id: number;
+    at: string;
+    ok: boolean;
+    ms: number | null;
+    code: number | null;
+    label: string;
+    error: string | null;
+};
+
+export function cadence(seconds: number): string {
+    if (seconds < 60) {
+        return trans('every :count seconds', { count: String(seconds) });
+    }
+    if (seconds === 60) return trans('every minute');
+    if (seconds < 3600) {
+        return trans('every :count minutes', {
+            count: String(Math.round(seconds / 60)),
+        });
+    }
+    if (seconds === 3600) return trans('every hour');
+
+    return trans('every :count hours', {
+        count: String(Math.round(seconds / 3600)),
+    });
+}
+
+function unit(count: number, one: string, many: string): string {
+    return trans(count === 1 ? one : many, { count: String(count) });
+}
+
+export function spelled(seconds: number): string {
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 60) return unit(s, '1 second', ':count seconds');
+    const minutes = Math.floor(s / 60);
+    if (minutes < 60) return unit(minutes, '1 minute', ':count minutes');
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        const rest = minutes % 60;
+        const h = unit(hours, '1 hour', ':count hours');
+
+        return rest ? `${h} ${unit(rest, '1 minute', ':count minutes')}` : h;
+    }
+    const days = Math.floor(hours / 24);
+    const rest = hours % 24;
+    const d = unit(days, '1 day', ':count days');
+
+    return rest ? `${d} ${unit(rest, '1 hour', ':count hours')}` : d;
+}
+
+export function clock(iso: string): string {
+    return new Date(iso).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+    });
+}
+
+export function shortDay(iso: string): string {
+    return new Date(iso).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+    });
+}
+
+export function dayAndTime(iso: string, now = Date.now()): string {
+    const date = new Date(iso);
+    const today = new Date(now);
+    const yesterday = new Date(now - 86_400_000);
+    if (date.toDateString() === today.toDateString()) {
+        return trans('Today, :time', { time: clock(iso) });
+    }
+    if (date.toDateString() === yesterday.toDateString()) {
+        return trans('Yesterday, :time', { time: clock(iso) });
+    }
+
+    return `${shortDay(iso)}, ${clock(iso)}`;
+}
+
+export function roughly(fromIso: string | null, now = Date.now()): string {
+    if (!fromIso) return '';
+    const s = Math.max(
+        0,
+        Math.round((now - new Date(fromIso).getTime()) / 1000),
+    );
+    if (s < 60) return unit(s, '1 second', ':count seconds');
+    if (s < 3600) return unit(Math.floor(s / 60), '1 minute', ':count minutes');
+    if (s < 86400) return unit(Math.floor(s / 3600), '1 hour', ':count hours');
+
+    return unit(Math.floor(s / 86400), '1 day', ':count days');
+}

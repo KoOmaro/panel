@@ -202,6 +202,7 @@ final class ActivityLine
                 ? $set('renamed a service group to', $t('(was :name)', ['name' => $meta['from']]))
                 : $set('changed which services are in the group'),
             'service_group.delete' => $set('deleted the service group', null, 'warn'),
+            'billing.receipts' => $set('changed where billing receipts go'),
             'cloud.order' => $set('ordered the Cloud server', isset($meta['size']) ? $t('(:size)', ['size' => $meta['size']]) : null),
             'cloud.delete' => $set('deleted the Cloud server', null, 'warn'),
             'cloud.suspend' => $set('was stopped for a payment', null, 'bad'),

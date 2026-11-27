@@ -221,8 +221,8 @@ test('the monitors pages show status, uptime and history', function () {
     $this->actingAs($workspace->owner)->get(monitorsUrl($workspace, "/monitors/{$monitor->id}"))
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/MonitorShow')
-            ->where('uptime.day', 100)
-            ->has('chart.timestamps', 144)
+            ->where('figures.uptime30', 100)
+            ->has('chart.bars', 96)
             ->has('checks', 1)
             ->has('days', 90));
 

@@ -1,9 +1,13 @@
 <?php
 
-use App\Enums\MachineEnvironment;
+use App\Models\AgentFix;
+use App\Models\Backup;
+use App\Models\BackupDestination;
 use App\Models\Machine;
-use App\Models\MachineSample;
+use App\Models\MachinePackageUpdate;
+use App\Models\MachineVulnerability;
 use App\Models\User;
+use App\Models\Vulnerability;
 use App\Models\Workspace;
 use App\Support\Extensions\Extensions;
 use App\Support\Extensions\UpgradeLink;
@@ -13,6 +17,17 @@ use Inertia\Testing\AssertableInertia as Assert;
 function homeUrl(Workspace $workspace): string
 {
     return $workspace->url().'/';
+}
+
+function homeDestination(Workspace $workspace, string $name, string $endpoint): BackupDestination
+{
+    $destination = new BackupDestination(['name' => $name, 'type' => 's3', 'settings' => [
+        'endpoint' => $endpoint, 'region' => 'auto', 'bucket' => 'b', 'access_key' => 'k', 'secret_key' => 's', 'path_style' => true, 'prefix' => '',
+    ]]);
+    $destination->workspace_id = $workspace->id;
+    $destination->save();
+
+    return $destination;
 }
 
 test('a new workspace gets the empty home, with the setup steps left to the setup guide', function () {
@@ -25,80 +40,65 @@ test('a new workspace gets the empty home, with the setup steps left to the setu
         ->assertInertia(fn (Assert $page) => $page
             ->component('workspace/Home')
             ->where('workspace.host', $workspace->host())
-            ->where('stats.machines', 0)
-            ->where('stats.averageCpu', null)
-            ->where('providers', [])
+            ->where('overview.machines', 0)
+            ->where('overview.averageCpu', null)
+            ->where('busiest', [])
+            ->where('security.package', null)
+            ->where('backups.covered', 0)
             ->missing('onboarding')
             ->missing('onboardingDismissed')
             ->where('setupGuide.percent', 0)
             ->has('issues', 0));
 });
 
-test('connected machines turn the empty home into fleet stats', function () {
+test('the overview counts machines online, services running, monitor uptime and the CPU of those reporting', function () {
     $workspace = Workspace::factory()->create();
-    Machine::factory()->for($workspace)->create(['services_count' => 3, 'cpu_percent' => 20]);
-    Machine::factory()->for($workspace)->busy()->create(['services_count' => 2]);
-    Machine::factory()->for($workspace)->environment(MachineEnvironment::Staging)->neverBackedUp()
-        ->create(['services_count' => 1, 'cpu_percent' => 40]);
+    $service = fn (string $key, string $status) => ['key' => $key, 'name' => $key, 'kind' => 'app', 'manager' => 'docker', 'status' => $status, 'ports' => []];
+    $machine = Machine::factory()->for($workspace)->create(['cpu_percent' => 30, 'services_count' => 3]);
+    $machine->forceFill(['inventory' => ['scanned_at' => 1, 'complete' => true, 'services' => [$service('docker:a', 'running'), $service('docker:b', 'stopped'), $service('docker:c', 'running')], 'listeners' => []]])->save();
+    Machine::factory()->for($workspace)->create(['cpu_percent' => null, 'services_count' => 0]);
+    Machine::factory()->for($workspace)->create(['name' => 'search-1', 'cpu_percent' => 99, 'services_count' => 1])
+        ->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now()->subMinutes(12)])->save();
     Machine::factory()->create(['cpu_percent' => 99]);
-
-    $this->actingAs($workspace->owner)
-        ->get(homeUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page
-            ->where('stats', [
-                'machines' => 3,
-                'environments' => ['production' => 2, 'staging' => 1, 'development' => 0],
-                'services' => 6,
-                'running' => 0,
-                'averageCpu' => 51,
-                'busy' => 1,
-                'backedUp' => 2,
-                'cpuHistory' => array_fill(0, 12, null),
-                'cpuTimeline' => array_fill(0, 96, null),
-                'cpuRange' => '24h',
-            ]));
-});
-
-test('the CPU tile gets the last hour in 5-minute steps, averaged across machines', function () {
-    $this->travelTo(now()->setTimestamp(1_800_000_000));
-    $workspace = Workspace::factory()->create();
-    [$a, $b] = Machine::factory()->count(2)->for($workspace)->create();
-    $other = Machine::factory()->create();
-    $now = now()->getTimestamp();
-    $sample = fn (Machine $machine, int $ago, float $cpu) => MachineSample::query()->create(['machine_id' => $machine->id, 'ts' => $now - $ago, 'samples' => 1, 'cpu' => $cpu, 'cpu_max' => $cpu]);
-    $sample($a, 0, 10);
-    $sample($b, 0, 30);
-    $sample($a, 2 * 300, 70);
-    $sample($other, 0, 99);
-    $sample($a, 2 * 3600, 50);
+    $monitor = fn (string $name, string $status, bool $paused, array $daily) => $workspace->monitors()->create(['name' => $name, 'type' => 'http', 'url' => 'https://'.$name.'.example.com/', 'status' => $status, 'paused' => $paused, 'interval_seconds' => 60, 'timeout_seconds' => 10])
+        ->forceFill(['daily' => $daily])->save();
+    $monitor('shop', 'up', false, [now()->toDateString() => [1000, 999, 0], now()->subDays(40)->toDateString() => [100, 0, 0]]);
+    $monitor('api', 'down', false, [now()->toDateString() => [1000, 997, 0]]);
+    $monitor('old', 'up', true, [now()->toDateString() => [1000, 0, 0]]);
 
     $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
-        ->where('stats.cpuHistory', [null, null, null, null, null, null, null, null, null, 70, null, 20]));
+        ->where('overview', [
+            'machines' => 3,
+            'online' => 2,
+            'offline' => ['search-1'],
+            'connecting' => 0,
+            'services' => 4,
+            'running' => 2,
+            'serviceProblems' => 0,
+            'monitors' => 3,
+            'monitorsDown' => 1,
+            'uptime' => 99.8,
+            'averageCpu' => 30,
+            'reporting' => 1,
+        ]));
 });
 
-test('the CPU chart covers the range asked for, from the last hour to 30 days', function () {
-    $this->travelTo(now()->setTimestamp(1_800_000_000));
+test('the busiest five machines by CPU are shown, leaving out machines that went quiet', function () {
     $workspace = Workspace::factory()->create();
-    $machine = Machine::factory()->for($workspace)->create();
-    $now = now()->getTimestamp();
-    MachineSample::query()->create(['machine_id' => $machine->id, 'ts' => $now - 20 * 86400, 'samples' => 1, 'cpu' => 40, 'cpu_max' => 40]);
+    foreach (['a' => 10, 'b' => 86, 'c' => 71, 'd' => 34, 'e' => 22, 'f' => 18] as $name => $cpu) {
+        Machine::factory()->for($workspace)->create(['name' => $name, 'cpu_percent' => $cpu]);
+    }
+    Machine::factory()->for($workspace)->create(['name' => 'quiet', 'cpu_percent' => 95])
+        ->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now()->subHour()])->save();
+    Machine::factory()->for($workspace)->create(['name' => 'new', 'cpu_percent' => null]);
 
-    $timeline = function (string $query) use ($workspace): array {
-        $timeline = null;
-        $this->actingAs($workspace->owner)->get(homeUrl($workspace).$query)->assertInertia(function (Assert $page) use (&$timeline) {
-            $timeline = $page->toArray()['props']['stats']['cpuTimeline'];
-        });
-
-        return $timeline;
-    };
-
-    expect($timeline('?range=1h'))->toHaveCount(60)->each->toBeNull()
-        ->and($timeline('?range=7d'))->toHaveCount(84)->each->toBeNull()
-        ->and(array_values(array_filter($timeline('?range=30d'))))->toBe([40])
-        ->and($timeline('?range=forever'))->toHaveCount(96);
+    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
+        ->where('busiest', fn ($busiest) => collect($busiest)->map(fn ($m) => [$m['name'], $m['cpu']])->all() === [
+            ['b', 86], ['c', 71], ['d', 34], ['e', 22], ['f', 18],
+        ]));
 });
 
-test('what needs attention is listed worst first, in plain words', function () {
+test('what needs a look is listed worst first, each with a short line about it', function () {
     $workspace = Workspace::factory()->create();
     $connected = fn (array $attrs) => tap(Machine::factory()->for($workspace)->create(['environment' => 'production', 'last_backup_at' => now()]))
         ->forceFill(['uid' => (string) Str::uuid(), 'last_seen_at' => now(), ...$attrs])->save();
@@ -106,7 +106,9 @@ test('what needs attention is listed worst first, in plain words', function () {
     $connected(['name' => 'gone', 'last_seen_at' => now()->subMinutes(10)]);
     $connected(['name' => 'full', 'disks' => [['mount' => '/', 'used' => 76 << 30, 'total' => 80 << 30]], 'disk_percent' => 95]);
     $connected(['name' => 'filling', 'disks' => [['mount' => '/var/lib/docker', 'used' => 70 << 30, 'total' => 80 << 30]], 'disk_percent' => 87, 'backup_schedule' => 'daily', 'last_backup_at' => now()->subDays(3)]);
-    $workspace->monitors()->create(['name' => 'Shop', 'type' => 'http', 'url' => 'https://shop.example.com/', 'status' => 'down', 'last_error' => 'Returned 502.', 'interval_seconds' => 60, 'timeout_seconds' => 10, 'status_changed_at' => now()->subMinutes(2), 'ssl_expires_at' => now()->addDays(5)]);
+    $connected(['name' => 'tight', 'memory_used_mb' => 3994, 'facts' => ['memory_bytes' => 4 << 30]]);
+    $workspace->monitors()->create(['name' => 'Shop', 'type' => 'http', 'url' => 'https://shop.example.com/', 'status' => 'down', 'last_error' => 'Returned 502.', 'interval_seconds' => 60, 'timeout_seconds' => 10, 'status_changed_at' => now()->subMinutes(4), 'ssl_expires_at' => now()->addDays(5)]);
+    $monitor = $workspace->monitors()->value('id');
 
     $this->actingAs($workspace->owner)
         ->get(homeUrl($workspace))
@@ -116,12 +118,123 @@ test('what needs attention is listed worst first, in plain words', function () {
                 'gone stopped reporting',
                 'full is 95% full',
                 'filling is 87% full',
+                'tight is using 97% of its memory',
                 'Shop’s certificate expires in 4 days',
                 'filling hasn’t been backed up since 3 days ago',
             ])
+            ->where('issues', fn ($issues) => collect($issues)->pluck('brief')->all() === [
+                'Returned 502. Down for 4 minutes.',
+                'Its daemon stopped answering 10 minutes ago.',
+                'Its main disk has 4 GB left.',
+                'The disk at /var/lib/docker has 10 GB left.',
+                '3.9 GB of 4 GB in use.',
+                'It expires on '.now()->addDays(5)->format('j M').'.',
+                'It’s set to back up daily, but no backup has finished.',
+            ])
             ->where('issues.2.detail', fn ($d) => str_contains($d, 'Its main disk has 4 GB left'))
-            ->where('issues.3.detail', fn ($d) => str_contains($d, '/var/lib/docker'))
-            ->where('issues.0.href', '/monitors/'.$workspace->monitors()->value('id')));
+            ->where('issues.0.href', $workspace->url('/monitors/'.$monitor))
+            ->where('issues.0.dismissible', true)
+            ->where('overview.offline', ['gone']));
+});
+
+test('the worst vulnerable package is drawn with the machines it is on, and asks for a look when it is serious', function () {
+    $workspace = Workspace::factory()->create();
+    [$web, $api, $db, $worker] = collect(['web-1', 'api-1', 'db-1', 'worker-1'])->map(fn ($name) => Machine::factory()->for($workspace)->create(['name' => $name]))->all();
+    $critical = Vulnerability::query()->create(['cve' => 'CVE-2026-1', 'severity' => 'critical', 'exploited' => true]);
+    $critical2 = Vulnerability::query()->create(['cve' => 'CVE-2026-2', 'severity' => 'critical']);
+    $high = Vulnerability::query()->create(['cve' => 'CVE-2026-3', 'severity' => 'high']);
+    $find = fn (Machine $machine, Vulnerability $v, string $source) => MachineVulnerability::query()->create(['machine_id' => $machine->id, 'vulnerability_id' => $v->id, 'source' => $source, 'packages' => [$source], 'detected_at' => now()]);
+    foreach ([$web, $api, $db, $worker] as $machine) {
+        $find($machine, $critical, 'openssl');
+        $find($machine, $critical2, 'openssl');
+    }
+    $find($web, $high, 'sudo');
+    MachineVulnerability::query()->create(['machine_id' => $api->id, 'vulnerability_id' => $high->id, 'source' => 'linux', 'packages' => ['linux'], 'detected_at' => now(), 'resolved_at' => now()]);
+    foreach ([$web, $api, $db] as $machine) {
+        MachinePackageUpdate::query()->create(['machine_id' => $machine->id, 'name' => 'openssl', 'installed' => '3.0.1', 'candidate' => '3.0.2', 'security' => true]);
+    }
+    MachinePackageUpdate::query()->create(['machine_id' => $web->id, 'name' => 'vim', 'installed' => '9.0', 'candidate' => '9.1', 'security' => false]);
+
+    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
+        ->where('security.package', 'openssl')
+        ->where('security.severity', 'critical')
+        ->where('security.cves', 2)
+        ->where('security.exploited', 1)
+        ->where('security.machines', [['id' => $web->id, 'name' => 'web-1'], ['id' => $api->id, 'name' => 'api-1'], ['id' => $db->id, 'name' => 'db-1']])
+        ->where('security.affected', 4)
+        ->where('security.critical', 2)
+        ->where('security.high', 1)
+        ->where('security.updates', 3)
+        ->where('issues.0.title', '2 critical CVEs in openssl')
+        ->where('issues.0.brief', 'One is being exploited. 3 security updates are waiting.')
+        ->where('issues.0.href', route('workspace.updates.index', ['workspace' => $workspace->slug]))
+        ->where('issues.0.dismissible', false));
+});
+
+test('with no known vulnerabilities the security card follows the update waiting on the most machines, without asking for a look', function () {
+    $workspace = Workspace::factory()->create();
+    [$a, $b] = Machine::factory()->for($workspace)->count(2)->create()->all();
+    foreach ([[$a, 'curl'], [$b, 'curl'], [$a, 'zlib']] as [$machine, $name]) {
+        MachinePackageUpdate::query()->create(['machine_id' => $machine->id, 'name' => $name, 'installed' => '1', 'candidate' => '2', 'security' => true]);
+    }
+
+    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
+        ->where('security.package', 'curl')
+        ->where('security.severity', null)
+        ->where('security.cves', 0)
+        ->where('security.affected', 2)
+        ->where('security.updates', 3)
+        ->has('issues', 0));
+});
+
+test('the backups card counts what is covered, puts failures first and names where backups go', function () {
+    $workspace = Workspace::factory()->create();
+    $r2 = homeDestination($workspace, 'R2', 'https://acc123.r2.cloudflarestorage.com');
+    $b2 = homeDestination($workspace, 'B2', 's3.eu-central-003.backblazeb2.com');
+    $machine = fn (string $name, ?BackupDestination $to, string $schedule = 'daily') => tap(Machine::factory()->for($workspace)->create(['name' => $name]),
+        fn (Machine $m) => $m->forceFill(['backup_destination_id' => $to?->id, 'backup_schedule' => $schedule])->save());
+    $api = $machine('api-1', $r2);
+    $db = $machine('db-1', $r2);
+    $machine('web-1', $b2, 'weekly');
+    $machine('staging-1', null, 'off');
+    $backup = fn (Machine $m, string $state, string $trigger, $at) => tap(new Backup(['service' => 'docker:a', 'service_name' => 'a', 'trigger' => $trigger, 'state' => $state]), function (Backup $b) use ($m, $at) {
+        $b->machine_id = $m->id;
+        $b->created_at = $at;
+        $b->save();
+    });
+    $backup($db, 'failed', 'scheduled', now()->subHours(5));
+    $backup($api, 'succeeded', 'scheduled', now()->subHours(6));
+    $backup($api, 'succeeded', 'pre-deploy', now()->subHour());
+    $backup($db, 'succeeded', 'manual', now()->subHours(2));
+    $backup($db, 'failed', 'scheduled', now()->subHours(4));
+
+    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
+        ->where('backups.machines', 4)
+        ->where('backups.covered', 3)
+        ->where('backups.failed', 1)
+        ->where('backups.schedule', 'daily')
+        ->where('backups.lastRunAt', now()->subHours(4)->toIso8601String())
+        ->where('backups.sources', [
+            ['id' => $db->id, 'name' => 'db-1', 'database' => false, 'failed' => true],
+            ['id' => $api->id, 'name' => 'api-1', 'database' => false, 'failed' => false],
+        ])
+        ->where('backups.destinations', [
+            ['id' => $r2->id, 'name' => 'R2', 'logo' => 'cloudflarestorage.com'],
+            ['id' => $b2->id, 'name' => 'B2', 'logo' => 'backblazeb2.com'],
+        ]));
+});
+
+test('fixes waiting for approval ask for a look', function () {
+    $workspace = Workspace::factory()->create();
+    $machine = Machine::factory()->for($workspace)->create();
+    $fix = AgentFix::query()->create(['workspace_id' => $workspace->id, 'machine_id' => $machine->id, 'state' => 'needs_approval', 'title' => 'nginx is stale']);
+
+    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
+        ->where('issues.0.title', 'A fix needs your approval')
+        ->where('issues.0.brief', 'nginx is stale')
+        ->where('issues.0.action', 'Review')
+        ->where('issues.0.href', route('workspace.fixes.index', ['workspace' => $workspace->slug, 'fix' => $fix->id]))
+        ->where('issues.0.dismissible', false));
 });
 
 test('telemetry keeps real disks and how full the fullest one is', function () {
@@ -170,45 +283,4 @@ test('outsiders cannot skip a workspace setup guide', function () {
     $this->actingAs(User::factory()->create())
         ->post(homeUrl($workspace).'onboarding/dismiss')
         ->assertForbidden();
-});
-
-test('machines are broken down by provider, largest first', function () {
-    $workspace = Workspace::factory()->create();
-    Machine::factory()->for($workspace)->count(2)->create(['provider' => 'Hetzner']);
-    Machine::factory()->for($workspace)->create(['provider' => 'Vultr']);
-
-    $this->actingAs($workspace->owner)
-        ->get(homeUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page->where('providers', [
-            ['provider' => 'Hetzner', 'machines' => 2],
-            ['provider' => 'Vultr', 'machines' => 1],
-        ]));
-});
-
-test('home includes member count, last backup and a few machines', function () {
-    $workspace = Workspace::factory()->create();
-    $workspace->members()->attach(User::factory()->create(), ['role' => 'admin']);
-    Machine::factory()->for($workspace)->create(['last_backup_at' => now()->subHours(3)]);
-    Machine::factory()->for($workspace)->create(['last_backup_at' => now()->subMinutes(5)]);
-
-    $this->actingAs($workspace->owner)
-        ->get(homeUrl($workspace))
-        ->assertInertia(fn (Assert $page) => $page
-            ->where('memberCount', 2)
-            ->where('lastBackup', '5 minutes ago')
-            ->has('machines', 2));
-});
-
-test('the CPU average leaves out machines with no reading yet, and services count only those running', function () {
-    $workspace = Workspace::factory()->create();
-    $service = fn (string $key, string $status) => ['key' => $key, 'name' => $key, 'kind' => 'app', 'manager' => 'docker', 'status' => $status, 'ports' => []];
-    $machine = Machine::factory()->for($workspace)->create(['cpu_percent' => 30, 'services_count' => 3]);
-    $machine->forceFill(['inventory' => ['scanned_at' => 1, 'complete' => true, 'services' => [$service('docker:a', 'running'), $service('docker:b', 'stopped'), $service('docker:c', 'running')], 'listeners' => []]])->save();
-    Machine::factory()->for($workspace)->create(['cpu_percent' => null, 'services_count' => 0]);
-
-    $this->actingAs($workspace->owner)->get(homeUrl($workspace))->assertInertia(fn (Assert $page) => $page
-        ->where('stats.averageCpu', 30)
-        ->where('stats.services', 3)
-        ->where('stats.running', 2)
-        ->where('machines', fn ($machines) => collect($machines)->pluck('cpu')->sort()->values()->all() === [null, 30]));
 });

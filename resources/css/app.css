@@ -3292,7 +3292,6 @@ html.dark
     gap: 8px;
     padding-block: 4px;
     border-radius: 8px;
-    color: var(--ds-text);
     font-size: 13px;
     line-height: 18px;
     letter-spacing: -0.003em;
@@ -3307,6 +3306,27 @@ html.dark
     &[data-highlighted],
     &:focus-visible {
         background-color: var(--ds-menu-hover);
+    }
+
+    &[data-variant='destructive'],
+    &[data-variant='destructive']:is([data-highlighted], :focus-visible) {
+        color: var(--dash-down);
+
+        & > svg:first-child,
+        & > :first-child > svg {
+            color: currentColor;
+        }
+    }
+}
+
+@layer components {
+    :is(
+        [data-slot='dropdown-menu-item'],
+        [data-slot='dropdown-menu-sub-trigger'],
+        [data-slot='dropdown-menu-checkbox-item'],
+        [data-slot='dropdown-menu-radio-item'],
+        [data-slot='select-item']
+    ) {
         color: var(--ds-text);
     }
 }

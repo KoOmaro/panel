@@ -5,6 +5,7 @@ import { trans } from 'laravel-vue-i18n';
 import { computed, ref } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import { useAssistant } from '@/composables/useAssistant';
+import { issueHref } from '@/components/home/home';
 import type { HealthIssue } from '@/lib/healthIssues';
 import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
 import issueRoutes from '@/routes/workspace/issues';
@@ -15,7 +16,7 @@ const { issues, canDismiss } = defineProps<{
 }>();
 
 const page = usePage<{
-    workspace: { slug: string };
+    workspace: { slug: string; url: string };
     workspaceBase?: string | null;
 }>();
 const assistant = useAssistant();
@@ -29,8 +30,11 @@ const opened = ref<string | null>(null);
 const dismissing = ref<string[]>([]);
 
 function href(path: string): string {
+    if (/^https?:\/\//.test(path)) {
+        return issueHref(path, page.props.workspace.url);
+    }
     const base = page.props.workspaceBase ?? '';
-    if (/^https?:\/\//.test(path) || (base && path.startsWith(`${base}/`))) {
+    if (base && path.startsWith(`${base}/`)) {
         return path;
     }
 

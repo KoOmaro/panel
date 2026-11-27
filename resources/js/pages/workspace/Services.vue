@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { Check, ChevronDown, Plus, Search } from '@lucide/vue';
-import {
-    SolarEye as Eye,
-    SolarEyeOff as EyeOff,
-    SolarLayers as Layers,
-} from '@/lib/solarIcons';
+import { Check, Plus } from '@lucide/vue';
 import {
     computed,
     defineAsyncComponent,
@@ -14,38 +9,36 @@ import {
     onMounted,
     ref,
     useTemplateRef,
+    watch,
 } from 'vue';
+import DashButton from '@/components/dash/DashButton.vue';
+import DashHeader from '@/components/dash/DashHeader.vue';
+import DashTable from '@/components/dash/DashTable.vue';
+import DashTh from '@/components/dash/DashTh.vue';
+import EmptyArt from '@/components/dash/EmptyArt.vue';
+import SearchWell from '@/components/dash/SearchWell.vue';
+import ToolbarButton from '@/components/dash/ToolbarButton.vue';
+import FilledIcon from '@/components/icons/FilledIcon.vue';
+import { buildingServices } from '@/components/machines/buildingServices';
+import type { DeployJob } from '@/components/machines/buildingServices';
 import {
     serviceSortOptions,
     statusTabs,
 } from '@/components/machines/serviceFilters';
-import type { ServiceStat } from '@/components/machines/serviceFormat';
 import type {
     ServiceSortKey,
     StatusFilter,
     WorkspaceService,
 } from '@/components/machines/serviceFilters';
-import BuildingServiceRow from '@/components/machines/BuildingServiceRow.vue';
-import { buildingServices } from '@/components/machines/buildingServices';
-import type { DeployJob } from '@/components/machines/buildingServices';
-import {
-    passes,
-    serviceColumnsWithMachine,
-    statusGroup,
-} from '@/components/machines/serviceFormat';
-import ServiceGroupRow from '@/components/machines/ServiceGroupRow.vue';
-import ServiceRow from '@/components/machines/ServiceRow.vue';
+import { passes } from '@/components/machines/serviceFormat';
 import type { ServiceGroup } from '@/components/machines/ServicesTable.vue';
-import ConnectMachineButton from '@/components/workspace/ConnectMachineButton.vue';
-import type { ServiceTemplate } from '@/components/workspace/DeployServiceDialog.vue';
-import WorkspacePage from '@/components/workspace/WorkspacePage.vue';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import ServiceListBuildingRow from '@/components/services/ServiceListBuildingRow.vue';
+import ServiceListGroupRow from '@/components/services/ServiceListGroupRow.vue';
+import ServiceListRow from '@/components/services/ServiceListRow.vue';
+import { displayName, imageLabel } from '@/components/services/serviceList';
+import type { AdoptJob, ListMachine } from '@/components/services/serviceList';
+import StatusTab from '@/components/services/StatusTab.vue';
+import type { StatusTabIcon } from '@/components/services/StatusTab.vue';
 import {
     Dialog,
     DialogContent,
@@ -53,8 +46,19 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { appButtonClasses } from '@/lib/appButton';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import ConnectMachineButton from '@/components/workspace/ConnectMachineButton.vue';
+import type { ServiceTemplate } from '@/components/workspace/DeployServiceDialog.vue';
 import { useWhenVisible } from '@/composables/useWhenVisible';
+import { describe, errorMessage, jobReason } from '@/lib/errors';
+import { toast } from '@/lib/toast';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import machinesRoutes from '@/routes/workspace/machines';
 import type { Workspace, WorkspaceAccess } from '@/types';
@@ -63,22 +67,15 @@ const loadDeployDialog = () =>
     import('@/components/workspace/DeployServiceDialog.vue');
 const DeployServiceDialog = defineAsyncComponent(loadDeployDialog);
 
-type MachineSummary = {
-    id: number;
-    name: string;
-    connection: string;
-    scanned: boolean;
-    scannedAt: number | null;
-};
-
 const props = defineProps<{
     workspace: Workspace;
     services: WorkspaceService[];
     groups: (ServiceGroup & { machineId: number })[];
-    machines: MachineSummary[];
+    machines: ListMachine[];
     templates: ServiceTemplate[];
     deployEnabled: boolean;
     deploys: (DeployJob & { machineId: number })[];
+    adopts: AdoptJob[];
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -88,7 +85,11 @@ const canManage = computed(
         false,
 );
 
-function isOnline(machine: MachineSummary): boolean {
+const machineById = computed(
+    () => new Map(props.machines.map((machine) => [machine.id, machine])),
+);
+
+function isOnline(machine: ListMachine): boolean {
     return ['online', 'degraded'].includes(machine.connection);
 }
 
@@ -96,10 +97,6 @@ const deployTargets = computed(() =>
     canManage.value && props.deployEnabled
         ? props.machines.filter(isOnline)
         : [],
-);
-
-const offline = computed(() =>
-    props.machines.filter((m) => m.scanned && !isOnline(m)),
 );
 
 const waitingForScan = computed(() => props.machines.some((m) => !m.scanned));
@@ -117,22 +114,37 @@ const filter = ref<StatusFilter>('all');
 const search = ref('');
 const sort = ref<ServiceSortKey>('cpu');
 const machineFilter = ref<number | null>(null);
-const searchInput = useTemplateRef<HTMLInputElement>('searchInput');
+const grouping = ref<'groups' | 'none'>('groups');
+const searchWell =
+    useTemplateRef<InstanceType<typeof SearchWell>>('searchWell');
 
 const showHidden = ref(false);
 const hiddenCount = computed(
     () => props.services.filter((service) => service.hidden).length,
 );
+
+watch(hiddenCount, (count) => {
+    if (count === 0) showHidden.value = false;
+});
+
 const shown = computed(() =>
     showHidden.value
         ? props.services
         : props.services.filter((service) => !service.hidden),
 );
 
+const tabIcons: Record<StatusFilter, StatusTabIcon> = {
+    all: 'layers-fill',
+    managed: 'managed-fill',
+    running: 'running-fill',
+    stopped: 'activity-fill',
+    problems: 'info-fill',
+};
+
 const tabs = computed(() => statusTabs(shown.value));
 
 const sortLabel = computed(
-    () => serviceSortOptions.find((o) => o.value === sort.value)?.label,
+    () => serviceSortOptions.find((o) => o.value === sort.value)?.label ?? '',
 );
 
 const machineOptions = computed(() =>
@@ -141,11 +153,16 @@ const machineOptions = computed(() =>
     ),
 );
 
-const machineLabel = computed(
+const filterLabel = computed(
     () =>
         props.machines.find((m) => m.id === machineFilter.value)?.name ??
-        trans('All'),
+        trans('Filter'),
 );
+
+const groupingLabels = computed(() => ({
+    groups: trans('Groups'),
+    none: trans('No groups'),
+}));
 
 function onKeydown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
@@ -155,14 +172,17 @@ function onKeydown(event: KeyboardEvent): void {
 
     if (event.key === '/' && !typing && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
-        searchInput.value?.focus();
+        searchWell.value?.focus();
     }
 }
 
+const needle = computed(() => search.value.trim().toLowerCase());
+
 const visible = computed(() => {
-    const needle = search.value.trim().toLowerCase();
     const now = Date.now() / 1000;
     const value = (service: WorkspaceService): number => {
+        if (machineById.value.get(service.machine.id)?.connection === 'offline')
+            return -2;
         switch (sort.value) {
             case 'cpu':
                 return service.stat?.cpu ?? -1;
@@ -186,22 +206,29 @@ const visible = computed(() => {
         )
         .filter(
             (s) =>
-                !needle ||
-                `${s.name} ${s.manager} ${s.kind} ${s.ports.join(' ')} ${s.machine.name}`
+                !needle.value ||
+                [
+                    displayName(s),
+                    s.name,
+                    s.manager,
+                    s.kind,
+                    imageLabel(s.details?.image) ?? '',
+                    s.ports.join(' '),
+                    s.machine.name,
+                ]
+                    .join(' ')
                     .toLowerCase()
-                    .includes(needle),
+                    .includes(needle.value),
         )
         .sort((a, b) =>
             sort.value === 'name'
-                ? a.name.localeCompare(b.name)
+                ? displayName(a).localeCompare(displayName(b))
                 : value(b) - value(a),
         );
 });
 
-const building = computed(() => {
-    const needle = search.value.trim().toLowerCase();
-
-    return props.machines
+const building = computed(() =>
+    props.machines
         .filter(
             (m) => machineFilter.value === null || m.id === machineFilter.value,
         )
@@ -214,12 +241,12 @@ const building = computed(() => {
         )
         .filter(
             (entry) =>
-                !needle ||
+                !needle.value ||
                 `${entry.name} ${entry.machine.name}`
                     .toLowerCase()
-                    .includes(needle),
-        );
-});
+                    .includes(needle.value),
+        ),
+);
 
 function openDeployLog(machineId: number, jobId: string): void {
     router.visit(
@@ -232,22 +259,30 @@ function openDeployLog(machineId: number, jobId: string): void {
     );
 }
 
-type Row =
-    | { id: string; service: WorkspaceService }
-    | {
-          id: string;
-          kind: 'group' | 'stack';
-          name: string;
-          iconUrl: string | null;
-          machine: WorkspaceService['machine'];
-          services: WorkspaceService[];
-      };
+type GroupEntry = {
+    id: string;
+    kind: 'group' | 'stack';
+    name: string;
+    iconUrl: string | null;
+    machineId: number;
+    services: WorkspaceService[];
+};
 
-// Same grouping as a machine's page: saved groups first, then Compose
-// stacks of two or more. A group sits where its top service would.
+type Row =
+    | { type: 'service'; id: string; service: WorkspaceService }
+    | ({ type: 'group' } & GroupEntry);
+
 const rows = computed<Row[]>(() => {
+    if (grouping.value === 'none') {
+        return visible.value.map((service) => ({
+            type: 'service' as const,
+            id: `${service.machine.id}:${service.key}`,
+            service,
+        }));
+    }
+
     const owner = new Map<WorkspaceService, string>();
-    const groups = new Map<string, Extract<Row, { services: unknown }>>();
+    const groups = new Map<string, GroupEntry>();
 
     for (const group of props.groups) {
         const id = `${group.machineId}:g:${group.id}`;
@@ -265,7 +300,7 @@ const rows = computed<Row[]>(() => {
                 kind: 'group',
                 name: group.name,
                 iconUrl: group.iconUrl ?? null,
-                machine: inside[0].machine,
+                machineId: group.machineId,
                 services: inside,
             });
         }
@@ -289,7 +324,7 @@ const rows = computed<Row[]>(() => {
                 '',
             ),
             iconUrl: null,
-            machine: inside[0].machine,
+            machineId: inside[0].machine.id,
             services: inside,
         });
     }
@@ -300,291 +335,295 @@ const rows = computed<Row[]>(() => {
         const id = owner.get(service);
         if (id === undefined) {
             result.push({
+                type: 'service',
                 id: `${service.machine.id}:${service.key}`,
                 service,
             });
         } else if (!placed.has(id)) {
             placed.add(id);
-            result.push(groups.get(id)!);
+            result.push({ type: 'group', ...groups.get(id)! });
         }
     }
 
     return result;
 });
 
-const open = ref(new Set<string>());
+const closedKey = 'serveros:services:closed-groups';
+
+function readClosed(): Set<string> {
+    try {
+        return new Set(JSON.parse(localStorage.getItem(closedKey) ?? '[]'));
+    } catch {
+        return new Set();
+    }
+}
+
+const closed = ref<Set<string>>(
+    typeof window === 'undefined' ? new Set() : readClosed(),
+);
+
+watch(closed, (value) => {
+    try {
+        localStorage.setItem(closedKey, JSON.stringify([...value]));
+    } catch {}
+});
 
 function isOpen(id: string): boolean {
-    return open.value.has(id) || search.value.trim() !== '';
+    return !closed.value.has(id) || needle.value !== '';
 }
 
 function toggle(id: string): void {
-    const next = new Set(open.value);
+    const next = new Set(closed.value);
     if (!next.delete(id)) next.add(id);
-    open.value = next;
+    closed.value = next;
 }
 
-function statsOf(services: WorkspaceService[]): Record<string, ServiceStat> {
-    return Object.fromEntries(
-        services.flatMap((s) => (s.stat ? [[s.key, s.stat]] : [])),
+function serviceArgs(service: WorkspaceService) {
+    return {
+        workspace: props.workspace.slug,
+        machine: service.machine.id,
+        service: service.app ? `app:${service.app}` : service.key,
+    };
+}
+
+function serviceUrl(service: WorkspaceService): string {
+    return onWorkspace(machinesRoutes.services.show(serviceArgs(service))).url;
+}
+
+function open(service: WorkspaceService, event: MouseEvent): void {
+    if (event.metaKey || event.ctrlKey) {
+        window.open(serviceUrl(service), '_blank');
+
+        return;
+    }
+    router.visit(serviceUrl(service));
+}
+
+const reloadOnly = ['services', 'groups', 'machines', 'deploys', 'adopts'];
+const updatedAt = ref(Date.now());
+const now = ref(Date.now());
+const updatedLabel = computed(() => {
+    const seconds = Math.max(
+        0,
+        Math.round((now.value - updatedAt.value) / 1000),
+    );
+
+    return trans('Live · updated :ago ago', {
+        ago: seconds < 60 ? `${seconds}s` : `${Math.round(seconds / 60)}m`,
+    });
+});
+
+function refresh(): void {
+    router.reload({
+        only: reloadOnly,
+        onSuccess: () => (updatedAt.value = Date.now()),
+    });
+}
+
+function setHidden(service: WorkspaceService, hidden: boolean): void {
+    const name = displayName(service);
+    router.put(
+        onWorkspace(
+            machinesRoutes.services.hide({
+                workspace: props.workspace.slug,
+                machine: service.machine.id,
+            }),
+        ).url,
+        { services: [service.key], hidden },
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: () =>
+                toast.success(
+                    hidden
+                        ? trans(
+                              ':displayName is hidden from the lists. It still runs as before.',
+                              { displayName: name },
+                          )
+                        : trans(':displayName shows in the lists again.', {
+                              displayName: name,
+                          }),
+                ),
+        },
     );
 }
 
-const reloadOnly = ['services', 'groups', 'machines', 'deploys'];
+type PendingAdopt = { jobId: string; toast: string | number; name: string };
+const pendingAdopts = ref<Record<string, PendingAdopt>>({});
+const sending = ref<string | null>(null);
+const moving = ['queued', 'accepted', 'running'];
 
-function refresh(): void {
-    router.reload({ only: reloadOnly });
+function adoptKey(machineId: number, key: string): string {
+    return `${machineId}:${key}`;
 }
 
+function isAdopting(service: WorkspaceService): boolean {
+    const key = adoptKey(service.machine.id, service.key);
+
+    return (
+        sending.value === key ||
+        key in pendingAdopts.value ||
+        props.adopts.some(
+            (job) =>
+                job.machineId === service.machine.id &&
+                job.service === service.key &&
+                moving.includes(job.state),
+        )
+    );
+}
+
+async function adopt(service: WorkspaceService): Promise<void> {
+    const key = adoptKey(service.machine.id, service.key);
+    if (isAdopting(service)) return;
+    const name = displayName(service);
+    sending.value = key;
+
+    try {
+        const response = await fetch(
+            onWorkspace(
+                machinesRoutes.services.action({
+                    workspace: props.workspace.slug,
+                    machine: service.machine.id,
+                    service: service.key,
+                }),
+            ).url,
+            {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN':
+                        document.querySelector<HTMLMetaElement>(
+                            'meta[name="csrf-token"]',
+                        )?.content ?? '',
+                },
+                body: JSON.stringify({ action: 'adopt' }),
+            },
+        );
+        const body = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            toast.error(describe(response.status, body));
+
+            return;
+        }
+
+        pendingAdopts.value = {
+            ...pendingAdopts.value,
+            [key]: {
+                jobId: String(body.jobId ?? ''),
+                toast: toast.loading(
+                    trans(':verb :name…', {
+                        verb: trans('Adopting'),
+                        name,
+                    }),
+                ),
+                name,
+            },
+        };
+        refresh();
+        poll();
+    } catch (cause) {
+        toast.error(errorMessage(cause));
+    } finally {
+        sending.value = null;
+    }
+}
+
+watch(
+    () => props.adopts,
+    (jobs) => {
+        const next = { ...pendingAdopts.value };
+        for (const [key, pending] of Object.entries(next)) {
+            const job = jobs.find((j) => j.id === pending.jobId);
+            if (!job || moving.includes(job.state)) continue;
+
+            if (job.state === 'succeeded') {
+                toast.success(
+                    trans(':verb :name.', {
+                        verb: trans('Adopted'),
+                        name: pending.name,
+                    }),
+                    { id: pending.toast },
+                );
+            } else {
+                toast.error(
+                    jobReason(
+                        job.error,
+                        trans('Couldn’t :action :displayName.', {
+                            action: trans('adopt'),
+                            displayName: pending.name,
+                        }),
+                    ),
+                    { id: pending.toast },
+                );
+            }
+            delete next[key];
+        }
+        pendingAdopts.value = next;
+    },
+);
+
 let timer: ReturnType<typeof setTimeout> | undefined;
+let clock: ReturnType<typeof setInterval> | undefined;
 const whenVisible = useWhenVisible();
 
 function poll(): void {
     clearTimeout(timer);
+    const busy =
+        waitingForScan.value ||
+        Object.keys(pendingAdopts.value).length > 0 ||
+        props.adopts.some((job) => moving.includes(job.state)) ||
+        building.value.some((entry) => entry.state !== 'failed');
     timer = setTimeout(
         () =>
             whenVisible(() =>
                 router.reload({
                     only: reloadOnly,
+                    onSuccess: () => (updatedAt.value = Date.now()),
                     onFinish: poll,
                 }),
             ),
-        waitingForScan.value ||
-            building.value.some((entry) => entry.state !== 'failed')
-            ? 5000
-            : 15000,
+        busy ? 5000 : 15000,
     );
 }
 
 onMounted(() => {
     window.addEventListener('keydown', onKeydown);
     poll();
+    clock = setInterval(() => (now.value = Date.now()), 1000);
     void loadDeployDialog();
 });
+
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown);
     clearTimeout(timer);
+    clearInterval(clock);
 });
-
-const primaryButton = appButtonClasses('primary', 'md');
-
-const focusRing =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)';
 </script>
 
 <template>
     <Head :title="$t('Services')" />
 
-    <WorkspacePage :title="$t('Services')" toolbar>
-        <template #description>
-            {{
-                ' ' +
-                $t(
-                    'Everything running on your machines, from apps to databases, with what each one is using right now.',
-                )
-            }}
-            <button
-                type="button"
-                class="cursor-pointer font-medium text-(--ds-blue) hover:underline hover:underline-offset-4"
-                :class="focusRing"
-                @click="aboutOpen = true"
-            >
-                {{ ' ' + $t('Learn more') + ' ' }}
-            </button>
-        </template>
-
-        <template v-if="services.length > 0" #tabs>
-            <div class="max-w-full overflow-x-auto">
-                <div
-                    class="ds-segments"
-                    role="group"
-                    :aria-label="$t('Filter by status')"
-                >
-                    <button
-                        v-for="tab in tabs"
-                        :key="tab.value"
-                        type="button"
-                        class="cursor-pointer gap-1.5"
-                        :class="focusRing"
-                        :aria-pressed="filter === tab.value"
-                        @click="filter = tab.value"
-                    >
-                        {{ tab.label }}
-                        <span
-                            class="text-xs/4 tabular-nums"
-                            :class="
-                                filter === tab.value
-                                    ? 'text-(--ds-text-muted)'
-                                    : 'text-(--ds-text-faint)'
-                            "
-                        >
-                            {{ tab.count }}
-                        </span>
-                    </button>
-                </div>
-            </div>
-        </template>
-
-        <template v-if="machines.length > 0" #actions>
-            <template v-if="services.length > 0">
-                <label
-                    class="ds-raised-button w-full cursor-text focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-(--ds-ring) sm:w-72"
-                >
-                    <Search
-                        class="size-3.5 shrink-0 text-(--ds-text-muted)"
-                        :stroke-width="1.6"
-                    />
-                    <span class="sr-only">{{ $t('Search services') }}</span>
-                    <input
-                        ref="searchInput"
-                        v-model="search"
-                        type="search"
-                        :placeholder="$t('Search services')"
-                        class="h-full min-w-0 grow bg-transparent text-[13px]/4 text-(--ds-text) outline-none placeholder:text-(--ds-text-faint) [&::-webkit-search-cancel-button]:hidden"
-                    />
-                    <kbd
-                        class="rounded-[5px] border border-(--ds-border-hover) px-1.25 py-px font-ui text-[11px]/3.5 text-(--ds-text-muted)"
-                        aria-hidden="true"
-                    >
-                        /
-                    </kbd>
-                </label>
-
-                <DropdownMenu v-if="machineOptions.length > 1">
-                    <DropdownMenuTrigger as-child>
-                        <button
-                            type="button"
-                            class="ds-raised-button cursor-pointer text-[13px]!"
-                            :class="focusRing"
-                        >
-                            <span class="text-(--ds-text-muted)">{{
-                                $t('Machine')
-                            }}</span>
-                            <span class="max-w-32 truncate font-medium">
-                                {{ machineLabel }}
-                            </span>
-                            <ChevronDown
-                                class="size-2.5 text-(--ds-text-muted)"
-                                :stroke-width="2"
-                            />
-                        </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                        class="ds-modal min-w-40 font-ui"
-                        align="end"
-                    >
-                        <DropdownMenuItem @select="machineFilter = null">
-                            {{ ' ' + $t('All') }}
-                            <Check
-                                v-if="machineFilter === null"
-                                class="ml-auto size-3.5"
-                            />
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            v-for="option in machineOptions"
-                            :key="option.id"
-                            @select="machineFilter = option.id"
-                        >
-                            {{ option.name }}
-                            <Check
-                                v-if="machineFilter === option.id"
-                                class="ml-auto size-3.5"
-                            />
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-
-                <button
-                    v-if="hiddenCount > 0"
-                    type="button"
-                    class="ds-raised-button cursor-pointer text-[13px]!"
-                    :class="focusRing"
-                    :aria-pressed="showHidden"
-                    @click="showHidden = !showHidden"
-                >
-                    <component
-                        :is="showHidden ? EyeOff : Eye"
-                        class="size-3.5 text-(--ds-text-muted)"
-                        :stroke-width="1.75"
-                    />
-                    {{
-                        showHidden ? $t('Leave out hidden') : $t('Show hidden')
-                    }}
-                    <span class="text-(--ds-text-muted) tabular-nums">{{
-                        hiddenCount
-                    }}</span>
-                </button>
-
-                <DropdownMenu>
-                    <DropdownMenuTrigger as-child>
-                        <button
-                            type="button"
-                            class="ds-raised-button cursor-pointer text-[13px]!"
-                            :class="focusRing"
-                        >
-                            <span class="text-(--ds-text-muted)">{{
-                                $t('Sort')
-                            }}</span>
-                            <span class="font-medium">{{ sortLabel }}</span>
-                            <ChevronDown
-                                class="size-2.5 text-(--ds-text-muted)"
-                                :stroke-width="2"
-                            />
-                        </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                        class="ds-modal min-w-40 font-ui"
-                        align="end"
-                    >
-                        <DropdownMenuItem
-                            v-for="option in serviceSortOptions"
-                            :key="option.value"
-                            @select="sort = option.value"
-                        >
-                            {{ option.label }}
-                            <Check
-                                v-if="sort === option.value"
-                                class="ml-auto size-3.5"
-                            />
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </template>
-
-            <button
-                v-if="deployTargets.length <= 1"
-                type="button"
-                :class="primaryButton"
-                :disabled="deployTargets.length === 0"
-                :title="
-                    deployTargets.length === 0
-                        ? $t('Deploying needs a machine that is online')
-                        : undefined
-                "
-                @click="deployTargets[0] && deployTo(deployTargets[0].id)"
-            >
-                <Plus class="mi-plus size-3.5" :stroke-width="2" />
-                {{ $t('Deploy service') + ' ' }}
-            </button>
-            <DropdownMenu v-else>
+    <DashHeader :crumbs="[{ label: $t('Services') }]">
+        <template v-if="machines.length" #actions>
+            <DropdownMenu v-if="deployTargets.length > 1">
                 <DropdownMenuTrigger as-child>
-                    <button type="button" :class="primaryButton">
-                        <Plus class="mi-plus size-3.5" :stroke-width="2" />
-                        {{ $t('Deploy service') }}
-                        <ChevronDown
-                            class="-mr-0.5 size-3 opacity-70"
-                            :stroke-width="2"
-                        />
-                    </button>
+                    <DashButton
+                        variant="primary"
+                        :icon="Plus"
+                        :label="$t('Deploy service')"
+                    />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                     class="ds-modal min-w-48 font-ui"
                     align="end"
                 >
                     <DropdownMenuLabel
-                        class="text-xs font-normal text-(--ds-text-muted)"
+                        class="text-[11.5px]/4 font-medium text-fg-muted"
                     >
-                        {{ ' ' + $t('Deploy to') + ' ' }}
+                        {{ $t('Deploy to') }}
                     </DropdownMenuLabel>
                     <DropdownMenuItem
                         v-for="machine in deployTargets"
@@ -595,246 +634,419 @@ const focusRing =
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
-        </template>
-
-        <div
-            v-if="machines.length === 0"
-            class="ds-tile flex flex-col items-center px-6 py-20 text-center"
-        >
-            <div class="ds-icon-chip" aria-hidden="true">
-                <Layers class="size-4.5" :stroke-width="2" />
-            </div>
-            <h2 class="mt-5 text-base/6 font-semibold">
-                {{ ' ' + $t('No services yet') + ' ' }}
-            </h2>
-            <p
-                class="mt-1.5 max-w-sm text-[13px]/5 text-pretty text-(--ds-text-muted)"
-            >
-                {{
-                    ' ' +
-                    $t(
-                        'Connect a machine and everything already running on it shows up here: apps, sites, databases, workers.',
-                    ) +
-                    ' '
-                }}
-            </p>
-            <ConnectMachineButton class="mt-6" />
-        </div>
-
-        <div v-else class="flex flex-col gap-5">
-            <div
-                v-if="offline.length"
-                class="rounded-2xl bg-(--ds-amber)/8 px-5 py-3.5 text-sm text-amber-800 ring-1 ring-(--ds-amber)/25 dark:text-amber-200"
-            >
-                {{
-                    $t(
-                        ':valueValue :value2 offline, so :value3 services show the last scan.',
-                        {
-                            valueValue: offline.map((m) => m.name).join(', '),
-                            value2: offline.length === 1 ? $t('is') : $t('are'),
-                            value3:
-                                offline.length === 1 ? $t('its') : $t('their'),
-                        },
-                    ) + ' '
-                }}
-            </div>
-
-            <div
-                v-if="services.length === 0 && building.length === 0"
-                class="ds-tile flex flex-col items-center px-6 py-20 text-center"
-            >
-                <div class="ds-icon-chip" aria-hidden="true">
-                    <Layers class="size-4.5" :stroke-width="2" />
-                </div>
-                <h2 class="mt-5 text-base/6 font-semibold">
-                    {{
-                        waitingForScan
-                            ? $t('Looking for services')
-                            : $t('Nothing running yet')
-                    }}
-                </h2>
-                <p
-                    class="mt-1.5 max-w-sm text-[13px]/5 text-pretty text-(--ds-text-muted)"
-                >
-                    {{
-                        waitingForScan
-                            ? $t(
-                                  'The daemon is scanning for what already runs. Services appear here as soon as it reports back.',
-                              )
-                            : $t(
-                                  'Deploy an app, a site or a database from the library, and it shows up here.',
-                              )
-                    }}
-                </p>
-                <button
-                    v-if="!waitingForScan && deployTargets.length"
-                    type="button"
-                    :class="primaryButton"
-                    class="mt-6"
-                    @click="deployTo(deployTargets[0].id)"
-                >
-                    <Plus class="size-3.5" /> {{ $t('Deploy service') + ' ' }}
-                </button>
-            </div>
-
-            <div
+            <DashButton
                 v-else
-                class="ds-tile overflow-x-auto"
-                role="table"
-                :aria-label="$t('Services')"
+                variant="primary"
+                :icon="Plus"
+                :label="$t('Deploy service')"
+                :disabled="deployTargets.length === 0"
+                :title="
+                    deployTargets.length === 0
+                        ? $t('Deploying needs a machine that is online')
+                        : undefined
+                "
+                @click="deployTargets[0] && deployTo(deployTargets[0].id)"
+            />
+        </template>
+    </DashHeader>
+
+    <div
+        v-if="machines.length === 0"
+        class="flex min-h-full flex-col items-center justify-center px-6 py-16 text-center"
+    >
+        <EmptyArt kind="drop" />
+        <h2
+            class="mt-6 text-[15px]/6 font-medium tracking-[-0.01em] text-fg-primary"
+        >
+            {{ $t('No services yet') }}
+        </h2>
+        <p class="mt-1 max-w-sm text-[13px]/5 text-pretty text-fg-tertiary">
+            {{
+                $t(
+                    'Connect a machine and everything already running on it shows up here: apps, sites, databases, workers.',
+                )
+            }}
+            <button
+                type="button"
+                class="cursor-pointer font-medium text-dash-blue hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
+                @click="aboutOpen = true"
             >
-                <div
-                    class="ds-tile-head hidden h-9.5 border-b border-(--ds-divider) px-4 text-xs/4 font-medium text-(--ds-text-muted) md:grid"
-                    :class="serviceColumnsWithMachine"
-                    role="row"
+                {{ $t('Learn more') }}
+            </button>
+        </p>
+        <ConnectMachineButton class="mt-5" />
+    </div>
+
+    <div
+        v-else-if="services.length === 0 && building.length === 0"
+        class="flex min-h-full flex-col items-center justify-center px-6 py-16 text-center"
+    >
+        <EmptyArt kind="drop" />
+        <h2
+            class="mt-6 text-[15px]/6 font-medium tracking-[-0.01em] text-fg-primary"
+        >
+            {{
+                waitingForScan
+                    ? $t('Looking for services')
+                    : $t('Nothing running yet')
+            }}
+        </h2>
+        <p class="mt-1 max-w-sm text-[13px]/5 text-pretty text-fg-tertiary">
+            {{
+                waitingForScan
+                    ? $t(
+                          'The daemon is scanning for what already runs. Services appear here as soon as it reports back.',
+                      )
+                    : $t(
+                          'Deploy an app, a site or a database from the library, and it shows up here.',
+                      )
+            }}
+            <button
+                type="button"
+                class="cursor-pointer font-medium text-dash-blue hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ds-ring)"
+                @click="aboutOpen = true"
+            >
+                {{ $t('Learn more') }}
+            </button>
+        </p>
+        <DashButton
+            v-if="!waitingForScan && deployTargets.length"
+            variant="primary"
+            class="mt-5"
+            :icon="Plus"
+            :label="$t('Deploy service')"
+            @click="deployTo(deployTargets[0].id)"
+        />
+    </div>
+
+    <template v-else>
+        <nav
+            class="flex h-11 shrink-0 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto border-b-[0.5px] border-edge-tabs pl-3.5 [&::-webkit-scrollbar]:hidden"
+            :aria-label="$t('Filter by status')"
+        >
+            <StatusTab
+                v-for="tab in tabs"
+                :key="tab.value"
+                :label="tab.label"
+                :icon="tabIcons[tab.value]"
+                :count="tab.count"
+                :active="filter === tab.value"
+                @click="filter = tab.value"
+            />
+        </nav>
+
+        <div class="flex min-h-14 flex-wrap items-center gap-2 px-5 py-3">
+            <SearchWell
+                ref="searchWell"
+                v-model="search"
+                :placeholder="$t('Search services')"
+                :width="260"
+                shortcut="/"
+                class="max-sm:w-full!"
+            />
+
+            <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                    <ToolbarButton
+                        icon="filter-fill"
+                        :label="filterLabel"
+                        :active="machineFilter !== null"
+                    />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    class="ds-modal max-h-[60svh] min-w-48 overflow-y-auto font-ui"
+                    align="start"
                 >
-                    <span role="columnheader">{{ $t('Service') }}</span>
-                    <span role="columnheader">{{ $t('Machine') }}</span>
-                    <span role="columnheader">{{ $t('Status') }}</span>
-                    <span role="columnheader">{{ $t('CPU') }}</span>
-                    <span role="columnheader">{{ $t('Memory') }}</span>
-                    <span role="columnheader">{{ $t('Uptime') }}</span>
-                    <span role="columnheader">{{ $t('Ports') }}</span>
-                    <span role="columnheader"
-                        ><span class="sr-only">{{ $t('Details') }}</span></span
+                    <DropdownMenuLabel
+                        class="text-[11.5px]/4 font-medium text-fg-muted"
                     >
-                </div>
-
-                <div
-                    v-for="entry in building"
-                    :key="`building-${entry.jobId}`"
-                    class="border-b border-(--ds-divider) last:border-b-0"
-                    role="rowgroup"
-                >
-                    <BuildingServiceRow
-                        :entry="entry"
-                        :machine-name="entry.machine.name"
-                        @open="openDeployLog(entry.machine.id, entry.jobId)"
-                    />
-                </div>
-
-                <div
-                    v-for="row in rows"
-                    :key="row.id"
-                    class="border-b border-(--ds-divider) last:border-b-0"
-                    role="rowgroup"
-                >
-                    <ServiceRow
-                        v-if="'service' in row"
-                        :service="row.service"
-                        :stat="row.service.stat"
-                        :machine-id="row.service.machine.id"
-                        :machine-name="row.service.machine.name"
-                    />
-                    <template v-else>
-                        <ServiceGroupRow
-                            :name="row.name"
-                            :kind="row.kind"
-                            :services="row.services"
-                            :stats="statsOf(row.services)"
-                            :expanded="isOpen(row.id)"
-                            :can-manage="false"
-                            :icon-url="row.iconUrl"
-                            :machine-name="row.machine.name"
-                            @toggle="toggle(row.id)"
+                        {{ $t('Machine') }}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem @select="machineFilter = null">
+                        {{ $t('All machines') }}
+                        <Check
+                            v-if="machineFilter === null"
+                            class="ml-auto size-3.5"
                         />
-                        <div
-                            v-if="isOpen(row.id)"
-                            :id="`group-${row.kind}-${row.name.replace(/\W+/g, '-')}`"
-                            class="border-t border-(--ds-divider) bg-(--ds-subtle)/40"
-                        >
-                            <ServiceRow
-                                v-for="service in row.services"
-                                :key="service.key"
-                                :service="service"
-                                :stat="service.stat"
-                                :machine-id="service.machine.id"
-                                :machine-name="service.machine.name"
-                                nested
-                                class="border-b border-(--ds-divider) last:border-b-0"
-                            />
-                        </div>
-                    </template>
-                </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator v-if="machineOptions.length" />
+                    <DropdownMenuItem
+                        v-for="option in machineOptions"
+                        :key="option.id"
+                        @select="machineFilter = option.id"
+                    >
+                        <span class="truncate">{{ option.name }}</span>
+                        <Check
+                            v-if="machineFilter === option.id"
+                            class="ml-auto size-3.5"
+                        />
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
 
-                <p
-                    v-if="visible.length === 0 && building.length === 0"
-                    class="px-4 py-8 text-center text-[13px]/5 text-(--ds-text-muted)"
+            <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                    <ToolbarButton
+                        icon="folder-fill"
+                        :label="groupingLabels[grouping]"
+                        :active="grouping !== 'groups'"
+                    />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    class="ds-modal min-w-52 font-ui"
+                    align="start"
                 >
-                    {{ $t('No services match these filters.') }}
-                </p>
-            </div>
-        </div>
-
-        <Dialog v-model:open="aboutOpen">
-            <DialogContent
-                class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
-            >
-                <DialogHeader>
-                    <DialogTitle>{{ $t('About services') }}</DialogTitle>
-                    <DialogDescription>
-                        {{
-                            ' ' +
-                            $t(
-                                'A service is anything running on a machine: an app, a site, a database, a worker, a cache.',
-                            ) +
-                            ' '
-                        }}
-                    </DialogDescription>
-                </DialogHeader>
-                <ul
-                    class="flex list-disc flex-col gap-2.5 pl-4 text-[13px]/5 text-(--ds-text-secondary) marker:text-(--ds-text-faint)"
-                >
-                    <li>
-                        <span class="font-medium text-(--ds-text)">{{
-                            $t('Found for you.')
-                        }}</span>
+                    <DropdownMenuLabel
+                        class="text-[11.5px]/4 font-medium text-fg-muted"
+                    >
+                        {{ $t('Group by') }}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem @select="grouping = 'groups'">
+                        {{ $t('Groups and Compose stacks') }}
+                        <Check
+                            v-if="grouping === 'groups'"
+                            class="ml-auto size-3.5"
+                        />
+                    </DropdownMenuItem>
+                    <DropdownMenuItem @select="grouping = 'none'">
+                        {{ $t('No groups') }}
+                        <Check
+                            v-if="grouping === 'none'"
+                            class="ml-auto size-3.5"
+                        />
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel
+                        class="max-w-60 text-[11.5px]/4 font-normal text-fg-muted"
+                    >
                         {{
                             $t(
-                                'The daemon scans each machine for containers, systemd units and processes, every hour and after every deploy. Nothing you already run needs moving.',
-                            ) + ' '
-                        }}
-                    </li>
-                    <li>
-                        <span class="font-medium text-(--ds-text)">{{
-                            $t('Adopt to control.')
-                        }}</span>
-                        {{
-                            $t(
-                                'Services you deploy here are managed from the start. Adopt one you set up yourself to start, stop, restart, read its logs and open a console.',
-                            ) + ' '
-                        }}
-                    </li>
-                    <li>
-                        <span class="font-medium text-(--ds-text)">{{
-                            $t('Deploy from the library.')
-                        }}</span>
-                        {{
-                            $t(
-                                'Pick an app, a site or a database, choose a machine, and it shows up here once it starts.',
-                            ) + ' '
-                        }}
-                    </li>
-                    <li>
-                        <span class="font-medium text-(--ds-text)">{{
-                            $t('Group them on a machine.')
-                        }}</span>
-                        {{
-                            $t(
-                                "On a machine's page, put services in groups. Compose stacks group themselves.",
+                                'Make groups on a machine’s page. Compose stacks group themselves.',
                             )
                         }}
-                    </li>
-                </ul>
-            </DialogContent>
-        </Dialog>
+                    </DropdownMenuLabel>
+                </DropdownMenuContent>
+            </DropdownMenu>
 
-        <DeployServiceDialog
-            v-if="deployMachine !== null"
-            v-model:open="deployOpen"
-            :templates="templates"
-            :machine-id="deployMachine"
-            @deployed="refresh"
-        />
-    </WorkspacePage>
+            <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                    <ToolbarButton icon="sort-fill" :label="sortLabel" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                    class="ds-modal min-w-40 font-ui"
+                    align="start"
+                >
+                    <DropdownMenuLabel
+                        class="text-[11.5px]/4 font-medium text-fg-muted"
+                    >
+                        {{ $t('Sort by') }}
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                        v-for="option in serviceSortOptions"
+                        :key="option.value"
+                        @select="sort = option.value"
+                    >
+                        {{ option.label }}
+                        <Check
+                            v-if="sort === option.value"
+                            class="ml-auto size-3.5"
+                        />
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+
+            <ToolbarButton
+                class="pl-3! disabled:cursor-default disabled:hover:text-fg-secondary"
+                :active="showHidden"
+                :aria-pressed="showHidden"
+                :disabled="hiddenCount === 0"
+                :title="
+                    hiddenCount === 0
+                        ? $t('Nothing is hidden. Hide a service from its menu.')
+                        : undefined
+                "
+                @click="showHidden = !showHidden"
+            >
+                {{ showHidden ? $t('Leave out hidden') : $t('Show hidden') }}
+                <span class="text-fg-faint tabular-nums dark:text-[#6b6b6b]">{{
+                    hiddenCount
+                }}</span>
+            </ToolbarButton>
+
+            <span class="grow" />
+            <span
+                class="flex items-center gap-2 text-[12px]/4 whitespace-nowrap text-fg-muted max-md:hidden"
+            >
+                <span
+                    class="size-1.5 rounded-full bg-status-live"
+                    aria-hidden="true"
+                />
+                {{ updatedLabel }}
+            </span>
+        </div>
+
+        <DashTable>
+            <template #head>
+                <DashTh first fill>
+                    <template #lead>
+                        <FilledIcon
+                            name="layers-fill"
+                            class="-mr-1 text-fg-muted"
+                        />
+                    </template>
+                    {{ $t('Service') }}
+                </DashTh>
+                <DashTh icon="monitors-fill" :width="168">{{
+                    $t('Status')
+                }}</DashTh>
+                <DashTh icon="machines-fill" :width="124">{{
+                    $t('Machine')
+                }}</DashTh>
+                <DashTh icon="monitors-fill" :width="112">{{
+                    $t('CPU')
+                }}</DashTh>
+                <DashTh icon="package-fill" :width="150">{{
+                    $t('Memory')
+                }}</DashTh>
+                <DashTh icon="globe-fill" :width="128">{{
+                    $t('Ports')
+                }}</DashTh>
+                <DashTh :width="92" class="border-r-0!">
+                    <span class="sr-only">{{ $t('Actions') }}</span>
+                </DashTh>
+            </template>
+
+            <ServiceListBuildingRow
+                v-for="entry in building"
+                :key="`building-${entry.jobId}`"
+                :entry="entry"
+                :machine-name="entry.machine.name"
+                @open="openDeployLog(entry.machine.id, entry.jobId)"
+            />
+
+            <template v-for="row in rows" :key="row.id">
+                <ServiceListRow
+                    v-if="row.type === 'service'"
+                    :service="row.service"
+                    :machine="machineById.get(row.service.machine.id)"
+                    :href="serviceUrl(row.service)"
+                    :can-manage="canManage"
+                    :adopting="isAdopting(row.service)"
+                    @open="open(row.service, $event)"
+                    @adopt="adopt(row.service)"
+                    @hide="setHidden(row.service, $event)"
+                />
+                <template v-else>
+                    <ServiceListGroupRow
+                        :name="row.name"
+                        :kind="row.kind"
+                        :icon-url="row.iconUrl"
+                        :services="row.services"
+                        :machine="machineById.get(row.machineId)"
+                        :open="isOpen(row.id)"
+                        @toggle="toggle(row.id)"
+                    />
+                    <template v-if="isOpen(row.id)">
+                        <ServiceListRow
+                            v-for="(service, index) in row.services"
+                            :key="service.key"
+                            :service="service"
+                            :machine="machineById.get(service.machine.id)"
+                            :href="serviceUrl(service)"
+                            :guide="
+                                index === row.services.length - 1
+                                    ? 'last'
+                                    : 'middle'
+                            "
+                            :can-manage="canManage"
+                            :adopting="isAdopting(service)"
+                            @open="open(service, $event)"
+                            @adopt="adopt(service)"
+                            @hide="setHidden(service, $event)"
+                        />
+                    </template>
+                </template>
+            </template>
+        </DashTable>
+
+        <p
+            v-if="visible.length === 0 && building.length === 0"
+            class="px-5 py-10 text-center text-[13px]/5 text-fg-muted"
+        >
+            {{ $t('No services match these filters.') }}
+        </p>
+    </template>
+
+    <Dialog v-model:open="aboutOpen">
+        <DialogContent
+            class="workspace-panel ds-modal font-ui text-foreground sm:max-w-md"
+        >
+            <DialogHeader>
+                <DialogTitle>{{ $t('About services') }}</DialogTitle>
+                <DialogDescription>
+                    {{
+                        $t(
+                            'A service is anything running on a machine: an app, a site, a database, a worker, a cache.',
+                        )
+                    }}
+                </DialogDescription>
+            </DialogHeader>
+            <ul
+                class="flex list-disc flex-col gap-2.5 pl-4 text-[13px]/5 text-fg-secondary marker:text-fg-faint"
+            >
+                <li>
+                    <span class="font-medium text-fg-primary">{{
+                        $t('Found for you.')
+                    }}</span>
+                    {{
+                        ' ' +
+                        $t(
+                            'The daemon scans each machine for containers, systemd units and processes, every hour and after every deploy. Nothing you already run needs moving.',
+                        )
+                    }}
+                </li>
+                <li>
+                    <span class="font-medium text-fg-primary">{{
+                        $t('Adopt to control.')
+                    }}</span>
+                    {{
+                        ' ' +
+                        $t(
+                            'Services you deploy here are managed from the start. Adopt one you set up yourself to start, stop, restart, read its logs and open a console.',
+                        )
+                    }}
+                </li>
+                <li>
+                    <span class="font-medium text-fg-primary">{{
+                        $t('Deploy from the library.')
+                    }}</span>
+                    {{
+                        ' ' +
+                        $t(
+                            'Pick an app, a site or a database, choose a machine, and it shows up here once it starts.',
+                        )
+                    }}
+                </li>
+                <li>
+                    <span class="font-medium text-fg-primary">{{
+                        $t('Group them on a machine.')
+                    }}</span>
+                    {{
+                        ' ' +
+                        $t(
+                            "On a machine's page, put services in groups. Compose stacks group themselves.",
+                        )
+                    }}
+                </li>
+            </ul>
+        </DialogContent>
+    </Dialog>
+
+    <DeployServiceDialog
+        v-if="deployMachine !== null"
+        v-model:open="deployOpen"
+        :templates="templates"
+        :machine-id="deployMachine"
+        @deployed="refresh"
+    />
 </template>

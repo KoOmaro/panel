@@ -1,42 +1,40 @@
 <script setup lang="ts">
-import { Head, usePage } from '@inertiajs/vue3';
-import { Check, Plug, Plus } from '@lucide/vue';
+import { Head, router, usePage } from '@inertiajs/vue3';
+import { Plug, Plus } from '@lucide/vue';
 import { trans } from 'laravel-vue-i18n';
-import { computed, ref, useTemplateRef } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef } from 'vue';
 import DashButton from '@/components/dash/DashButton.vue';
 import DashHeader from '@/components/dash/DashHeader.vue';
+import HomeAttention from '@/components/home/HomeAttention.vue';
+import HomeBackups from '@/components/home/HomeBackups.vue';
+import HomeBusiest from '@/components/home/HomeBusiest.vue';
 import HomeEmpty from '@/components/home/HomeEmpty.vue';
-import HomeFleet from '@/components/home/HomeFleet.vue';
 import HomeIssues from '@/components/home/HomeIssues.vue';
-import HomeMachines from '@/components/home/HomeMachines.vue';
 import HomeNotice from '@/components/home/HomeNotice.vue';
-import HomeStats from '@/components/home/HomeStats.vue';
+import HomeOverview from '@/components/home/HomeOverview.vue';
+import HomeSecurity from '@/components/home/HomeSecurity.vue';
+import type {
+    HomeBackups as Backups,
+    HomeBusy,
+    HomeIssue,
+    HomeOverview as Overview,
+    HomeSecurity as Security,
+} from '@/components/home/home';
 import MachineConnector from '@/components/home/MachineConnector.vue';
 import NewProjectDialog from '@/components/home/NewProjectDialog.vue';
-import RailRow from '@/components/home/RailRow.vue';
-import RailSection from '@/components/home/RailSection.vue';
-import type { Machine } from '@/components/machines/machines';
 import SupportAsk from '@/components/workspace/SupportAsk.vue';
-import { useAssistant } from '@/composables/useAssistant';
-import type { HealthIssue } from '@/lib/healthIssues';
-import { toast } from '@/lib/toast';
-import { onWorkspace, workspaceAddress } from '@/lib/workspaceRoute';
-import backupsRoutes from '@/routes/workspace/backups';
-import fixesRoutes from '@/routes/workspace/fixes';
-import servicesRoutes from '@/routes/workspace/services';
+import { useWhenVisible } from '@/composables/useWhenVisible';
+import { onWorkspace } from '@/lib/workspaceRoute';
 import settingsRoutes from '@/routes/workspace/settings';
-import workflowsRoutes from '@/routes/workspace/workflows';
-import type { Workspace, WorkspaceAccess, WorkspaceStats } from '@/types';
+import type { Workspace, WorkspaceAccess } from '@/types';
 
 type Props = {
     workspace: Workspace;
-    fixesWaiting: { id: number; title: string | null }[];
-    stats: WorkspaceStats;
-    providers: { provider: string; machines: number }[];
-    issues: HealthIssue[];
-    machines: Machine[];
-    memberCount: number;
-    lastBackup: string | null;
+    overview: Overview;
+    issues: HomeIssue[];
+    busiest: HomeBusy[];
+    security: Security;
+    backups: Backups;
     panelUpdate: { version: string; current: string } | null;
     supportAsk: { donateUrl: string; licenseUrl: string } | null;
     licenseMachines?: {
@@ -48,21 +46,48 @@ type Props = {
 
 const props = defineProps<Props>();
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
-const assistant = useAssistant();
 
 const canManage = computed(
     () =>
         page.props.workspaceAccess?.permissions.includes('manage-machines') ??
         false,
 );
-const hasMachines = computed(() => props.stats.machines > 0);
-const attention = computed(
-    () => props.issues.filter((issue) => issue.severity !== 'notice').length,
-);
+const hasMachines = computed(() => props.overview.machines > 0);
 
 const firstName = computed(
     () => page.props.auth.user.name.trim().split(/\s+/)[0] ?? '',
 );
+
+const hour = ref(new Date().getHours());
+
+const greeting = computed(() => {
+    const name = String(firstName.value);
+    if (hour.value >= 5 && hour.value < 12) {
+        return trans('Good morning, :name', { name });
+    }
+    if (hour.value >= 12 && hour.value < 18) {
+        return trans('Good afternoon, :name', { name });
+    }
+
+    return trans('Good evening, :name', { name });
+});
+
+const standing = computed(() => {
+    const count = props.issues.length;
+    const name = props.workspace.name;
+    if (count === 0) {
+        return trans('Here’s how :name is doing. Nothing needs a look.', {
+            name,
+        });
+    }
+
+    return count === 1
+        ? trans('Here’s how :name is doing. 1 thing needs a look.', { name })
+        : trans('Here’s how :name is doing. :count things need a look.', {
+              name,
+              count: String(count),
+          });
+});
 
 const connector =
     useTemplateRef<InstanceType<typeof MachineConnector>>('connector');
@@ -78,64 +103,50 @@ const updateHref = computed(
     () => `${onWorkspace(settingsRoutes.general(slug.value)).url}#updates`,
 );
 
-const fixHref = computed(() =>
-    props.fixesWaiting.length
-        ? onWorkspace(
-              fixesRoutes.index(slug.value, {
-                  query: { fix: props.fixesWaiting[0].id },
-              }),
-          ).url
-        : '',
-);
-
 const hasNotices = computed(
     () =>
         props.panelUpdate !== null ||
         props.supportAsk !== null ||
-        props.fixesWaiting.length > 0 ||
         props.issues.length > 0,
 );
 
-const copied = ref(false);
-let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+const POLL_MS = 30_000;
+const whenVisible = useWhenVisible();
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+let polling = true;
 
-async function copyAddress(): Promise<void> {
-    try {
-        await navigator.clipboard.writeText(props.workspace.url);
-        copied.value = true;
-        clearTimeout(copiedTimer);
-        copiedTimer = setTimeout(() => (copied.value = false), 1600);
-        toast.success(trans('Copied'));
-    } catch {
-        toast.error(trans('Couldn’t copy the URL'));
-    }
+function poll(): void {
+    clearTimeout(pollTimer);
+    if (!polling) return;
+    pollTimer = setTimeout(
+        () =>
+            whenVisible(() => {
+                hour.value = new Date().getHours();
+                if (!hasMachines.value) {
+                    poll();
+
+                    return;
+                }
+                router.reload({
+                    only: [
+                        'overview',
+                        'issues',
+                        'busiest',
+                        'security',
+                        'backups',
+                    ],
+                    onFinish: poll,
+                });
+            }),
+        POLL_MS,
+    );
 }
 
-const shortcuts = computed(() => [
-    {
-        key: 'deploy',
-        title: trans('Deploy a service'),
-        description: trans('From a template or a Git repo'),
-        icon: 'package-fill' as const,
-        href: onWorkspace(servicesRoutes.index(slug.value)).url,
-    },
-    {
-        key: 'workflows',
-        title: trans('Workflows'),
-        description: trans('Automate the routine work'),
-        icon: 'branch-fill' as const,
-        href: onWorkspace(workflowsRoutes.index(slug.value)).url,
-    },
-    {
-        key: 'backups',
-        title: trans('Backups'),
-        description: props.lastBackup
-            ? trans('Last backup :time', { time: props.lastBackup })
-            : trans('Nothing backed up yet'),
-        icon: 'zip-fill' as const,
-        href: onWorkspace(backupsRoutes.index(slug.value)).url,
-    },
-]);
+onMounted(poll);
+onBeforeUnmount(() => {
+    polling = false;
+    clearTimeout(pollTimer);
+});
 </script>
 
 <template>
@@ -196,43 +207,22 @@ const shortcuts = computed(() => [
         </div>
     </div>
 
-    <div v-else class="grid min-h-full xl:grid-cols-[minmax(0,1fr)_316px]">
-        <div class="flex min-w-0 flex-col gap-3 px-6 pt-7 pb-8">
-            <div class="flex flex-wrap items-start gap-x-4 gap-y-3 pb-2">
-                <div class="flex min-w-0 grow flex-col gap-1">
-                    <h1
-                        class="text-[20px]/7 font-medium tracking-[-0.015em] text-fg-primary"
-                    >
-                        {{
-                            $t('Hey :firstName 👋', {
-                                firstName: String(firstName),
-                            })
-                        }}
-                    </h1>
-                    <p class="text-[13px]/5 text-fg-tertiary">
-                        {{
-                            $t('Here’s how :name is running right now.', {
-                                name: workspace.name,
-                            })
-                        }}
-                    </p>
-                </div>
-                <DashButton
-                    size="sm"
-                    :icon="copied ? Check : 'copy'"
-                    class="max-w-64 min-w-0"
-                    :title="$t('Copy URL')"
-                    :aria-label="
-                        $t('Copy :url', { url: String(workspace.url) })
-                    "
-                    @click="copyAddress"
-                >
-                    <span class="truncate">{{
-                        workspaceAddress(workspace.url)
-                    }}</span>
-                </DashButton>
-            </div>
+    <div
+        v-else
+        class="@container flex min-w-0 flex-col gap-6 px-4 pt-7 pb-8 sm:px-8"
+    >
+        <div class="flex min-w-0 flex-col gap-1">
+            <h1
+                class="truncate text-[20px]/7 font-medium tracking-[-0.015em] text-fg-primary"
+            >
+                {{ greeting }}
+            </h1>
+            <p class="text-[13px]/5 tracking-[-0.005em] text-fg-tertiary">
+                {{ standing }}
+            </p>
+        </div>
 
+        <div class="flex min-w-0 flex-col gap-3">
             <HomeNotice
                 v-if="panelUpdate"
                 :href="updateHref"
@@ -250,69 +240,27 @@ const shortcuts = computed(() => [
                 :ask="supportAsk"
                 :workspace-id="workspace.id"
             />
-            <HomeNotice
-                v-if="fixesWaiting.length"
-                :href="fixHref"
-                tone="amber"
-                :title="
-                    fixesWaiting.length === 1
-                        ? $t('A fix needs your approval')
-                        : $t(':count fixes need your approval', {
-                              count: String(fixesWaiting.length),
-                          })
-                "
-                :detail="fixesWaiting[0].title"
-                :action="$t('Review')"
-            />
-            <HomeIssues
-                v-if="issues.length"
-                :issues="issues"
-                :can-dismiss="canManage"
-            />
-            <HomeStats
-                :stats="stats"
-                :attention="attention"
-                :last-backup="lastBackup"
-            />
-            <HomeMachines
-                :machines="machines"
-                :stats="stats"
-                :member-count="memberCount"
-            />
-        </div>
-
-        <aside
-            class="grid min-w-0 content-start gap-[26px] border-edge-tabs px-5 py-7 max-xl:border-t-[0.5px] md:max-xl:grid-cols-2 xl:border-l-[0.5px]"
-            :aria-label="$t('Shortcuts')"
-        >
-            <HomeFleet
+            <HomeOverview
+                :overview="overview"
                 :workspace="workspace"
-                :stats="stats"
-                :providers="providers"
                 :license-machines="licenseMachines"
             />
-            <RailSection :title="$t('Shortcuts')">
-                <RailRow
-                    v-for="shortcut in shortcuts"
-                    :key="shortcut.key"
-                    :title="shortcut.title"
-                    :description="shortcut.description"
-                    :icon="shortcut.icon"
-                    :href="shortcut.href"
+            <div class="flex min-w-0 flex-col gap-3 @4xl:flex-row">
+                <HomeAttention
+                    :issues="issues"
+                    :can-dismiss="canManage"
+                    class="@4xl:flex-1"
                 />
-                <RailRow
-                    :title="$t('Ask AI')"
-                    :description="
-                        $t('About anything in :name', { name: workspace.name })
-                    "
-                    icon="sparkle-fill"
-                    kbd="⌘J"
-                    aria-controls="assistant-panel"
-                    :aria-expanded="assistant.open.value"
-                    @click="assistant.toggle()"
+                <HomeBusiest
+                    :machines="busiest"
+                    class="@4xl:w-[430px] @4xl:shrink-0"
                 />
-            </RailSection>
-        </aside>
+            </div>
+            <div class="grid min-w-0 gap-3 @3xl:grid-cols-2">
+                <HomeSecurity :security="security" />
+                <HomeBackups :backups="backups" />
+            </div>
+        </div>
     </div>
 
     <MachineConnector v-if="canManage" ref="connector" />

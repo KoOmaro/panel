@@ -7,6 +7,7 @@ import { extensionIcon } from '@/lib/extensionIcons';
 import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
 import { home } from '@/routes/workspace';
 import code from '@/routes/workspace/code';
+import github from '@/routes/workspace/github';
 import members from '@/routes/workspace/members';
 import settings from '@/routes/workspace/settings';
 import type { Workspace } from '@/types';
@@ -78,14 +79,26 @@ function extensionNavIcon(name: string): NavIcon {
 export function useSettingsNav(): ComputedRef<Group[]> {
     const page = usePage<{
         workspace: Workspace;
+        githubAppSetup?: boolean;
         extensions?: { settings: ExtensionSettingsItem[] } | null;
     }>();
 
     return computed<Group[]>(() =>
         withExtensions(
-            ownGroups(page.props.workspace, page.component),
+            ownGroups(
+                page.props.workspace,
+                page.component,
+                page.props.githubAppSetup === true,
+            ),
             page.props.extensions?.settings ?? [],
             page.component,
+        ).map((group) =>
+            group.key === 'account'
+                ? {
+                      ...group,
+                      inSidebar: group.items.some((item) => item.current),
+                  }
+                : group,
         ),
     );
 }
@@ -119,7 +132,11 @@ function withExtensions(
     }));
 }
 
-function ownGroups(workspace: Workspace, component: string): Group[] {
+function ownGroups(
+    workspace: Workspace,
+    component: string,
+    githubApp: boolean,
+): Group[] {
     const slug = workspace.slug;
     const item = (
         label: string,
@@ -256,10 +273,10 @@ function ownGroups(workspace: Workspace, component: string): Group[] {
             key: 'developers',
             label: trans('Developers'),
             href: onWorkspace(code.index(slug)).url,
-            inSidebar: false,
+            inSidebar: true,
             items: [
                 item(
-                    trans('API keys'),
+                    trans('API'),
                     'terminal-fill',
                     onWorkspace(settings.api(slug)).url,
                     'Api',
@@ -303,6 +320,17 @@ function ownGroups(workspace: Workspace, component: string): Group[] {
                         name: workspace.name,
                     }),
                 ),
+                ...(githubApp
+                    ? [
+                          item(
+                              trans('GitHub App'),
+                              'branch-fill',
+                              onWorkspace(github.app(slug)).url,
+                              'GitHubApp',
+                              'github app repositories webhooks deploy keys',
+                          ),
+                      ]
+                    : []),
             ],
         },
         {
