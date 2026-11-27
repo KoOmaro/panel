@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\AgentTaskController;
+use App\Http\Controllers\AppDeployController;
 use App\Http\Controllers\AppSentryController;
 use App\Http\Controllers\AppSiteController;
 use App\Http\Controllers\AppVersionController;
@@ -392,10 +393,19 @@ Route::domain(Dashboard::host())
         Route::put('machines/{machine}/apps/{service}/limits', [AppVersionController::class, 'limits'])->middleware('throttle:20,1')->name('workspace.apps.limits');
         Route::get('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'variables'])->middleware('throttle:60,1')->name('workspace.apps.variables');
         Route::put('machines/{machine}/apps/{service}/variables', [AppVersionController::class, 'updateVariables'])->middleware('throttle:20,1')->name('workspace.apps.variables.update');
+        Route::put('machines/{machine}/apps/{service}/build', [AppDeployController::class, 'build'])->middleware('throttle:20,1')->name('workspace.apps.build');
+        Route::put('machines/{machine}/apps/{service}/env', [AppDeployController::class, 'env'])->middleware('throttle:20,1')->name('workspace.apps.env');
+        Route::post('machines/{machine}/apps/{service}/redeploy', [AppDeployController::class, 'redeploy'])->middleware('throttle:10,1')->name('workspace.apps.redeploy');
+        Route::get('machines/{machine}/apps/{service}/deploys', [AppDeployController::class, 'history'])->middleware('throttle:120,1')->name('workspace.apps.deploys');
+        Route::get('machines/{machine}/apps/{service}/jobs/{job}', [AppDeployController::class, 'job'])->middleware('throttle:240,1')->name('workspace.apps.job');
+        Route::post('machines/{machine}/apps/{service}/hook', [AppDeployController::class, 'storeHook'])->middleware('throttle:10,1')->name('workspace.apps.hook.store');
+        Route::delete('machines/{machine}/apps/{service}/hook', [AppDeployController::class, 'destroyHook'])->middleware('throttle:10,1')->name('workspace.apps.hook.destroy');
+        Route::put('machines/{machine}/apps/{service}/schedules', [AppDeployController::class, 'schedules'])->middleware('throttle:20,1')->name('workspace.apps.schedules');
         Route::post('machines/{machine}/deploy', MachineDeployController::class)->middleware('throttle:10,1')->name('workspace.machines.deploy');
         Route::get('machines/{machine}/deploy/taken', [MachineDeployController::class, 'taken'])->middleware('throttle:60,1')->name('workspace.machines.deploy.taken');
         Route::post('machines/{machine}/deploy/key', [DeployKeyController::class, 'key'])->middleware('throttle:20,1')->name('workspace.machines.deploy.key');
         Route::post('machines/{machine}/deploy/resolve', [DeployKeyController::class, 'resolve'])->middleware('throttle:30,1')->name('workspace.machines.deploy.resolve');
+        Route::post('machines/{machine}/deploy/inspect', [DeployKeyController::class, 'inspect'])->middleware('throttle:20,1')->name('workspace.machines.deploy.inspect');
         Route::get('machines/{machine}/deploy/jobs/{job}', [DeployKeyController::class, 'show'])->withoutScopedBindings()->middleware('throttle:120,1')->name('workspace.machines.deploy.job');
         Route::post('machines/{machine}/domain-check', DomainCheckController::class)->middleware('throttle:30,1')->name('workspace.machines.domain-check');
         Route::post('machines/{machine}/domain-dns', [CloudflareDomainController::class, 'point'])->middleware('throttle:20,1')->name('workspace.machines.domain-dns');
@@ -421,7 +431,7 @@ Route::domain(Dashboard::host())
             ->name('workspace.machines.services.show');
         Route::get('machines/{machine}/services/{service}/{tab}', [MachineServiceController::class, 'show'])
             ->where('service', '[A-Za-z0-9:._@-]+')
-            ->whereIn('tab', ['overview', 'traffic', 'logs', 'console', 'files', 'database', 'details']);
+            ->whereIn('tab', ['overview', 'deploys', 'settings', 'traffic', 'logs', 'console', 'files', 'database', 'details']);
         Route::post('machines/{machine}/services/{service}/database', [MachineServiceController::class, 'database'])
             ->where('service', '[A-Za-z0-9:._@-]+')
             ->middleware('throttle:60,1')
@@ -462,6 +472,7 @@ Route::domain(Dashboard::host())
         Route::get('machines/{machine}/updates/{job}', [MachineUpdatesController::class, 'show'])->name('workspace.machines.updates.show');
         Route::post('machines/{machine}/docker', [MachineDockerController::class, 'store'])->middleware('throttle:10,1')->name('workspace.machines.docker.store');
         Route::post('machines/{machine}/docker/prune', [MachineDockerController::class, 'prune'])->middleware('throttle:10,1')->name('workspace.machines.docker.prune');
+        Route::post('machines/{machine}/docker/install', [MachineDockerController::class, 'install'])->middleware('throttle:5,1')->name('workspace.machines.docker.install');
         Route::get('machines/{machine}/docker/{job}', [MachineDockerController::class, 'show'])->name('workspace.machines.docker.show');
         Route::post('container-images/update', [ContainerImageController::class, 'update'])->middleware('throttle:20,1')->name('workspace.container-images.update');
         Route::post('container-images/check', [ContainerImageController::class, 'check'])->middleware('throttle:6,1')->name('workspace.container-images.check');

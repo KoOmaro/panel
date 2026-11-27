@@ -3,6 +3,7 @@
 namespace App\Support\Deploys;
 
 use App\Models\DaemonJob;
+use App\Support\DaemonJobQueue;
 use Illuminate\Support\Str;
 
 final class DeployFailure
@@ -12,7 +13,7 @@ final class DeployFailure
     private const LOG_LINES = 60;
 
     /**
-     * @return array{cause: string, fix: string, command?: string, alternative?: string, install?: array{label: string, packages: list<string>}}|null
+     * @return array{cause: string, fix: string, command?: string, alternative?: string, install?: array{label: string, packages: list<string>}, docker?: bool, settings?: string, cleanup?: bool}|null
      */
     public static function explain(DaemonJob $job): ?array
     {
@@ -29,6 +30,8 @@ final class DeployFailure
             );
         }
 
+        $spec = (array) ($job->command['job'] ?? []);
+
         return self::fromError(
             is_string($error['phase'] ?? null) ? $error['phase'] : '',
             is_string($error['message'] ?? null) ? $error['message'] : '',
@@ -37,27 +40,41 @@ final class DeployFailure
                 ...array_values(array_filter(is_array($error['output_tail'] ?? null) ? $error['output_tail'] : [], 'is_string')),
             ],
             $job->state === 'timed_out',
+            is_string($spec['build']['method'] ?? null) ? $spec['build']['method'] : null,
+            DaemonJobQueue::canDeployBuild($job->machine),
+            is_array($spec['health'] ?? null) ? (int) ($spec['health']['expected_status'] ?? 200) : null,
         );
     }
 
     /**
      * @param  list<string>  $output
-     * @return array{cause: string, fix: string, command?: string, alternative?: string, install?: array{label: string, packages: list<string>}}|null
+     * @return array{cause: string, fix: string, command?: string, alternative?: string, install?: array{label: string, packages: list<string>}, docker?: bool, settings?: string, cleanup?: bool}|null
      */
-    public static function fromError(string $phase, string $message, array $output, bool $timedOut = false): ?array
+    public static function fromError(string $phase, string $message, array $output, bool $timedOut = false, ?string $method = null, bool $installsDocker = false, ?int $expected = null): ?array
     {
         $text = $message."\n".implode("\n", $output);
         $has = fn (string $pattern): bool => preg_match($pattern, $text) === 1;
 
-        if ($has('/Failed to find executable docker|docker: (command )?not found/i')) {
+        if ($phase === 'docker' && $has('/Docker is installed but isn[\'’]t running/i')) {
             return [
+                'cause' => 'Docker is installed on this machine but isn’t running, so nothing could be built or started.',
+                'fix' => 'Start it on the machine as root, then deploy again:',
+                'command' => 'systemctl enable --now docker',
+            ];
+        }
+        if ($has('/Failed to find executable docker|docker: (command )?not found|docker is not installed|Docker isn[\'’]t installed on this machine/i')) {
+            return $installsDocker ? [
+                'cause' => 'Docker isn’t installed on this machine, and every deploy needs it.',
+                'fix' => 'Install it here (it takes a few minutes), then deploy again.',
+                'docker' => true,
+            ] : [
                 'cause' => 'Docker isn’t installed on this machine, and every deploy needs it.',
                 'fix' => 'Install it here and ServerOS retries the deploy, or run this on the machine as root, then retry:',
                 'command' => 'curl -fsSL https://get.docker.com | sh',
                 'install' => ['label' => 'Install Docker', 'packages' => self::DOCKER_PACKAGES],
             ];
         }
-        if ($has("/buildx component is missing|docker: 'compose' is not a docker command|unknown command: docker compose/i")) {
+        if ($has("/buildx component is missing|docker: 'compose' is not a docker command|unknown command: docker compose|Docker Compose isn['’]t installed|needs Docker's buildx plugin/i")) {
             return [
                 'cause' => 'Docker is installed, but without its build and Compose plugins (Ubuntu’s docker.io leaves them out).',
                 'fix' => 'Run this on the machine as root, then retry:',
@@ -85,12 +102,44 @@ final class DeployFailure
             return null;
         }
 
-        if ($has('/no space left on device/i')) {
+        if ($phase === 'disk' || $has('/no space left on device|disk (is )?full|not enough (free )?space/i')) {
             return [
-                'cause' => 'The machine ran out of disk space during the deploy.',
-                'fix' => 'Free some space, then retry. Old Docker images and build cache are often the biggest:',
+                'cause' => $phase === 'disk' ? 'The machine has too little free disk space to build, so the deploy stopped before starting.' : 'The machine ran out of disk space during the deploy.',
+                'fix' => 'Free some space, then retry. Old Docker images and build cache are often the biggest: clean them up on the machine’s page, or run',
                 'command' => 'docker system prune',
+                'cleanup' => true,
             ];
+        }
+
+        if ($phase === 'release' || $has('/release command (failed|exited|timed out)/i')) {
+            return [
+                'cause' => 'The release command failed, so the new version was never started. The live one, if any, keeps serving.',
+                'fix' => 'The lines above show what it printed. Fix it (or what it runs, like a migration), or change the release command in the app’s build settings, then deploy again.',
+                'settings' => 'release_command',
+            ];
+        }
+
+        if ($method === BuildSettings::RAILPACK && $has('/could not (determine|detect) how to build|couldn[\'’]t tell how to (build|start)|no provider (matched|found|detected)|failed to (generate|create) (a )?build plan|unable to (determine|detect)|no start command|could not find a start command/i')) {
+            return [
+                'cause' => 'Railpack couldn’t tell how to build or start this app: it found no language it knows, or nothing to run.',
+                'fix' => 'Set a start command in the app’s build settings (like npm start or python main.py), or add a Dockerfile to the repository and build with that.',
+                'settings' => 'start_command',
+            ];
+        }
+        if ($method === BuildSettings::IMAGE || $phase === 'pull') {
+            if ($has('/unauthorized|authentication required|denied: |incorrect username or password|failed to authorize|wouldn[\'’]t let this machine pull/i')) {
+                return [
+                    'cause' => 'The registry turned down the login for this image, so it couldn’t be pulled.',
+                    'fix' => 'Check the login for its registry in Settings › General › Container registries (a token needs permission to read packages), then deploy again.',
+                ];
+            }
+            if ($has('/pull access denied|manifest unknown|manifest for \S+ not found|not found|repository does not exist|invalid reference format|isn[\'’]t in its registry/i')) {
+                return [
+                    'cause' => 'The image couldn’t be pulled: its name or tag is wrong, or it’s private.',
+                    'fix' => 'Check the image in the app’s build settings. For a private one, add a login for its registry in Settings › General › Container registries, then deploy again.',
+                    'settings' => 'image',
+                ];
+            }
         }
         if ($has('/JavaScript heap out of memory|Cannot allocate memory|\bENOMEM\b|exit code:? 137|exited 137|\bOOMKilled\b|^\s*Killed\s*$/im')) {
             return [
@@ -163,48 +212,53 @@ final class DeployFailure
             ];
         }
 
-        if ($has('/Missing script: "?build"?/i')) {
-            return [
-                'cause' => 'The build runs “npm run build”, but package.json has no build script.',
-                'fix' => 'Add a "build" script to package.json, or remove the build step from the Dockerfile, then push and redeploy.',
-            ];
+        // What a build prints only explains a failure in the build: once it
+        // has been checked or served, earlier build lines are history.
+        if (! in_array($phase, ['health', 'verify', 'proxy', 'release'], true)) {
+            if ($has('/Missing script: "?build"?/i')) {
+                return [
+                    'cause' => 'The build runs “npm run build”, but package.json has no build script.',
+                    'fix' => 'Add a "build" script to package.json, or remove the build step from the Dockerfile, then push and redeploy.',
+                ];
+            }
+            if ($has('/can only install packages when your package\.json and package-lock\.json.* are in sync|npm ci.* can only install with an existing package-lock/is')) {
+                return [
+                    'cause' => 'package-lock.json is missing or doesn’t match package.json, so “npm ci” won’t install.',
+                    'fix' => 'Run “npm install” locally, commit the updated package-lock.json, push and redeploy.',
+                ];
+            }
+            if ($has('/The engine "node" is incompatible|Unsupported engine|requires Node\.js|Node\.js version .* is required/i')) {
+                return [
+                    'cause' => 'The project needs a different version of Node.js than the build used.',
+                    'fix' => 'Change the Node version in the Dockerfile’s FROM line (for example node:22-alpine) to one the project supports.',
+                ];
+            }
+            if ($has('/requires php [^\n]*your php version|Root composer\.json requires php/i')) {
+                return [
+                    'cause' => 'The project needs a different version of PHP than the build used.',
+                    'fix' => 'Change the PHP version in the Dockerfile’s FROM line to the one composer.json asks for.',
+                ];
+            }
+            if ($has('/Your requirements could not be resolved|Your lock file does not contain a compatible set of packages/i')) {
+                return [
+                    'cause' => 'Composer couldn’t install the PHP packages: composer.lock doesn’t fit this PHP version or its extensions.',
+                    'fix' => 'The lines above say which package and why. Usually it’s a missing PHP extension to add in the Dockerfile, or a lock file to update with “composer update” locally.',
+                ];
+            }
+            if ($has('/No matching distribution found for|Could not find a version that satisfies the requirement/i')) {
+                return [
+                    'cause' => 'pip couldn’t find a Python package the project needs, at that version.',
+                    'fix' => 'Check requirements.txt: the version may not exist, or may need a newer Python in the Dockerfile.',
+                ];
+            }
+            if ($has('/failed to compute cache key|COPY failed|failed to calculate checksum of ref .*not found/i')) {
+                return [
+                    'cause' => 'The Dockerfile copies a file that isn’t in the repository.',
+                    'fix' => 'It’s often ignored by .gitignore or .dockerignore, or only exists on your computer. Commit it, or change the COPY line, then push and redeploy.',
+                ];
+            }
         }
-        if ($has('/can only install packages when your package\.json and package-lock\.json.* are in sync|npm ci.* can only install with an existing package-lock/is')) {
-            return [
-                'cause' => 'package-lock.json is missing or doesn’t match package.json, so “npm ci” won’t install.',
-                'fix' => 'Run “npm install” locally, commit the updated package-lock.json, push and redeploy.',
-            ];
-        }
-        if ($has('/The engine "node" is incompatible|Unsupported engine|requires Node\.js|Node\.js version .* is required/i')) {
-            return [
-                'cause' => 'The project needs a different version of Node.js than the build used.',
-                'fix' => 'Change the Node version in the Dockerfile’s FROM line (for example node:22-alpine) to one the project supports.',
-            ];
-        }
-        if ($has('/requires php [^\n]*your php version|Root composer\.json requires php/i')) {
-            return [
-                'cause' => 'The project needs a different version of PHP than the build used.',
-                'fix' => 'Change the PHP version in the Dockerfile’s FROM line to the one composer.json asks for.',
-            ];
-        }
-        if ($has('/Your requirements could not be resolved|Your lock file does not contain a compatible set of packages/i')) {
-            return [
-                'cause' => 'Composer couldn’t install the PHP packages: composer.lock doesn’t fit this PHP version or its extensions.',
-                'fix' => 'The lines above say which package and why. Usually it’s a missing PHP extension to add in the Dockerfile, or a lock file to update with “composer update” locally.',
-            ];
-        }
-        if ($has('/No matching distribution found for|Could not find a version that satisfies the requirement/i')) {
-            return [
-                'cause' => 'pip couldn’t find a Python package the project needs, at that version.',
-                'fix' => 'Check requirements.txt: the version may not exist, or may need a newer Python in the Dockerfile.',
-            ];
-        }
-        if ($has('/failed to compute cache key|COPY failed|failed to calculate checksum of ref .*not found/i')) {
-            return [
-                'cause' => 'The Dockerfile copies a file that isn’t in the repository.',
-                'fix' => 'It’s often ignored by .gitignore or .dockerignore, or only exists on your computer. Commit it, or change the COPY line, then push and redeploy.',
-            ];
-        }
+
         $variable = self::missingVariable($text);
         if ($variable !== null) {
             return [
@@ -214,16 +268,31 @@ final class DeployFailure
         }
 
         if ($phase === 'health') {
-            if ($has('/not accepting connections|Connection refused/i')) {
+            if ($has('/(?:not|nothing is) accepting connections|Connection refused/i')) {
                 return [
                     'cause' => 'The app started, but nothing answered on its port, so the new version was never switched in. The old one, if any, is still running.',
-                    'fix' => 'Make the app listen on 0.0.0.0 (not localhost or 127.0.0.1) and on the port set for it. The app’s logs show whether it crashed on start.',
+                    'fix' => 'Make the app listen on 0.0.0.0 (not localhost or 127.0.0.1) and on the port set for it (the PORT setting), or change the port in the app’s build settings. Its logs show whether it crashed on start.',
+                    'settings' => 'port',
                 ];
             }
-            if ($has('/returned HTTP 5\d\d/i')) {
+            if ($has('/(?:returned|answered) HTTP 5\d\d/i')) {
                 return [
                     'cause' => 'The app started but answers with an error, so the new version was never switched in. The old one, if any, is still running.',
                     'fix' => 'The app’s logs say why. Usually it’s a missing environment variable, or a database it can’t reach.',
+                ];
+            }
+            if (preg_match('/(?:returned|answered) HTTP ([1-4]\d\d)/i', $text, $status) === 1) {
+                return [
+                    'cause' => "The app answers its health check with HTTP {$status[1]}".($expected !== null && $expected > 0 ? ", not the {$expected} it was set to expect" : '').', so the new version was never switched in. The old one, if any, is still running.',
+                    'fix' => 'Change the health check path to one the app answers, or let it pass on any answer, in the app’s build settings.',
+                    'settings' => 'health',
+                ];
+            }
+            if ($has('/timed out|timeout|deadline exceeded|no answer/i')) {
+                return [
+                    'cause' => 'The app didn’t answer its health check in time, so the new version was never switched in. The old one, if any, is still running.',
+                    'fix' => 'If it’s slow to start, give it a longer start period in the app’s build settings. Its logs show whether it crashed on start or listens on another port.',
+                    'settings' => 'health',
                 ];
             }
 
@@ -233,7 +302,7 @@ final class DeployFailure
             ];
         }
 
-        if ($timedOut || $has('/ timed out$/m')) {
+        if ($timedOut || $phase === 'timeout' || $has('/ timed out$/m')) {
             return [
                 'cause' => 'The deploy took too long and was stopped.',
                 'fix' => 'Builds that download a lot or compile from source can be slow on small machines. Retry once (later builds reuse what was downloaded), or slim the build down.',
