@@ -33,7 +33,7 @@ watch(open, (shown) => {
     form.reset();
     form.clearErrors();
     form.credentials = Object.fromEntries(
-        (provider?.fields ?? []).map((field) => [field.key, '']),
+        (provider?.fields ?? []).map((field) => [field.key, field.value ?? '']),
     );
 });
 

@@ -75,10 +75,15 @@ async function confirm(): Promise<void> {
                                   ':provider cuts its power and starts it again, like pulling the plug. Use it when it’s stuck. Anything not yet written to disk is lost.',
                                   { provider: cloud.integration.name },
                               )
-                            : $t(
-                                  ':provider asks its system to restart, like pressing the power button once. It works even when the daemon is offline.',
-                                  { provider: cloud.integration.name },
-                              )
+                            : cloud.rules.gracefulRestart
+                              ? $t(
+                                    ':provider asks its system to restart, like pressing the power button once. It works even when the daemon is offline.',
+                                    { provider: cloud.integration.name },
+                                )
+                              : $t(
+                                    ':provider restarts it straight away, like pressing the reset button. It works even when the daemon is offline. Anything not yet written to disk is lost.',
+                                    { provider: cloud.integration.name },
+                                )
                     }}
                 </DialogDescription>
             </DialogHeader>

@@ -2,7 +2,14 @@
 
 namespace App\Support\Integrations;
 
+use App\Support\Integrations\Cloudflare\CloudflareProvider;
+use App\Support\Integrations\DigitalOcean\DigitalOceanProvider;
+use App\Support\Integrations\GitLab\GitLabProvider;
 use App\Support\Integrations\Hetzner\HetznerProvider;
+use App\Support\Integrations\Linear\LinearProvider;
+use App\Support\Integrations\PagerDuty\PagerDutyProvider;
+use App\Support\Integrations\Sentry\SentryProvider;
+use App\Support\Integrations\Vultr\VultrProvider;
 use Illuminate\Container\Attributes\Singleton;
 use InvalidArgumentException;
 
@@ -15,6 +22,13 @@ final class IntegrationProviders
     public function __construct()
     {
         $this->register(new HetznerProvider);
+        $this->register(new DigitalOceanProvider);
+        $this->register(new VultrProvider);
+        $this->register(new CloudflareProvider);
+        $this->register(new SentryProvider);
+        $this->register(new PagerDutyProvider);
+        $this->register(new LinearProvider);
+        $this->register(new GitLabProvider);
     }
 
     public function register(Provider $provider): void

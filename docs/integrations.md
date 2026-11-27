@@ -1,6 +1,6 @@
 # Integrations
 
-A workspace connects an account at another service once (a Hetzner Cloud project, a DigitalOcean team, a Cloudflare account) and the rest of the panel uses it. This page is for contributors adding a provider. Hetzner Cloud is the reference: `app/Support/Integrations/Hetzner/`.
+A workspace connects an account at another service once (a Hetzner Cloud project, a DigitalOcean team, a Cloudflare account) and the rest of the panel uses it. This page is for contributors adding a provider. Hetzner Cloud is the reference: `app/Support/Integrations/Hetzner/`. DigitalOcean (`DigitalOcean/`) and Vultr (`Vultr/`) are built the same way.
 
 ## How it fits together
 
@@ -28,6 +28,35 @@ Cloud providers (anything with servers) also implement `App\Support\Integrations
 
 The machine page shows the linked server from `CloudServers::machineProps()` (`cloudServer` prop on `MachineShow` and `MachineSettings`), and the dialogs live in `resources/js/components/machines/server/`.
 
+## DNS and cache (Cloudflare)
+
+`app/Support/Integrations/Cloudflare/` connects a Cloudflare account with a scoped API token (Zone Read, DNS Edit, Cache Purge) and keeps app domains pointed at their machines:
+
+- `CloudflareDns::zoneFor()` matches a hostname to the longest active zone across the workspace's accounts (`*.example.com` matches `example.com`). Zones are cached for ten minutes as arrays.
+- Every deploy fires `DeployQueued`; `PointDomainsAtCloudflare` queues `PointCloudflareDomains`, which adds or updates an A/AAAA record (a proxied CNAME to the tunnel when the machine has a Cloudflare Tunnel). New records are DNS only unless someone turns the proxy on per domain, so the machine's own certificate keeps working.
+- `integration_dns_records` (`IntegrationDnsRecord`) tracks each record and whether ServerOS made it (`created_record`). When a deploy finishes, records follow the domains of the last deploy that worked (plus any still on its way); when an app's last container is removed, its records go. Only records ServerOS made are deleted at Cloudflare; ones it found or took over are left there. Disconnecting leaves every record in place.
+- `CloudflareDomainController`: point a domain now (`domain-dns`, used by the domain check's "Point it here"), proxied on or off, purge the app's hostnames, and the per-app "purge after each deploy" setting (`app_settings[service].purge_cloudflare`).
+- The domain check (`DomainCheckController`, MCP `check_domain`) adds `cloudflare` when the zone is on a connected account.
+
+## Code hosts (GitLab)
+
+`app/Support/Integrations/GitLab/` connects gitlab.com or a self-managed GitLab with a personal, group or project access token (read_api and read_repository; api to add webhooks). Providers that hold code implement `HostsRepositories`, which gives the account page its Projects tray, its "Used for" lines and what disconnecting stops.
+
+- The instance address is https only. `GitLabClient` resolves it through `HostResolver` for every request and pins the connection to that answer (no redirects), so a private, loopback or link-local address is refused, as monitors and AI endpoints do.
+- `GitLabRepositories::find()` maps a repository address to the account whose instance it's on (the first that can see it when several share one). It feeds the deploy dialog (`workspace.gitlab.repositories`, `workspace.gitlab.branches`), detection (`GitLabDetector`, called from `RepositoryDetector`), commit messages (`CommitMessages`) and the clone token: `DaemonJobQueue` adds the account's token as `repo_token` when the job is sent, only for an address on that instance, and it's never stored.
+- Deploying each push: turning it on for a GitLab app (`AppVersionController::settings`) adds one webhook per project with its own secret (`gitlab_project_hooks`, `GitLabHooks::ensure()`). `POST /api/gitlab/webhook/{uuid}` checks `X-Gitlab-Token` against it and hands the push to `DeployOnPush`. `GitLabHooks::sync()` takes webhooks off when no app needs them (turned off, the app's last container removed, or the account disconnected).
+- Merge request previews aren't built yet: `Previews` and the project settings only know GitHub repositories.
+
+## Incidents and releases (PagerDuty, Linear, Sentry)
+
+Providers that ServerOS sends things to implement `Incidents\DeliversEvents`; ones that open something when a problem starts and close it when it ends also implement `Incidents\RoutesIncidents` (`wants()`, the routing choices kept in `integrations.settings`, and their rules).
+
+- `IncidentRouter` gets a `Problem` (a monitor down, a machine that stopped reporting, a critical or exploited CVE) from `MonitorAlerts`, `MachineWatcher` and `VulnerabilityAlerts`. Each problem has a stable key (`monitor:12`, `machine:4`, `cve:CVE-…`). `integration_incidents` keeps one row per account and problem; `open_key` is unique while it's open, so the same problem is never opened twice. `integrations:incidents` runs every minute: it opens what waits for a delay (Linear's "down for N minutes"), closes what recovered while nobody was looking, and sends failed events again.
+- `integration_events` (`IntegrationEvent`) is what went out, shown on the account page with its state. `IntegrationEvents::deliver()` sends one at a time per incident, in order (a resolve waits for its trigger), tries passing failures (unavailable, rate limited) again after 1, 5, 15 and 60 minutes, and fails the rest at once; a refused key marks the account failing. A failed event can be sent again from the account page.
+- PagerDuty: Events API v2 with `dedup_key` `serveros:{workspace}:{key}`; an update re-sends the trigger so the alert's details change. Disconnecting resolves the alerts ServerOS left open.
+- Linear: the issue's id is made by ServerOS and sent with `issueCreate`, so a try after a lost reply finds the issue instead of opening another. Fixed issues move to the team's first completed state.
+- Sentry: `integration_apps` ties an app (machine and service) to a project. `SentryReleases::jobFinished()` (from the gateway's `afterJob`) makes a release named after the commit, with the commit and repository, a deploy for the environment, and finalizes it; steps done are kept in the event's result so a retry doesn't repeat them. A roll back marks the older release deployed. `DaemonJobQueue::deploy()` sets `SENTRY_RELEASE` on a linked app. The service page's deferred `sentry` prop links each release and counts its new issues, cached for five minutes.
+
 ## Adding a provider
 
 1. **Catalogue.** Make sure `IntegrationCatalogue::all()` has the row and its `logo` exists in `BrandLogo`. Its key is your provider's `key()`.
@@ -38,7 +67,7 @@ The machine page shows the linked server from `CloudServers::machineProps()` (`c
     - `verify(array $credentials)`: one cheap read that proves the credentials reach an account. Return `new ConnectedAccount($suggestedLabel, $meta)`. `meta` is shown and kept in plain JSON, so only names and counts. Throw `IntegrationFailed` (the client already does) and its message becomes the form error.
     - `capabilities()`: `Capability` cases. Add a case (with its label and description) when you need a new one.
     - `summary()` for the Connected rail, `facts()` for the account page.
-4. **Servers (cloud providers).** Implement `ManagesServers`. Map the provider's objects to `Server`, `ServerType` (prices per location, the locations it can be made in now), `ServerImage` (mark one `recommended`; Ubuntu LTS where there is one), `SshKey`, `Snapshot`. Methods that start something return the provider's action id, or `null` when it's already done; `action()` turns an id into `ActionState`. Say whether `resizeNeedsPowerOff()`. Filter `resizeTypes()` to what the provider accepts (same architecture and storage, a disk at least as big).
+4. **Servers (cloud providers).** Implement `ManagesServers`. Map the provider's objects to `Server`, `ServerType` (prices per location, the locations it can be made in now), `ServerImage` (mark one `recommended`; Ubuntu LTS where there is one), `SshKey`, `Snapshot`. Methods that start something return the provider's action id, or `null` when the provider has no action to follow (Vultr): `ServerOperations` then watches the server itself, waiting for it to run after a start and to show the new type after a resize. `action()` turns an id into `ActionState`. `rules()` returns `ServerRules`: whether a resize needs the server off (Hetzner, DigitalOcean) or happens in place (Vultr), whether growing the disk is optional (Hetzner's `upgrade_disk`, DigitalOcean's `disk`) or always happens, whether it can go smaller, whether a restart is gentle, and whether snapshots belong to the server or the whole account. The dialogs word themselves from it. Filter `resizeTypes()` to what the provider accepts (same architecture and storage, a disk at least as big, or the provider's own list of upgrades). Override `describe()` when a capability works differently there.
 5. **Register** it in `IntegrationProviders::__construct()` (or from a package).
 6. **Copy.** Every string a person reads goes through `__()` / `$t()`. Plain and short, no em dashes.
 7. **Tests.** A fake of the API in `tests/Support/` like `FakeHetzner` (it keeps servers, actions and snapshots, records calls, can fail the next call to a path), installed with `Http::fake()` and `Http::preventStrayRequests()`, so no test reaches the real API. Cover at least: connect success and refused credentials, credentials absent from props and Activity, permissions, linking by address, each action's request body, and a failure that leaves things as they were. `Sleep::fake()` keeps the retry waits instant.

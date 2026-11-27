@@ -71,7 +71,7 @@ final class WorkspaceIntegrations
             ...$this->ai(),
         ];
         foreach ($this->accounts() as $key => $state) {
-            $states[$key] = $state;
+            $states[$key] = isset($states[$key]) ? $this->besidePanelState($key, $states[$key], $state) : $state;
         }
 
         $canConnect = $this->machines || Gate::forUser($user)->allows(self::SETTINGS, $workspace);
@@ -151,6 +151,31 @@ final class WorkspaceIntegrations
         $target = $connected ? $state['manage'] : $state['setup'];
 
         return $target === null ? null : ['label' => $connected ? self::t('Manage') : self::t('Connect'), ...$target];
+    }
+
+    /**
+     * A built provider whose catalogue key the panel already uses another
+     * way (Cloudflare tunnels): its accounts take the row, and what the
+     * panel does stays in the Connected list beside them.
+     *
+     * @param  State  $panel
+     * @param  State  $accounts
+     * @return State
+     */
+    private function besidePanelState(string $key, array $panel, array $accounts): array
+    {
+        if ($panel['connected']) {
+            $entry = collect(IntegrationCatalogue::all())->firstWhere('key', $key);
+            $this->extras[] = [
+                'key' => $key,
+                'name' => $entry['name'] ?? $key,
+                'logo' => $entry['logo'] ?? null,
+                'detail' => (string) $panel['detail'],
+                'target' => Gate::forUser($this->user)->allows($panel['ability'], $this->workspace) ? $panel['manage'] : null,
+            ];
+        }
+
+        return [...$accounts, 'connected' => $accounts['connected'] || $panel['connected']];
     }
 
     /**

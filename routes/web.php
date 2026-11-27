@@ -2,12 +2,14 @@
 
 use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\AgentTaskController;
+use App\Http\Controllers\AppSentryController;
 use App\Http\Controllers\AppSiteController;
 use App\Http\Controllers\AppVersionController;
 use App\Http\Controllers\AssistantController;
 use App\Http\Controllers\Auth\SocialLoginController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BackupDestinationController;
+use App\Http\Controllers\CloudflareDomainController;
 use App\Http\Controllers\CloudServerController;
 use App\Http\Controllers\CommunityLicenseController;
 use App\Http\Controllers\ConsoleLockController;
@@ -23,10 +25,12 @@ use App\Http\Controllers\FixController;
 use App\Http\Controllers\GitHubAppSetupController;
 use App\Http\Controllers\GitHubConnectionController;
 use App\Http\Controllers\GitHubRepositoryController;
+use App\Http\Controllers\GitLabRepositoryController;
 use App\Http\Controllers\HelpController;
 use App\Http\Controllers\ImpersonationController;
 use App\Http\Controllers\IntegrationAccountController;
 use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\IntegrationRoutingController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\LogController;
@@ -308,6 +312,10 @@ Route::domain(Dashboard::host())
         Route::get('integrations/{integration}/server-options', [CloudServerController::class, 'options'])->whereNumber('integration')->middleware('throttle:30,1')->name('workspace.integrations.servers.options');
         Route::post('integrations/{integration}/servers', [CloudServerController::class, 'store'])->whereNumber('integration')->middleware('throttle:10,1')->name('workspace.integrations.servers.store');
         Route::get('integrations/{integration}/operations/{operation}', [CloudServerController::class, 'operation'])->whereNumber('integration')->middleware('throttle:240,1')->name('workspace.integrations.operations.show');
+        Route::put('integrations/{integration}/routing', [IntegrationRoutingController::class, 'update'])->whereNumber('integration')->middleware('throttle:20,1')->name('workspace.integrations.routing.update');
+        Route::get('integrations/{integration}/options', [IntegrationRoutingController::class, 'options'])->whereNumber('integration')->middleware('throttle:60,1')->name('workspace.integrations.options');
+        Route::post('integrations/{integration}/test-event', [IntegrationRoutingController::class, 'test'])->whereNumber('integration')->middleware('throttle:5,1')->name('workspace.integrations.test');
+        Route::post('integrations/{integration}/events/{event}/retry', [IntegrationRoutingController::class, 'retry'])->whereNumber('integration')->whereNumber('event')->middleware('throttle:20,1')->name('workspace.integrations.events.retry');
         Route::post('machines/{machine}/server/reboot', [MachineServerController::class, 'reboot'])->middleware('throttle:10,1')->name('workspace.machines.server.reboot');
         Route::post('machines/{machine}/server/power-cycle', [MachineServerController::class, 'powerCycle'])->middleware('throttle:10,1')->name('workspace.machines.server.power-cycle');
         Route::get('machines/{machine}/server/types', [MachineServerController::class, 'types'])->middleware('throttle:30,1')->name('workspace.machines.server.types');
@@ -362,6 +370,8 @@ Route::domain(Dashboard::host())
         Route::delete('logs', [LogController::class, 'destroy'])->middleware('throttle:10,1')->name('workspace.logs.destroy');
         Route::post('services/detect', ServiceDetectController::class)->middleware('throttle:20,1')->name('workspace.services.detect');
         Route::get('github/repositories', [GitHubRepositoryController::class, 'index'])->middleware('throttle:30,1')->name('workspace.github.repositories');
+        Route::get('gitlab/repositories', [GitLabRepositoryController::class, 'index'])->middleware('throttle:30,1')->name('workspace.gitlab.repositories');
+        Route::get('gitlab/branches', [GitLabRepositoryController::class, 'branches'])->middleware('throttle:30,1')->name('workspace.gitlab.branches');
         Route::get('github/repositories/{owner}/{repo}/branches', [GitHubRepositoryController::class, 'branches'])
             ->where(['owner' => '[A-Za-z0-9-]+', 'repo' => '[A-Za-z0-9._-]+'])->middleware('throttle:30,1')->name('workspace.github.branches');
         Route::post('machines/{machine}/sources', [DeploySourceController::class, 'start'])->middleware('throttle:20,1')->name('workspace.sources.start');
@@ -371,6 +381,7 @@ Route::domain(Dashboard::host())
         Route::post('machines/{machine}/apps/{service}/domain', [AppVersionController::class, 'domain'])->middleware('throttle:10,1')->name('workspace.apps.domain');
         Route::post('machines/{machine}/apps/{service}/rollback', [AppVersionController::class, 'rollback'])->middleware('throttle:10,1')->name('workspace.apps.rollback');
         Route::put('machines/{machine}/apps/{service}/settings', [AppVersionController::class, 'settings'])->middleware('throttle:20,1')->name('workspace.apps.settings');
+        Route::put('machines/{machine}/apps/{service}/sentry', [AppSentryController::class, 'update'])->middleware('throttle:20,1')->name('workspace.apps.sentry');
         Route::put('machines/{machine}/apps/{service}/site', [AppSiteController::class, 'update'])->middleware('throttle:20,1')->name('workspace.apps.site');
         Route::get('machines/{machine}/apps/{service}/traffic', [MachineTrafficController::class, 'report'])->middleware('throttle:120,1')->name('workspace.apps.traffic');
         Route::get('machines/{machine}/traffic/sites', [MachineTrafficController::class, 'sites'])->middleware('throttle:120,1')->name('workspace.machines.traffic.sites');
@@ -387,6 +398,10 @@ Route::domain(Dashboard::host())
         Route::post('machines/{machine}/deploy/resolve', [DeployKeyController::class, 'resolve'])->middleware('throttle:30,1')->name('workspace.machines.deploy.resolve');
         Route::get('machines/{machine}/deploy/jobs/{job}', [DeployKeyController::class, 'show'])->withoutScopedBindings()->middleware('throttle:120,1')->name('workspace.machines.deploy.job');
         Route::post('machines/{machine}/domain-check', DomainCheckController::class)->middleware('throttle:30,1')->name('workspace.machines.domain-check');
+        Route::post('machines/{machine}/domain-dns', [CloudflareDomainController::class, 'point'])->middleware('throttle:20,1')->name('workspace.machines.domain-dns');
+        Route::patch('machines/{machine}/apps/{service}/dns', [CloudflareDomainController::class, 'proxied'])->middleware('throttle:20,1')->name('workspace.apps.dns');
+        Route::post('machines/{machine}/apps/{service}/purge', [CloudflareDomainController::class, 'purge'])->middleware('throttle:10,1')->name('workspace.apps.purge');
+        Route::put('machines/{machine}/apps/{service}/purge', [CloudflareDomainController::class, 'purgeSetting'])->middleware('throttle:20,1')->name('workspace.apps.purge.setting');
         Route::post('console/unlock', [ConsoleLockController::class, 'unlock'])->middleware('throttle:5,1')->name('workspace.console.unlock');
         Route::post('console/lock', [ConsoleLockController::class, 'lock'])->name('workspace.console.lock');
         Route::post('machines/{machine}/files', [MachineFileController::class, 'store'])->middleware('throttle:120,1')->name('workspace.machines.files.store');

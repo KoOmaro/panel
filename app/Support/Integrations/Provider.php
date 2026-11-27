@@ -47,9 +47,24 @@ abstract class Provider
         return [];
     }
 
+    /**
+     * Takes back what ServerOS set up at the provider for this account, just
+     * before it's disconnected, and says so (null when there was nothing).
+     */
+    public function disconnect(Integration $integration): ?string
+    {
+        return null;
+    }
+
     public function can(Capability $capability): bool
     {
         return in_array($capability, $this->capabilities(), true);
+    }
+
+    /** What a capability does with this provider, when that differs from the usual words. */
+    public function describe(Capability $capability): string
+    {
+        return $capability->description();
     }
 
     public function managesServers(): bool
@@ -64,7 +79,7 @@ abstract class Provider
             'key' => $this->key(),
             'name' => $this->name(),
             'fields' => array_map(fn (ConnectField $field) => $field->toArray(), $this->fields()),
-            'capabilities' => array_map(fn (Capability $capability) => $capability->toArray(), $this->capabilities()),
+            'capabilities' => array_map(fn (Capability $capability) => [...$capability->toArray(), 'description' => $this->describe($capability)], $this->capabilities()),
             'multiple' => $this->multipleAccounts(),
         ];
     }

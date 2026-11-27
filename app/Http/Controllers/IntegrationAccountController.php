@@ -4,12 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Activity;
 use App\Models\Integration;
+use App\Models\IntegrationDnsRecord;
 use App\Models\IntegrationOperation;
 use App\Models\IntegrationServer;
 use App\Models\Workspace;
 use App\Support\Audit\AuditContext;
 use App\Support\Audit\Audited;
 use App\Support\Integrations\Capability;
+use App\Support\Integrations\Cloudflare\CloudflareDns;
+use App\Support\Integrations\Cloudflare\CloudflareProvider;
+use App\Support\Integrations\HostsRepositories;
+use App\Support\Integrations\Incidents\AccountPage;
 use App\Support\Integrations\IntegrationCatalogue;
 use App\Support\Integrations\IntegrationFailed;
 use App\Support\Integrations\IntegrationProviders;
@@ -57,8 +62,11 @@ class IntegrationAccountController extends Controller
             'canMakeServers' => $provider->can(Capability::CreateServers) && (bool) config('daemon.install_ready'),
             'canImport' => (bool) config('daemon.install_ready'),
             'servers' => $provider->managesServers() ? Inertia::defer(fn () => $this->servers($integration, $clouds)) : null,
+            'cloudflare' => $provider instanceof CloudflareProvider ? Inertia::defer(fn () => app(CloudflareDns::class)->accountProps($integration)) : null,
+            'projects' => $provider instanceof HostsRepositories ? Inertia::defer(fn () => $provider->projects($integration)) : null,
             'operations' => $integration->operations()->latest('id')->limit(8)->get()
                 ->map(fn (IntegrationOperation $op) => ServerOperations::props($op))->all(),
+            ...AccountPage::props($integration, $provider),
         ]);
     }
 
@@ -193,9 +201,10 @@ class IntegrationAccountController extends Controller
         $provider = $integration->provider();
         $machines = $integration->servers()->whereNotNull('machine_id')->count();
         Activity::record($workspace, 'integration.disconnect', $integration->label, null, $request->user(), ['provider' => $provider->name(), 'machines' => $machines]);
+        $done = $provider->disconnect($integration);
         $integration->delete();
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Disconnected :name. Nothing changed at :provider.', ['name' => $integration->label, 'provider' => $provider->name()])]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $done ?? __('Disconnected :name. Nothing changed at :provider.', ['name' => $integration->label, 'provider' => $provider->name()])]);
 
         return redirect($workspace->url('/integrations'));
     }
@@ -230,6 +239,9 @@ class IntegrationAccountController extends Controller
     /** @return list<string> */
     private function usage(Integration $integration, Provider $provider): array
     {
+        if ($provider instanceof HostsRepositories) {
+            return $provider->usage($integration);
+        }
         if (! $provider->managesServers()) {
             return [];
         }
@@ -263,6 +275,14 @@ class IntegrationAccountController extends Controller
         }
         if ($active > 0) {
             $out[] = (string) trans_choice(':count change in progress stops being followed.|:count changes in progress stop being followed.', $active, ['count' => $active]);
+        }
+        $host = $integration->provider();
+        if ($host instanceof HostsRepositories) {
+            array_push($out, ...$host->dependents($integration));
+        }
+        $records = IntegrationDnsRecord::query()->where('integration_id', $integration->id)->count();
+        if ($records > 0) {
+            $out[] = (string) trans_choice(':count DNS record stops being kept pointed at its machine. It stays at Cloudflare.|:count DNS records stop being kept pointed at their machines. They stay at Cloudflare.', $records, ['count' => $records]);
         }
 
         return $out;

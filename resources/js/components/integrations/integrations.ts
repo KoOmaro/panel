@@ -56,6 +56,7 @@ export type ConnectField = {
     link: string | null;
     linkLabel: string | null;
     placeholder: string | null;
+    value?: string | null;
 };
 
 export type Capability = { key: string; label: string; description: string };
@@ -109,6 +110,14 @@ export type CloudServer = {
     createdAt: string | null;
 };
 
+export type ServerRules = {
+    powerOff: boolean;
+    disk: 'optional' | 'always';
+    down: boolean;
+    gracefulRestart: boolean;
+    snapshotsPerServer: boolean;
+};
+
 export type MachineCloudServer = {
     integration: {
         id: number;
@@ -120,6 +129,7 @@ export type MachineCloudServer = {
     server: CloudServer;
     syncedAt: string | null;
     can: string[];
+    rules: ServerRules;
     operation: Operation | null;
 };
 

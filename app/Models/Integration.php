@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property array<string, string> $credentials
  * @property string $fingerprint a keyed hash of the credentials, so one account isn't connected twice
  * @property array<string, mixed>|null $meta what the provider said about the account when it was last checked
+ * @property array<string, mixed>|null $settings the choices made for it in ServerOS, like what pages it
  * @property string $status connected or failing
  * @property CarbonImmutable|null $last_checked_at
  * @property string|null $last_error
@@ -44,6 +45,7 @@ class Integration extends Model
         return [
             'credentials' => 'encrypted:array',
             'meta' => 'array',
+            'settings' => 'array',
             'last_checked_at' => 'datetime',
         ];
     }
@@ -88,5 +90,28 @@ class Integration extends Model
     public function operations(): HasMany
     {
         return $this->hasMany(IntegrationOperation::class);
+    }
+
+    /** @return HasMany<IntegrationApp, $this> */
+    public function apps(): HasMany
+    {
+        return $this->hasMany(IntegrationApp::class);
+    }
+
+    /** @return HasMany<IntegrationIncident, $this> */
+    public function incidents(): HasMany
+    {
+        return $this->hasMany(IntegrationIncident::class);
+    }
+
+    /** @return HasMany<IntegrationEvent, $this> */
+    public function events(): HasMany
+    {
+        return $this->hasMany(IntegrationEvent::class);
+    }
+
+    public function setting(string $key, mixed $default = null): mixed
+    {
+        return $this->settings[$key] ?? $default;
     }
 }

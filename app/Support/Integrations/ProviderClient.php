@@ -70,6 +70,15 @@ abstract class ProviderClient
         return $this->send('PUT', $path, ['json' => $body]);
     }
 
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function patch(string $path, array $body = []): array
+    {
+        return $this->send('PATCH', $path, ['json' => $body]);
+    }
+
     /** @return array<string, mixed> */
     public function delete(string $path): array
     {

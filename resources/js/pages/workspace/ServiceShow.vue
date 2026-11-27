@@ -19,6 +19,12 @@ import StatusBadge from '@/components/dash/StatusBadge.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { FilledIconName } from '@/components/icons/filledIcons';
 import InputError from '@/components/InputError.vue';
+import type {
+    CloudflareApp,
+    CloudflareCheck,
+} from '@/components/integrations/cloudflare';
+import CloudflareDnsNote from '@/components/integrations/CloudflareDnsNote.vue';
+import type { ServiceSentry } from '@/components/integrations/incidents';
 import AppLimitsDialog from '@/components/machines/AppLimitsDialog.vue';
 import AppSiteDialog from '@/components/machines/AppSiteDialog.vue';
 import AppVariablesDialog from '@/components/machines/AppVariablesDialog.vue';
@@ -124,6 +130,8 @@ const props = defineProps<{
     };
     app: ServiceApp | null;
     siteTraffic: ExistingSitesTrafficProps | null;
+    cloudflare?: CloudflareApp | null;
+    sentry?: ServiceSentry | null;
 }>();
 
 const page = usePage<{ workspaceAccess: WorkspaceAccess | null }>();
@@ -837,6 +845,7 @@ const deployLabel = computed(() => {
 type DomainCheck = {
     status: 'ready' | 'missing' | 'proxied' | 'elsewhere';
     record: { type: string; name: string; value: string } | null;
+    cloudflare?: CloudflareCheck | null;
     wildcard?: Omit<DomainCheck, 'wildcard'>;
 };
 
@@ -1442,8 +1451,10 @@ onBeforeUnmount(() => {
                     :machine-id="machine.id!"
                     :can-manage="canManage"
                     :online="online"
+                    :cloudflare="cloudflare"
                     @change="openMove"
                     @site="siteOpen = true"
+                    @cloudflare="router.reload({ only: ['cloudflare'] })"
                 />
                 <ServiceDeploys
                     :app="app"
@@ -1452,6 +1463,7 @@ onBeforeUnmount(() => {
                     :can-manage="canManage"
                     :can-roll-back="online && working === null && hasPlan"
                     :messages="messages"
+                    :sentry="sentry"
                     @rollback="askRollback"
                     @settings="deploySettingsOpen = true"
                     @drop="shipVersion"
@@ -1598,6 +1610,7 @@ onBeforeUnmount(() => {
         :app="app"
         :workspace-slug="workspace.slug"
         :machine-id="machine.id!"
+        :sentry="sentry"
     />
     <CloneServiceDialog
         v-if="clone"
@@ -1659,8 +1672,19 @@ onBeforeUnmount(() => {
                         spellcheck="false"
                         class="font-ui-mono"
                     />
+                    <CloudflareDnsNote
+                        v-if="moveDns?.cloudflare"
+                        :cloudflare="moveDns.cloudflare"
+                        :wildcard-cloudflare="moveDns.wildcard?.cloudflare"
+                        :workspace-slug="workspace.slug"
+                        :machine-id="machine.id!"
+                        :service="app.service"
+                        :domain="bareDomain(newDomain)"
+                        :wildcard="moveWildcard"
+                        @pointed="(check) => (moveDns = check as DomainCheck)"
+                    />
                     <p
-                        v-if="moveDns?.status === 'ready'"
+                        v-else-if="moveDns?.status === 'ready'"
                         class="text-xs text-status-live"
                     >
                         {{ $t('Points at this machine.') }}
@@ -1704,6 +1728,7 @@ onBeforeUnmount(() => {
                             v-if="
                                 moveWildcard &&
                                 moveDns?.wildcard &&
+                                !moveDns.wildcard.cloudflare &&
                                 moveDns.wildcard.status !== 'ready' &&
                                 moveDns.wildcard.record
                             "

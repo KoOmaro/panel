@@ -192,6 +192,7 @@ final class CloudServers
             'server' => $server->toArray(),
             'syncedAt' => $row->synced_at?->toIso8601String(),
             'can' => array_map(fn (Capability $c) => $c->value, $provider->capabilities()),
+            'rules' => $manager->rules()->toArray(),
             'operation' => $operation !== null && ($operation->active() || $operation->finished_at?->gt(now()->subMinutes(10))) ? ServerOperations::props($operation) : null,
         ];
     }

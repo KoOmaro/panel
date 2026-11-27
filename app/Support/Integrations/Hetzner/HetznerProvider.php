@@ -15,6 +15,7 @@ use App\Support\Integrations\Servers\Server;
 use App\Support\Integrations\Servers\ServerImage;
 use App\Support\Integrations\Servers\ServerLocation;
 use App\Support\Integrations\Servers\ServerPlans;
+use App\Support\Integrations\Servers\ServerRules;
 use App\Support\Integrations\Servers\ServerType;
 use App\Support\Integrations\Servers\Snapshot;
 use App\Support\Integrations\Servers\SshKey;
@@ -169,9 +170,9 @@ final class HetznerProvider extends Provider implements ManagesServers
         return $this->act($integration, $id, 'change_type', ['server_type' => $type, 'upgrade_disk' => $growDisk]);
     }
 
-    public function resizeNeedsPowerOff(): bool
+    public function rules(): ServerRules
     {
-        return true;
+        return new ServerRules(resizeNeedsPowerOff: true);
     }
 
     public function shutdown(Integration $integration, string $id): ?string

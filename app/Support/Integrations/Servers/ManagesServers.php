@@ -11,7 +11,9 @@ use App\Support\Integrations\IntegrationFailed;
  * IntegrationFailed with a message a person can act on.
  *
  * Methods that start something at the provider return the id of the
- * provider's action to wait on, or null when it's done already.
+ * provider's action to wait on, or null when the provider has no action to
+ * follow. ServerOperations then watches the server itself: its status after
+ * a start, its type after a resize.
  *
  * @throws IntegrationFailed
  */
@@ -31,7 +33,7 @@ interface ManagesServers
 
     public function resize(Integration $integration, string $id, string $type, bool $growDisk): ?string;
 
-    public function resizeNeedsPowerOff(): bool;
+    public function rules(): ServerRules;
 
     public function shutdown(Integration $integration, string $id): ?string;
 

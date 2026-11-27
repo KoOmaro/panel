@@ -328,6 +328,13 @@ final class ActivityLine
                 default => $set('changed the maintenance page for'),
             },
             'app.deploy_key' => $set('made a deploy key for', 'to fetch its private repository'),
+            'app.dns_point' => $set($t('pointed :domain at', ['domain' => (string) ($meta['domain'] ?? '')]), ($meta['change'] ?? null) === 'took_over' ? 'through Cloudflare, in place of the record that was there' : 'through Cloudflare'),
+            'app.dns_remove' => ($meta['deleted'] ?? false)
+                ? $set($t('removed the Cloudflare record for :domain from', ['domain' => (string) ($meta['domain'] ?? '')]), null, 'warn')
+                : $set($t('stopped managing the Cloudflare record for :domain of', ['domain' => (string) ($meta['domain'] ?? '')])),
+            'app.dns_proxied' => $set($t(($meta['proxied'] ?? false) ? 'turned on Cloudflare’s proxy for :domain of' : 'turned off Cloudflare’s proxy for :domain of', ['domain' => (string) ($meta['domain'] ?? '')])),
+            'app.cache_purge' => $set('purged Cloudflare’s cache for'),
+            'app.cache_purge_setting' => $set(($meta['on'] ?? false) ? 'turned on purging Cloudflare’s cache after each deploy of' : 'turned off purging Cloudflare’s cache after each deploy of'),
             'app.limits' => ($meta['cpus'] ?? null) === null && ($meta['memory_mb'] ?? null) === null
                 ? $set('took the CPU and memory limits off')
                 : $set('limited', $t('to :limits', ['limits' => implode(', ', array_filter([
@@ -341,6 +348,13 @@ final class ActivityLine
             'integration.rename' => $set('renamed an account to', isset($meta['from']) ? $t('(was :name)', ['name' => (string) $meta['from']]) : null),
             'integration.check' => ($meta['ok'] ?? false) ? $set('checked', 'and it works again', 'good') : $set('checked', 'and it was turned down', 'bad'),
             'integration.disconnect' => $set('disconnected', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null, 'warn'),
+            'integration.routing' => $set('changed what goes to', isset($meta['provider']) ? $t('(:provider)', ['provider' => (string) $meta['provider']]) : null),
+            'integration.test' => ($meta['ok'] ?? false) ? $set('sent a test event to', null, 'good') : $set('sent a test event to', 'and it didn’t go through', 'bad'),
+            'integration.retry' => $set('sent again what failed to go to'),
+            'integration.incident_open' => $set('opened', $t('in :provider', ['provider' => (string) ($meta['provider'] ?? '')]), 'warn'),
+            'integration.incident_resolve' => $set('closed', $t('in :provider', ['provider' => (string) ($meta['provider'] ?? '')]), 'good'),
+            'app.sentry' => $set('linked', $t('to the Sentry project :project', ['project' => (string) ($meta['project'] ?? '')])),
+            'app.sentry_off' => $set('unlinked', 'from Sentry', 'warn'),
             'app.push_replaced' => $set('skipped an older push to', $t(':commit, since :newer came after it', ['commit' => (string) ($meta['commit'] ?? ''), 'newer' => (string) ($meta['newer'] ?? '')])),
             'app.push_skipped' => $set('didn’t deploy a push to', $t(':commit to :branch: :reason', ['commit' => (string) ($meta['commit'] ?? ''), 'branch' => (string) ($meta['branch'] ?? ''), 'reason' => rtrim((string) ($meta['reason'] ?? ''), '.')]), 'warn'),
             'backup_destination.update' => $set('changed the backup destination', isset($meta['from']) ? $t('(was :name)', ['name' => $meta['from']]) : null),

@@ -48,6 +48,9 @@ final class ServerOperations
         self::RESIZE => [['stop', ['stop', 'stopping']], ['change', ['change', 'changing']], ['start', ['start', 'starting']]],
     ];
 
+    /** A resize the provider does with the server running: one step from start to end. */
+    private const array IN_PLACE = [['change', ['stop', 'change', 'changing', 'start', 'starting']]];
+
     public function __construct(private readonly CreateJoinCommand $join) {}
 
     /**
@@ -101,6 +104,7 @@ final class ServerOperations
 
     public function resize(IntegrationServer $row, Machine $machine, User $user, ServerType $type, bool $growDisk): IntegrationOperation
     {
+        $powerOff = CloudServers::manager($row->integration)?->rules()->resizeNeedsPowerOff ?? true;
         $operation = $row->integration->operations()->create([
             'kind' => self::RESIZE,
             'machine_id' => $machine->id,
@@ -109,7 +113,7 @@ final class ServerOperations
             'state' => 'queued',
             'step' => 'stop',
             'step_started_at' => now(),
-            'input' => ['type' => $type->name, 'type_label' => $type->label, 'from' => $row->details['typeLabel'] ?? $row->details['type'] ?? null, 'grow_disk' => $growDisk],
+            'input' => ['type' => $type->name, 'type_label' => $type->label, 'from' => $row->details['typeLabel'] ?? $row->details['type'] ?? null, 'grow_disk' => $growDisk, 'power_off' => $powerOff],
         ]);
         AdvanceIntegrationOperation::dispatch($operation->id);
 
@@ -203,8 +207,15 @@ final class ServerOperations
                 if ($state->state === ActionState::FAILED) {
                     throw new IntegrationFailed(self::t('The provider couldn’t start the server: :reason', ['reason' => self::sentence((string) $state->error)]));
                 }
+                $server = $manager->server($integration, $id);
+            } else {
+                $server = $manager->server($integration, $id) ?? throw new IntegrationFailed(self::t('The server was deleted before it joined.'));
+                if ($server->status !== 'running') {
+                    $this->stillWithin($op, self::ACTION_MINUTES);
+
+                    return self::WAIT;
+                }
             }
-            $server = $manager->server($integration, $id);
             if ($server !== null) {
                 $integration->servers()->where('server_id', $id)->update(['details' => json_encode($server->toArray()), 'name' => $server->name, 'synced_at' => now()]);
             }
@@ -242,8 +253,9 @@ final class ServerOperations
                 case 'stop':
                     $server = $manager->server($integration, $id) ?? throw new IntegrationFailed(self::t('The server isn’t in the account any more.'), IntegrationFailed::NOT_FOUND);
                     $running = $server->status !== 'off';
-                    $op->result = [...($op->result ?? []), 'was_running' => $running];
-                    if (! $running || ! $manager->resizeNeedsPowerOff()) {
+                    $stop = $running && $manager->rules()->resizeNeedsPowerOff;
+                    $op->result = [...($op->result ?? []), 'was_running' => $running, 'stopped' => $stop];
+                    if (! $stop) {
                         $this->step($op, 'change');
                         break;
                     }
@@ -269,18 +281,24 @@ final class ServerOperations
                     return self::WAIT;
 
                 case 'change':
-                    $op->action_id = $manager->resize($integration, $id, (string) ($op->input['type'] ?? ''), (bool) ($op->input['grow_disk'] ?? false));
-                    $actionId = $op->action_id;
+                    $actionId = $manager->resize($integration, $id, (string) ($op->input['type'] ?? ''), (bool) ($op->input['grow_disk'] ?? false));
                     $this->step($op, 'changing');
                     $op->action_id = $actionId;
-                    if ($actionId === null) {
-                        $this->step($op, 'start');
-                        break;
-                    }
 
                     return self::WAIT;
 
                 case 'changing':
+                    if ($op->action_id === null) {
+                        $server = $manager->server($integration, $id) ?? throw new IntegrationFailed(self::t('The server isn’t in the account any more.'), IntegrationFailed::NOT_FOUND);
+                        $settled = ($op->result['was_running'] ?? false) ? ['running'] : ['running', 'off'];
+                        if ($server->type !== (string) ($op->input['type'] ?? '') || ! in_array($server->status, $settled, true)) {
+                            $this->stillWithin($op, self::ACTION_MINUTES);
+
+                            return self::SLOW_WAIT;
+                        }
+                        $this->step($op, 'start');
+                        break;
+                    }
                     $state = $manager->action($integration, (string) $op->action_id);
                     if ($state->state === ActionState::RUNNING) {
                         $this->stillWithin($op, self::ACTION_MINUTES);
@@ -294,7 +312,7 @@ final class ServerOperations
                     break;
 
                 case 'start':
-                    if (! ($op->result['was_running'] ?? false)) {
+                    if (! ($op->result['stopped'] ?? false)) {
                         $this->finishResize($op, $integration, $manager);
 
                         return null;
@@ -302,15 +320,20 @@ final class ServerOperations
                     $actionId = $manager->powerOn($integration, $id);
                     $this->step($op, 'starting');
                     $op->action_id = $actionId;
-                    if ($actionId === null) {
-                        $this->finishResize($op, $integration, $manager);
-
-                        return null;
-                    }
 
                     return self::WAIT;
 
                 case 'starting':
+                    if ($op->action_id === null) {
+                        if ($manager->server($integration, $id)?->status !== 'running') {
+                            $this->stillWithin($op, self::ACTION_MINUTES);
+
+                            return self::WAIT;
+                        }
+                        $this->finishResize($op, $integration, $manager);
+
+                        return null;
+                    }
                     $state = $manager->action($integration, (string) $op->action_id);
                     if ($state->state === ActionState::RUNNING) {
                         $this->stillWithin($op, self::ACTION_MINUTES);
@@ -347,7 +370,7 @@ final class ServerOperations
     // A resize that stopped the server starts it again before giving up, so a failure never leaves it off.
     private function failWith(IntegrationOperation $op, Integration $integration, ManagesServers $manager, string $message): void
     {
-        if ($op->kind === self::RESIZE && ($op->result['was_running'] ?? false) && in_array($op->step, ['stopping', 'change', 'changing'], true)) {
+        if ($op->kind === self::RESIZE && ($op->result['stopped'] ?? false) && in_array($op->step, ['stopping', 'change', 'changing'], true)) {
             try {
                 $manager->powerOn($integration, (string) $op->server_id);
                 $message .= ' '.self::t('ServerOS turned it back on.');
@@ -404,7 +427,8 @@ final class ServerOperations
         ];
         $steps = [];
         $current = null;
-        foreach (self::STEPS[$op->kind] ?? [] as $index => [$key, $internal]) {
+        $plan = $op->kind === self::RESIZE && ($op->input['power_off'] ?? true) === false ? self::IN_PLACE : (self::STEPS[$op->kind] ?? []);
+        foreach ($plan as $index => [$key, $internal]) {
             $steps[] = $key;
             if (in_array($op->step, $internal, true)) {
                 $current = $index;

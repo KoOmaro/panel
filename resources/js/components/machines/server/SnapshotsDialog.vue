@@ -155,6 +155,13 @@ const fieldClass =
                                 { provider: cloud.integration.name },
                             )
                         }}
+                        <template v-if="!cloud.rules.snapshotsPerServer">{{
+                            ' ' +
+                            $t(
+                                ':provider keeps snapshots for the whole account, so this lists all of them.',
+                                { provider: cloud.integration.name },
+                            )
+                        }}</template>
                     </DialogDescription>
                 </div>
                 <kbd
@@ -239,6 +246,7 @@ const fieldClass =
                             >
                         </span>
                         <DashButton
+                            v-if="snapshot.status !== 'creating'"
                             size="sm"
                             :class="
                                 confirming === snapshot.id

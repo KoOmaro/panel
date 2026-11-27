@@ -4,6 +4,7 @@ namespace App\Support\ServiceTemplates;
 
 use App\Models\Workspace;
 use App\Support\GitHub\GitHubApp;
+use App\Support\Integrations\GitLab\GitLabDetector;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -33,6 +34,11 @@ class RepositoryDetector
      */
     public function detect(string $url, ?Workspace $workspace = null): array
     {
+        $gitlab = app(GitLabDetector::class);
+        if ($gitlab->handles($url, $workspace)) {
+            return $gitlab->detect($this, $url, $workspace);
+        }
+
         [$owner, $name, $tree] = $this->parse($url);
         $this->token = $workspace === null ? null : app(GitHubApp::class)->tokenFor($workspace, $owner, $name);
 

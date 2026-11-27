@@ -7,7 +7,9 @@ use App\Models\Activity;
 use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Support\DaemonJobQueue;
+use App\Support\Integrations\GitLab\GitLabRepositories;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -16,7 +18,7 @@ use RuntimeException;
 /**
  * Apps set to deploy each push to a branch: the switch on the app's page,
  * so the common case needs no workflow. A push to that branch of the app's
- * GitHub repository deploys the pushed commit, with everything else as the
+ * GitHub repository (or GitLab project) deploys the pushed commit, with everything else as the
  * app's last deploy had it.
  *
  * With "only the newest push" on (the default), a push that arrives while
@@ -48,6 +50,12 @@ final class DeployOnPush
         return strtolower($m[1].'/'.$m[2]);
     }
 
+    /** Whether pushes can deploy an app from this address: a GitHub repository, or a project of a GitLab account the workspace connected. */
+    public static function supports(Workspace $workspace, ?string $url): bool
+    {
+        return self::repoName($url) !== null || app(GitLabRepositories::class)->find($workspace, $url) !== null;
+    }
+
     /** @return array{on: bool, branch: string, onlyNewest: bool} */
     public static function setting(Machine $machine, string $app): array
     {
@@ -61,14 +69,16 @@ final class DeployOnPush
     }
 
     /**
-     * @param  list<int>  $workspaces  the workspaces the push's GitHub installation covers
+     * @param  list<int>  $workspaces  the workspaces the push's GitHub installation (or GitLab account) covers
+     * @param  (\Closure(string|null): bool)|null  $sameRepo  whether an app's repository address is the pushed one; a GitHub "owner/name" when null
      * @return array{started: int, skipped: int}
      */
-    public function handle(array $workspaces, string $repo, string $branch, string $commit): array
+    public function handle(array $workspaces, string $repo, string $branch, string $commit, ?\Closure $sameRepo = null): array
     {
         $started = 0;
         $skipped = 0;
         $repo = strtolower($repo);
+        $sameRepo ??= fn (?string $url): bool => self::repoName($url) === $repo;
 
         $machines = Machine::query()->whereIn('workspace_id', $workspaces)->whereNotNull('app_settings')->with('workspace')->get();
         foreach ($machines as $machine) {
@@ -79,7 +89,8 @@ final class DeployOnPush
                     continue;
                 }
                 $last = AppVersionController::lastDeployOf($machine, $app);
-                if ($last === null || self::repoName($last->command['job']['repo'] ?? null) !== $repo) {
+                $address = $last?->command['job']['repo'] ?? null;
+                if ($last === null || ! $sameRepo(is_string($address) ? $address : null)) {
                     continue;
                 }
                 if ($this->alreadyDeploying($machine, $app, $commit)) {

@@ -26,11 +26,16 @@ import {
 } from '@/components/deploy/catalog';
 import PickerButton from '@/components/deploy/PickerButton.vue';
 import RepoList from '@/components/deploy/RepoList.vue';
-import type { GitHubRepositories } from '@/components/deploy/RepoList.vue';
+import type {
+    GitHubRepositories,
+    GitLabRepositories,
+} from '@/components/deploy/RepoList.vue';
 import TemplateCatalogue from '@/components/deploy/TemplateCatalogue.vue';
 import type { CatalogueGroup } from '@/components/deploy/TemplateCatalogue.vue';
 import TemplateLogo from '@/components/deploy/TemplateLogo.vue';
 import UploadStage from '@/components/deploy/UploadStage.vue';
+import type { CloudflareCheck } from '@/components/integrations/cloudflare';
+import CloudflareDnsNote from '@/components/integrations/CloudflareDnsNote.vue';
 import type {
     StageChip,
     StagePhase,
@@ -64,6 +69,7 @@ import {
 import { toast } from '@/lib/toast';
 import { onWorkspace, workspacePath } from '@/lib/workspaceRoute';
 import githubRoutes from '@/routes/workspace/github';
+import gitlabRoutes from '@/routes/workspace/gitlab';
 import machinesRoutes from '@/routes/workspace/machines';
 import servicesRoutes from '@/routes/workspace/services';
 
@@ -382,6 +388,7 @@ const customTemplate = computed(
 );
 
 const github = ref<GitHubRepositories | null>(null);
+const gitlab = ref<GitLabRepositories | null>(null);
 const branches = ref<{ repo: string; names: string[] } | null>(null);
 
 const branchOptions = computed<SelectMenuOption<string>[]>(() => {
@@ -400,6 +407,29 @@ const branchOptions = computed<SelectMenuOption<string>[]>(() => {
 });
 
 async function loadRepositories(): Promise<void> {
+    await Promise.all([loadGitHub(), loadGitLab()]);
+}
+
+async function loadGitLab(): Promise<void> {
+    if (gitlab.value) {
+        return;
+    }
+
+    try {
+        const response = await request(
+            onWorkspace(gitlabRoutes.repositories(page.props.workspace.slug))
+                .url,
+        );
+
+        gitlab.value = response.ok
+            ? await response.json()
+            : { connected: false, accounts: [], repositories: [] };
+    } catch {
+        gitlab.value = { connected: false, accounts: [], repositories: [] };
+    }
+}
+
+async function loadGitHub(): Promise<void> {
     if (github.value || !page.props.githubApp) {
         return;
     }
@@ -422,19 +452,25 @@ async function loadBranches(found: Detection): Promise<void> {
     const match = found.upload
         ? null
         : found.repo.match(/^https:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
+    const fromGitLab =
+        !found.upload && !match && found.repo.startsWith('https://');
 
-    if (!match) {
+    if (!match && !fromGitLab) {
         return;
     }
 
     try {
         const response = await request(
             onWorkspace(
-                githubRoutes.branches({
-                    workspace: page.props.workspace.slug,
-                    owner: match[1],
-                    repo: match[2],
-                }),
+                match
+                    ? githubRoutes.branches({
+                          workspace: page.props.workspace.slug,
+                          owner: match[1],
+                          repo: match[2],
+                      })
+                    : gitlabRoutes.branches(page.props.workspace.slug, {
+                          query: { repo: found.repo },
+                      }),
             ).url,
         );
         const names = response.ok ? (await response.json()).branches : null;
@@ -1208,6 +1244,7 @@ type DomainCheck = {
     expected: string | null;
     found: string[];
     record: { type: string; name: string; value: string } | null;
+    cloudflare?: CloudflareCheck | null;
     wildcard?: Omit<DomainCheck, 'wildcard'>;
 };
 
@@ -1978,7 +2015,15 @@ const iconButton =
                                 />
                                 <span
                                     class="text-[12px]/4 tracking-[-0.005em] text-fg-faint"
-                                    >{{ $t('or import from GitHub') }}</span
+                                    >{{
+                                        gitlab?.connected
+                                            ? github?.connected
+                                                ? $t(
+                                                      'or import from GitHub or GitLab',
+                                                  )
+                                                : $t('or import from GitLab')
+                                            : $t('or import from GitHub')
+                                    }}</span
                                 >
                                 <span
                                     class="h-[0.5px] flex-1 bg-[#e2e2e2] dark:bg-[#2a2a2a]"
@@ -1988,9 +2033,13 @@ const iconButton =
                             <RepoList
                                 v-model:query="repoQuery"
                                 :github="github"
+                                :gitlab="gitlab"
                                 :available="page.props.githubApp"
                                 :connect-url="
                                     workspacePath('/settings/github/connect')
+                                "
+                                :gitlab-connect-url="
+                                    workspacePath('/integrations')
                                 "
                                 :busy="detecting ? (source?.url ?? null) : null"
                                 :disabled="busy"
@@ -1998,9 +2047,13 @@ const iconButton =
                             />
                             <p :class="hint">
                                 {{
-                                    $t(
-                                        'On GitLab, Gitea, Bitbucket or your own git server? Paste its SSH address, like git@gitlab.com:you/app.git, to deploy it with a deploy key.',
-                                    )
+                                    gitlab?.connected
+                                        ? $t(
+                                              'On Gitea, Bitbucket or your own git server? Paste its SSH address, like git@git.example.com:you/app.git, to deploy it with a deploy key.',
+                                          )
+                                        : $t(
+                                              'On GitLab, Gitea, Bitbucket or your own git server? Paste its SSH address, like git@gitlab.com:you/app.git, to deploy it with a deploy key.',
+                                          )
                                 }}
                             </p>
                         </div>
@@ -2289,6 +2342,19 @@ const iconButton =
                                 />
                                 {{ $t('Checking DNS…') }}
                             </p>
+                            <CloudflareDnsNote
+                                v-else-if="dns?.cloudflare"
+                                :cloudflare="dns.cloudflare"
+                                :wildcard-cloudflare="dns.wildcard?.cloudflare"
+                                :workspace-slug="page.props.workspace.slug"
+                                :machine-id="target"
+                                :service="form.service"
+                                :domain="dns.domain"
+                                :wildcard="form.wildcard"
+                                @pointed="
+                                    (check) => (dns = check as DomainCheck)
+                                "
+                            />
                             <div
                                 v-else-if="dns"
                                 class="flex flex-col gap-2.5 rounded-[10px] border-[0.5px] px-3.5 py-3 text-[12px]/4"
@@ -2523,6 +2589,7 @@ const iconButton =
                                 v-if="
                                     form.wildcard &&
                                     dns?.wildcard &&
+                                    !dns.wildcard.cloudflare &&
                                     dns.wildcard.status !== 'ready' &&
                                     dns.wildcard.record
                                 "

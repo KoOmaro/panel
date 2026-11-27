@@ -13,6 +13,7 @@ use App\Support\Integrations\Servers\CloudServers;
 use App\Support\Integrations\Servers\ManagesServers;
 use App\Support\Integrations\Servers\Server;
 use App\Support\Integrations\Servers\ServerOperations;
+use App\Support\Integrations\Servers\ServerRules;
 use App\Support\Integrations\Servers\ServerType;
 use App\Support\Integrations\Servers\Snapshot;
 use Illuminate\Http\JsonResponse;
@@ -70,7 +71,8 @@ class MachineServerController extends Controller
             'current' => $current === null ? null : self::typeProps($current, $server->location),
             'types' => array_map(fn (ServerType $type) => self::typeProps($type, $server->location), $types),
             'currency' => $currency,
-            'needsPowerOff' => $manager->resizeNeedsPowerOff(),
+            'needsPowerOff' => $manager->rules()->resizeNeedsPowerOff,
+            'rules' => $manager->rules()->toArray(),
             'busy' => ServerOperations::busy($machine),
         ])->header('Cache-Control', 'no-store');
     }
@@ -91,7 +93,8 @@ class MachineServerController extends Controller
             throw ValidationException::withMessages(['type' => __('This server can’t move to that type. Pick another from the list.')]);
         }
 
-        $operation = $operations->resize($row, $machine, $request->user(), $type, (bool) ($data['grow_disk'] ?? false));
+        $growDisk = $manager->rules()->resizeDisk === ServerRules::DISK_ALWAYS || (bool) ($data['grow_disk'] ?? false);
+        $operation = $operations->resize($row, $machine, $request->user(), $type, $growDisk);
         Activity::record($workspace, 'machine.server_resize', $machine->name, $machine, $request->user(), [
             'provider' => $row->integration->provider()->name(),
             'from' => $server->typeLabel ?: $server->type,
@@ -133,6 +136,9 @@ class MachineServerController extends Controller
         [$row, $manager] = $this->linked($workspace, $machine, Capability::Snapshots);
         $found = collect($this->call(fn () => $manager->snapshots($row->integration, $row->server_id)))->first(fn (Snapshot $s) => $s->id === $snapshot);
         abort_if($found === null, 404);
+        if ($found->status === 'creating') {
+            throw ValidationException::withMessages(['form' => __('It’s still being taken. Delete it once it’s ready.')]);
+        }
 
         $this->call(fn () => $manager->deleteSnapshot($row->integration, $found->id));
         Activity::record($workspace, 'machine.snapshot_delete', $machine->name, $machine, $request->user(), ['provider' => $row->integration->provider()->name(), 'name' => $found->name]);

@@ -79,6 +79,13 @@ const smaller = computed(
         chosen.value.cores * 1000 + chosen.value.memoryGb <
             options.value.current.cores * 1000 + options.value.current.memoryGb,
 );
+const canGrowDisk = computed(
+    () =>
+        cloud.rules.disk === 'optional' &&
+        !!chosen.value &&
+        !!options.value &&
+        chosen.value.diskGb > options.value.server.diskGb,
+);
 
 async function load(): Promise<void> {
     loading.value = true;
@@ -124,7 +131,7 @@ async function submit(): Promise<void> {
     const result = await sendJson<{ operation: Operation }>(
         'POST',
         onWorkspace(serverRoutes.resize(args.value)).url,
-        { type: picked.value, grow_disk: growDisk.value },
+        { type: picked.value, grow_disk: canGrowDisk.value && growDisk.value },
     );
     saving.value = false;
     if (!result.ok) {
@@ -245,6 +252,7 @@ async function submit(): Promise<void> {
                             :label="$t('New server type')"
                         />
                         <label
+                            v-if="canGrowDisk"
                             class="flex cursor-pointer items-start gap-2.5 text-[13px]/5"
                         >
                             <span class="pt-[3px]">
@@ -259,13 +267,12 @@ async function submit(): Promise<void> {
                                 }}</span>
                                 <span class="text-[12px]/4 text-fg-muted">{{
                                     $t(
-                                        'Gives it the new type’s disk. You can’t size it down again after that.',
+                                        'Gives it the new type’s disk for good, so it can’t move to a smaller type again. Leave it off to change only CPU and RAM.',
                                     )
                                 }}</span>
                             </span>
                         </label>
                         <p
-                            v-if="options.needsPowerOff"
                             class="flex items-start gap-2.5 rounded-[8px] border-[0.5px] border-[rgba(245,168,51,0.22)] bg-[rgba(245,168,51,0.07)] px-3 py-2.5 text-[12px]/[18px] text-fg-secondary"
                         >
                             <FilledIcon
@@ -274,14 +281,37 @@ async function submit(): Promise<void> {
                                 class="mt-0.5 text-[#f5a833]"
                             />
                             <span>{{
-                                $t(
-                                    ':name shuts down, changes type and starts again. That takes a few minutes, and everything on it is down meanwhile.',
-                                    { name: machine.name },
-                                )
+                                options.needsPowerOff
+                                    ? $t(
+                                          ':name shuts down, changes type and starts again. That takes a few minutes, and everything on it is down meanwhile.',
+                                          { name: machine.name },
+                                      )
+                                    : $t(
+                                          ':provider moves :name to the new plan in place, disk included, and restarts it. Everything on it is down for a few minutes.',
+                                          {
+                                              name: machine.name,
+                                              provider: cloud.integration.name,
+                                          },
+                                      )
                             }}</span>
                         </p>
                         <p
-                            v-if="smaller && !growDisk"
+                            v-if="!cloud.rules.down"
+                            class="text-[12px]/4 text-fg-muted"
+                        >
+                            {{
+                                $t(
+                                    ':provider only moves servers to bigger plans, so smaller ones aren’t listed.',
+                                    { provider: cloud.integration.name },
+                                )
+                            }}
+                        </p>
+                        <p
+                            v-if="
+                                cloud.rules.disk === 'optional' &&
+                                smaller &&
+                                !growDisk
+                            "
                             class="text-[12px]/4 text-fg-muted"
                         >
                             {{

@@ -8,7 +8,22 @@ import DashHeader from '@/components/dash/DashHeader.vue';
 import DashTray from '@/components/dash/DashTray.vue';
 import StatusBadge from '@/components/dash/StatusBadge.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
+import type { CloudflareAccount } from '@/components/integrations/cloudflare';
+import CloudflareZones from '@/components/integrations/CloudflareZones.vue';
 import CreateServerDialog from '@/components/integrations/CreateServerDialog.vue';
+import IncidentRouting from '@/components/integrations/IncidentRouting.vue';
+import type {
+    IntegrationEventRow,
+    LinearRouting,
+    LinkedApp,
+    OpenIncident,
+    PagerDutyRouting,
+} from '@/components/integrations/incidents';
+import IntegrationEventList from '@/components/integrations/IntegrationEventList.vue';
+import OpenIncidents from '@/components/integrations/OpenIncidents.vue';
+import SentryApps from '@/components/integrations/SentryApps.vue';
+import GitLabProjects from '@/components/integrations/GitLabProjects.vue';
+import type { GitLabProject } from '@/components/integrations/GitLabProjects.vue';
 import ImportServerDialog from '@/components/integrations/ImportServerDialog.vue';
 import IntegrationLogo from '@/components/integrations/IntegrationLogo.vue';
 import type {
@@ -58,7 +73,13 @@ const props = defineProps<{
     canMakeServers: boolean;
     canImport: boolean;
     servers?: { list: ServerRow[]; error: string | null } | null;
+    cloudflare?: CloudflareAccount | null;
+    projects?: GitLabProject[] | null;
     operations: Operation[];
+    routing?: PagerDutyRouting | LinearRouting | null;
+    events?: IntegrationEventRow[] | null;
+    incidents?: OpenIncident[] | null;
+    linkedApps?: LinkedApp[] | null;
 }>();
 
 const args = computed(() => ({
@@ -69,6 +90,11 @@ const integrationsUrl = computed(
     () => onWorkspace(workspaceRoutes.integrations(props.workspace.slug)).url,
 );
 const failing = computed(() => props.integration.status === 'failing');
+const hasHooks = computed(
+    () =>
+        props.projects?.some((project) => project.hook.state !== 'none') ??
+        false,
+);
 
 const linked = computed(
     () => props.servers?.list.filter((server) => server.machine).length ?? 0,
@@ -78,10 +104,10 @@ const serversMeta = computed(() => {
     const total = props.servers.list.length;
 
     return total === 1
-        ? trans('1 in the project, :linked linked', {
+        ? trans('1 server, :linked linked', {
               linked: String(linked.value),
           })
-        : trans(':count in the project, :linked linked', {
+        : trans(':count servers, :linked linked', {
               count: String(total),
               linked: String(linked.value),
           });
@@ -440,7 +466,7 @@ const fieldClass =
                             class="flex flex-col items-start gap-2 px-3.5 py-3"
                         >
                             <p class="text-[13px]/5 text-fg-muted">
-                                {{ $t('This project has no servers yet.') }}
+                                {{ $t('No servers here yet.') }}
                             </p>
                             <DashButton
                                 v-if="canMakeServers"
@@ -452,6 +478,51 @@ const fieldClass =
                         </div>
                     </template>
                 </DashTray>
+
+                <CloudflareZones
+                    v-if="cloudflare !== null"
+                    :account="cloudflare"
+                />
+
+                <GitLabProjects v-if="projects !== null" :projects="projects" />
+
+                <IncidentRouting
+                    v-if="
+                        routing &&
+                        (integration.provider === 'pagerduty' ||
+                            integration.provider === 'linear')
+                    "
+                    :provider="integration.provider"
+                    :routing="routing"
+                    :workspace-slug="workspace.slug"
+                    :integration-id="integration.id"
+                    :disabled="failing"
+                />
+                <OpenIncidents
+                    v-if="incidents?.length"
+                    :incidents="incidents"
+                    :title="
+                        integration.provider === 'linear'
+                            ? $t('Open issues')
+                            : $t('Open alerts')
+                    "
+                />
+                <SentryApps v-if="linkedApps" :apps="linkedApps" />
+                <IntegrationEventList
+                    v-if="events"
+                    :events="events"
+                    :workspace-slug="workspace.slug"
+                    :integration-id="integration.id"
+                    :empty="
+                        integration.provider === 'sentry'
+                            ? $t(
+                                  'Nothing sent yet. Each deploy of a linked app makes a release here.',
+                              )
+                            : $t(
+                                  'Nothing sent yet. It shows here as soon as something goes wrong, or when you send a test.',
+                              )
+                    "
+                />
 
                 <DashTray
                     v-if="operations.length"
@@ -619,10 +690,21 @@ const fieldClass =
                             class="min-w-0 flex-1 text-[12px]/4 tracking-[-0.005em] text-fg-muted"
                         >
                             {{
-                                $t(
-                                    'ServerOS forgets the token. Nothing changes at :provider.',
-                                    { provider: integration.providerName },
-                                )
+                                hasHooks
+                                    ? $t(
+                                          'ServerOS forgets the token and takes its webhooks off :provider. Nothing else changes there.',
+                                          {
+                                              provider:
+                                                  integration.providerName,
+                                          },
+                                      )
+                                    : $t(
+                                          'ServerOS forgets the token. Nothing changes at :provider.',
+                                          {
+                                              provider:
+                                                  integration.providerName,
+                                          },
+                                      )
                             }}
                         </p>
                         <DashButton

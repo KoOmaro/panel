@@ -17,6 +17,9 @@ use App\Support\Deploys\DeployOnPush;
 use App\Support\Deploys\DeployRequest;
 use App\Support\Deploys\ServiceLabels;
 use App\Support\DeploySources\DeploySourcePacker;
+use App\Support\Integrations\GitLab\GitLabHooks;
+use App\Support\Integrations\GitLab\GitLabRepositories;
+use App\Support\Integrations\IntegrationFailed;
 use App\Support\Projects\AppSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -136,7 +139,7 @@ class AppVersionController extends Controller
     }
 
     #[Audited]
-    public function settings(Request $request, Workspace $workspace, Machine $machine, string $service): JsonResponse
+    public function settings(Request $request, Workspace $workspace, Machine $machine, string $service, GitLabHooks $hooks): JsonResponse
     {
         Gate::authorize('manageMachines', $workspace);
         abort_unless($machine->workspace_id === $workspace->id, 404);
@@ -151,8 +154,18 @@ class AppVersionController extends Controller
             'push_only_newest' => ['sometimes', 'boolean'],
         ], ['database.in' => 'That database isn’t on this machine.', 'push_branch.regex' => 'That isn’t a branch name.']);
 
-        if (($data['deploy_on_push'] ?? false) && DeployOnPush::repoName(self::lastDeployOf($machine, $service)?->command['job']['repo'] ?? null) === null) {
-            return response()->json(['errors' => ['deploy_on_push' => ['Deploying each push works for apps deployed from a GitHub repository.']]], 422);
+        $repo = self::lastDeployOf($machine, $service)?->command['job']['repo'] ?? null;
+        $repo = is_string($repo) ? $repo : null;
+        if (($data['deploy_on_push'] ?? false) && ! DeployOnPush::supports($workspace, $repo)) {
+            return response()->json(['errors' => ['deploy_on_push' => [__('Deploying each push works for apps deployed from GitHub, or from GitLab with its account connected in Integrations.')]]], 422);
+        }
+        $gitlab = DeployOnPush::repoName($repo) === null ? app(GitLabRepositories::class)->find($workspace, $repo) : null;
+        if (($data['deploy_on_push'] ?? false) && $gitlab !== null) {
+            try {
+                $hooks->ensure($gitlab[0], $gitlab[1]);
+            } catch (IntegrationFailed $e) {
+                return response()->json(['errors' => ['deploy_on_push' => [$e->getMessage()]]], 422);
+            }
         }
 
         $settings = $machine->app_settings ?? [];
@@ -162,6 +175,10 @@ class AppVersionController extends Controller
             $settings[$service]['push_user_id'] = $request->user()->id;
         }
         $machine->forceFill(['app_settings' => $settings])->save();
+
+        if ($gitlab !== null && array_key_exists('deploy_on_push', $data) && ! $data['deploy_on_push']) {
+            $hooks->sync($workspace);
+        }
 
         $changed = array_diff_key(array_filter($settings[$service], fn ($value, $key) => ($before[$key] ?? null) !== $value, ARRAY_FILTER_USE_BOTH), ['push_user_id' => true]);
         if ($changed !== []) {
