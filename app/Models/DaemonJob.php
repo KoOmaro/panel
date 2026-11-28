@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Models\Concerns\CreditsWhoStartedIt;
+use App\Support\Deploys\DeployFailure;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Arr;
 
 /**
  * @property string $id
@@ -127,5 +129,34 @@ class DaemonJob extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * A machine page lists jobs without their logs. A console command keeps
+     * its output, because that is the terminal. Opening a job loads its log.
+     *
+     * @return array<string, mixed>
+     */
+    public function toPageProps(bool $seesConsole, bool $withLog): array
+    {
+        $hidden = $this->kind === 'service_exec' && ! $seesConsole;
+
+        return [
+            'id' => $this->id,
+            'kind' => $this->kind,
+            'service' => $this->service,
+            'command' => $this->kind === 'service_exec' && ! $hidden ? ($this->command['job']['command'] ?? null) : null,
+            'state' => $this->state,
+            'phase' => $this->phase,
+            'progress' => $this->progress,
+            'log' => $hidden ? [] : ($withLog ? ($this->log ?? []) : null),
+            'result' => $hidden ? null : $this->result,
+            'error' => $hidden && is_array($this->error) ? Arr::except($this->error, ['output_tail']) : $this->error,
+            'explanation' => $hidden ? null : DeployFailure::explain($this),
+            'createdAt' => $this->created_at?->toIso8601String(),
+            'updatedAt' => $this->updated_at?->toIso8601String(),
+            'retryable' => $this->isRetryable(),
+            'stale' => $this->isStale(),
+        ];
     }
 }

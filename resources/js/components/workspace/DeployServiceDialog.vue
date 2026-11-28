@@ -1796,9 +1796,9 @@ watch(
 
 // Opened from a link that names a template: go straight to setting it up.
 watch(
-    open,
-    (isOpen) => {
-        if (isOpen && props.startWith && step.value === 'pick') {
+    [open, () => props.startWith, () => props.templates],
+    () => {
+        if (open.value && props.startWith && step.value === 'pick') {
             choose(props.templates.find((t) => t.slug === props.startWith));
         }
     },

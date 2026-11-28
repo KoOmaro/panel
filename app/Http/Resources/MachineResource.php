@@ -85,7 +85,7 @@ class MachineResource extends JsonResource
             ->where('machine_id', $this->id)
             ->where('kind', 'package_updates')
             ->oldest()
-            ->first();
+            ->first(['id', 'kind', 'state', 'updated_at', 'held', 'finished_at', 'result', 'error', 'command']);
 
         if ($scan?->isActive() && ! $scan->isStale()) {
             return ['setup' => 'securing', 'setupFindings' => null];

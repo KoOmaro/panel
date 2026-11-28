@@ -101,7 +101,7 @@ const props = defineProps<{
     jobs: DaemonJob[];
     deployEnabled: boolean;
     deployWorkflows: { available: boolean; count: number };
-    templates: ServiceTemplate[];
+    templates?: ServiceTemplate[];
     serviceGroups: ServiceGroup[];
     scheduled: ScheduledTask[];
     recent: UsagePoint[];
@@ -367,6 +367,7 @@ const deployBlocked = computed<string | null>(() => {
     return null;
 });
 
+const deployTemplates = computed(() => props.templates ?? []);
 const showDeploy = ref(false);
 const deployTemplate = ref<string | null>(null);
 const scanning = ref(false);
@@ -1020,7 +1021,7 @@ onBeforeUnmount(() => {
     <DeployServiceDialog
         v-if="machine.id"
         v-model:open="showDeploy"
-        :templates="templates"
+        :templates="deployTemplates"
         :machine-id="machine.id"
         :start-with="deployTemplate"
         @deployed="onDeployed"

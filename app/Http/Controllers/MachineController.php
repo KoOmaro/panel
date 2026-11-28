@@ -18,7 +18,6 @@ use App\Models\Workspace;
 use App\Support\Admin\Impersonation;
 use App\Support\Audit\Audited;
 use App\Support\ConsoleLock;
-use App\Support\Deploys\DeployFailure;
 use App\Support\Files\FileJobs;
 use App\Support\Firewall;
 use App\Support\Health\WorkspaceHealth;
@@ -32,7 +31,6 @@ use App\Support\ServiceTemplates\ServiceTemplateCatalog;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -110,39 +108,13 @@ class MachineController extends Controller
             'serviceGroups' => fn () => $machine->serviceGroups()->orderBy('name')->get()
                 ->map(fn (ServiceGroup $group) => $group->toPageProps())
                 ->all(),
-            'templates' => fn () => $templates->toPageProps($machine),
+            'templates' => Inertia::defer(fn () => $templates->toPageProps($machine)),
             'deployEnabled' => (bool) config('daemon.commands_enabled') && filled(config('daemon.gateway_internal_url')),
             'deployWorkflows' => fn () => [
                 'available' => $workspace->hasAutomations(),
                 'count' => $workspace->workflows()->whereIn('trigger', ['webhook', 'deploy.finished'])->count(),
             ],
-            'jobs' => DaemonJob::query()
-                ->where('machine_id', $machine->id)
-                ->whereNotIn('kind', ['discover', 'database_query', ...FileJobs::KINDS])
-                ->latest()
-                ->limit(20)
-                ->get()
-                ->map(function (DaemonJob $job) use ($seesConsole) {
-                    $hidden = $job->kind === 'service_exec' && ! $seesConsole;
-
-                    return [
-                        'id' => $job->id,
-                        'kind' => $job->kind,
-                        'service' => $job->service,
-                        'command' => $job->kind === 'service_exec' && ! $hidden ? ($job->command['job']['command'] ?? null) : null,
-                        'state' => $job->state,
-                        'phase' => $job->phase,
-                        'progress' => $job->progress,
-                        'log' => $hidden ? [] : ($job->log ?? []),
-                        'result' => $hidden ? null : $job->result,
-                        'error' => $hidden && is_array($job->error) ? Arr::except($job->error, ['output_tail']) : $job->error,
-                        'explanation' => $hidden ? null : DeployFailure::explain($job),
-                        'createdAt' => $job->created_at?->toIso8601String(),
-                        'updatedAt' => $job->updated_at?->toIso8601String(),
-                        'retryable' => $job->isRetryable(),
-                        'stale' => $job->isStale(),
-                    ];
-                }),
+            'jobs' => fn () => $this->recentJobs($machine, $seesConsole),
             'files' => fn () => [
                 'places' => FileJobs::places($machine),
                 'maxWrite' => FileJobs::MAX_WRITE_BYTES,
@@ -154,6 +126,46 @@ class MachineController extends Controller
                 'minutes' => ConsoleLock::MINUTES,
             ],
         ]);
+    }
+
+    /**
+     * The twenty newest jobs, without their logs. Succeeded release logs are
+     * most of the page, and nothing reads them until a log is opened.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function recentJobs(Machine $machine, bool $seesConsole): array
+    {
+        $jobs = DaemonJob::query()
+            ->where('machine_id', $machine->id)
+            ->whereNotIn('kind', ['discover', 'database_query', ...FileJobs::KINDS])
+            ->latest()
+            ->limit(20)
+            ->get([
+                'id', 'machine_id', 'kind', 'service', 'command', 'state', 'phase', 'progress',
+                'result', 'error', 'held', 'created_at', 'updated_at',
+            ]);
+
+        $jobs->each(fn (DaemonJob $job) => $job->setRelation('machine', $machine));
+
+        $withLog = $jobs->filter(function (DaemonJob $job) use ($seesConsole) {
+            if ($job->kind === 'service_exec') {
+                return $seesConsole;
+            }
+
+            return in_array($job->state, ['failed', 'timed_out', 'refused'], true);
+        });
+
+        if ($withLog->isNotEmpty()) {
+            $logs = DaemonJob::query()->whereKey($withLog->modelKeys())->get(['id', 'log'])->keyBy('id');
+            foreach ($withLog as $job) {
+                $job->setAttribute('log', $logs->get($job->id)?->log ?? []);
+            }
+        }
+
+        return $jobs
+            ->map(fn (DaemonJob $job) => $job->toPageProps($seesConsole, $job->kind === 'service_exec'))
+            ->all();
     }
 
     /** @return array<string, mixed> */

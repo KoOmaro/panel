@@ -7,6 +7,7 @@ use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\Workspace;
 use App\Support\Audit\Audited;
+use App\Support\Audit\NotAudited;
 use App\Support\DaemonJobQueue;
 use App\Support\Deploys\AppDeploys;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +17,18 @@ use RuntimeException;
 
 class DaemonJobController extends Controller
 {
+    #[NotAudited('Reads one job log for the dialog')]
+    public function show(Workspace $workspace, Machine $machine, DaemonJob $job): JsonResponse
+    {
+        abort_unless($machine->workspace_id === $workspace->id && $job->machine_id === $machine->id, 404);
+        $seesConsole = Gate::allows('manageMachines', $workspace);
+        abort_if($job->kind === 'service_exec' && ! $seesConsole, 404);
+
+        $job->setRelation('machine', $machine);
+
+        return response()->json($job->toPageProps($seesConsole, true));
+    }
+
     #[Audited]
     public function retry(Request $request, Workspace $workspace, Machine $machine, DaemonJob $job, DaemonJobQueue $queue): JsonResponse
     {

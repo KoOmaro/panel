@@ -208,11 +208,13 @@ function follow(): void {
 }
 
 function output(job: DaemonJob): string[] {
-    return job.log[0]?.startsWith('$ ') ? job.log.slice(1) : job.log;
+    const lines = job.log ?? [];
+
+    return lines[0]?.startsWith('$ ') ? lines.slice(1) : lines;
 }
 
 watch(
-    () => transcript.value.map((job) => job.log.length).join(),
+    () => transcript.value.map((job) => (job.log ?? []).length).join(),
     () =>
         nextTick(() => {
             if (box.value) box.value.scrollTop = box.value.scrollHeight;

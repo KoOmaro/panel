@@ -1,11 +1,15 @@
 <?php
 
+use App\Enums\WorkspaceRole;
 use App\Models\Backup;
+use App\Models\DaemonJob;
 use App\Models\Machine;
 use App\Models\MachinePackageUpdate;
 use App\Models\MachineSample;
 use App\Models\ProjectNode;
+use App\Models\User;
 use App\Models\Workspace;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('the machine page gives the overview its day of usage, updates, backups and projects', function () {
@@ -81,6 +85,72 @@ test('the machine page opens on its updates, backups, firewall and terminal tabs
     }
 
     $this->get($url.'/elsewhere')->assertNotFound();
+});
+
+test('opening a machine leaves deploy logs for the dialog', function () {
+    $workspace = Workspace::factory()->create();
+    $machine = Machine::factory()->for($workspace)->create();
+    $viewer = User::factory()->create();
+    $workspace->members()->attach($viewer, ['role' => WorkspaceRole::Viewer->value]);
+    $lines = array_fill(0, 500, 'release step');
+    $release = DaemonJob::query()->create([
+        'id' => (string) Str::uuid(),
+        'machine_id' => $machine->id,
+        'kind' => 'release',
+        'service' => 'shop',
+        'state' => 'succeeded',
+        'log' => $lines,
+    ]);
+    $failed = DaemonJob::query()->create([
+        'id' => (string) Str::uuid(),
+        'machine_id' => $machine->id,
+        'kind' => 'deploy',
+        'service' => 'shop',
+        'state' => 'failed',
+        'command' => ['job' => []],
+        'error' => ['message' => 'docker: not found'],
+        'log' => ['docker: not found'],
+    ]);
+    $console = DaemonJob::query()->create([
+        'id' => (string) Str::uuid(),
+        'machine_id' => $machine->id,
+        'kind' => 'service_exec',
+        'service' => 'docker:abc',
+        'state' => 'succeeded',
+        'command' => ['job' => ['command' => 'cat .env']],
+        'log' => ['$ cat .env', 'SECRET=hunter2'],
+    ]);
+    $url = $workspace->url().'/machines/'.$machine->id;
+
+    $this->actingAs($workspace->owner)->get($url)
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('jobs', function ($jobs) use ($console, $failed, $release) {
+                $logs = collect($jobs)->pluck('log', 'id');
+
+                return $logs[$console->id] === ['$ cat .env', 'SECRET=hunter2']
+                    && $logs[$failed->id] === null
+                    && $logs[$release->id] === null
+                    && str_contains((string) collect($jobs)->firstWhere('id', $failed->id)['explanation']['cause'], 'Docker');
+            })
+            ->missing('templates')
+            ->etc());
+
+    $this->actingAs($workspace->owner)->getJson($url.'/jobs/'.$release->id)
+        ->assertOk()
+        ->assertJsonPath('log', $lines);
+
+    $this->actingAs($viewer)->getJson($url.'/jobs/'.$console->id)->assertNotFound();
+    $this->actingAs($viewer)->get($url)->assertDontSee('hunter2');
+
+    $other = DaemonJob::query()->create([
+        'id' => (string) Str::uuid(),
+        'machine_id' => Machine::factory()->create()->id,
+        'kind' => 'release',
+        'state' => 'succeeded',
+        'log' => ['elsewhere'],
+    ]);
+    $this->actingAs($workspace->owner)->getJson($url.'/jobs/'.$other->id)->assertNotFound();
 });
 
 test('the machines list says when each machine was last backed up', function () {

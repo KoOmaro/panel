@@ -549,6 +549,7 @@ Route::domain(Dashboard::host())
         Route::delete('machines/{machine}/traffic/files/{site}', [MachineTrafficController::class, 'removeFile'])->where('site', '[A-Za-z0-9_.-]+')->middleware('throttle:10,1')->name('workspace.machines.traffic.files.destroy');
         Route::post('machines/{machine}/reboot', [MachineUpdatesController::class, 'reboot'])->middleware('throttle:3,1')->name('workspace.machines.reboot');
         Route::get('machines/{machine}/scan', [MachineScanController::class, 'show'])->name('workspace.machines.scan.show');
+        Route::get('machines/{machine}/jobs/{job}', [DaemonJobController::class, 'show'])->middleware('throttle:240,1')->name('workspace.machines.jobs.show');
         Route::post('machines/{machine}/jobs/{job}/retry', [DaemonJobController::class, 'retry'])->middleware('throttle:10,1')->name('workspace.machines.jobs.retry');
         Route::post('machines/{machine}/jobs/{job}/abandon', [DaemonJobController::class, 'abandon'])->name('workspace.machines.jobs.abandon');
         Route::get('machines/connect/options', [DaemonConnectController::class, 'options'])->middleware('throttle:60,1')->name('workspace.machines.connect.options');

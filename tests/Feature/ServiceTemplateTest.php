@@ -199,9 +199,9 @@ test('stacks publish to apps on the machine at its own Docker bridge, and the no
         ->and($response->json('notes'))->toContain('connect through 172.18.0.1 instead of 127.0.0.1');
 
     $this->actingAs($workspace->owner)->get($workspace->url().'/machines/'.$machine->id)
-        ->assertInertia(fn ($page) => $page->where('templates', fn ($templates) => str_contains(
+        ->assertInertia(fn ($page) => $page->missing('templates')->loadDeferredProps(fn ($page) => $page->where('templates', fn ($templates) => str_contains(
             (string) collect($templates)->firstWhere('slug', 'postgres')['notes'], '172.18.0.1'
-        ))->etc());
+        ))));
 
     $machine->forceFill(['facts' => []])->save();
     Http::fake(['127.0.0.1:8090/*' => Http::response(['queued' => true], 202)]);

@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { trans } from 'laravel-vue-i18n';
-import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    ref,
+    useTemplateRef,
+    watch,
+} from 'vue';
 import InputError from '@/components/InputError.vue';
 import JobStatusBadge from '@/components/machines/JobStatusBadge.vue';
 import {
@@ -25,7 +32,8 @@ export type DaemonJob = {
     state: string;
     phase: string | null;
     progress: number | null;
-    log: string[];
+    /** Null until the log dialog asks for it. A console command includes its output. */
+    log: string[] | null;
     result: Record<string, unknown> | null;
     error: {
         phase?: string;
@@ -117,6 +125,20 @@ const started = computed(() =>
 
 const logBox = useTemplateRef<HTMLElement>('logBox');
 let following = true;
+const fetchedLog = ref<{ id: string; lines: string[] } | null>(null);
+let logPoll: ReturnType<typeof setInterval> | undefined;
+
+const lines = computed(() => {
+    if (fetchedLog.value?.id === props.job?.id) return fetchedLog.value.lines;
+
+    return props.job?.log ?? [];
+});
+const waitingForLog = computed(
+    () =>
+        props.job != null &&
+        props.job.log == null &&
+        fetchedLog.value?.id !== props.job.id,
+);
 
 function onLogScroll(): void {
     const box = logBox.value;
@@ -126,8 +148,48 @@ function onLogScroll(): void {
     }
 }
 
+async function loadLog(): Promise<void> {
+    const id = props.job?.id;
+    if (!open.value || !id || props.job?.log != null) return;
+
+    try {
+        const response = await fetch(
+            workspacePath(`/machines/${props.machineId}/jobs/${id}`),
+            {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json' },
+            },
+        );
+        if (!response.ok || props.job?.id !== id) return;
+        const body = (await response.json()) as { log?: unknown };
+        fetchedLog.value = {
+            id,
+            lines: Array.isArray(body.log)
+                ? body.log.filter((line): line is string => typeof line === 'string')
+                : [],
+        };
+    } catch {
+        // The next poll tries again. The rest of the job is already on the page.
+    }
+}
+
+function stopLogPoll(): void {
+    clearInterval(logPoll);
+    logPoll = undefined;
+}
+
+function syncLogPoll(): void {
+    stopLogPoll();
+    if (!open.value || props.job?.log != null) return;
+    void loadLog();
+    if (active.value) logPoll = setInterval(() => void loadLog(), 1500);
+}
+
+watch([open, () => props.job?.id, active], syncLogPoll);
+onBeforeUnmount(stopLogPoll);
+
 watch(
-    () => props.job?.log.length,
+    () => lines.value.length,
     () => {
         if (following) {
             void nextTick(() => {
@@ -402,17 +464,17 @@ async function stopWaiting(): Promise<void> {
                     @scroll="onLogScroll"
                 >
                     <p
-                        v-if="job.log.length === 0"
+                        v-if="lines.length === 0"
                         class="px-3.5 text-(--ds-text-faint)"
                     >
                         {{
-                            active
+                            active || waitingForLog
                                 ? $t('Waiting for the daemon to start…')
                                 : $t('This job didn’t log anything.')
                         }}
                     </p>
                     <div
-                        v-for="(line, index) in job.log"
+                        v-for="(line, index) in lines"
                         :key="index"
                         class="flex gap-3 px-3.5 hover:bg-white/3"
                     >
