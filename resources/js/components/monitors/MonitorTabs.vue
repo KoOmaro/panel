@@ -6,9 +6,8 @@ import DashTabs from '@/components/dash/DashTabs.vue';
 import { onWorkspace } from '@/lib/workspaceRoute';
 import monitorsRoutes from '@/routes/workspace/monitors';
 import settingsRoutes from '@/routes/workspace/settings';
-import workflowsRoutes from '@/routes/workspace/workflows';
 
-export type MonitorTab = 'monitors' | 'incidents' | 'workflows';
+export type MonitorTab = 'monitors' | 'incidents';
 
 const { active, local = false } = defineProps<{
     active: MonitorTab;
@@ -31,9 +30,6 @@ const incidentsHref = computed(
 );
 const statusPageHref = computed(
     () => onWorkspace(settingsRoutes.statusPage(slug.value)).url,
-);
-const workflowsHref = computed(
-    () => onWorkspace(workflowsRoutes.index(slug.value)).url,
 );
 
 function pick(tab: 'monitors' | 'incidents', event: MouseEvent): void {
@@ -63,12 +59,6 @@ function pick(tab: 'monitors' | 'incidents', event: MouseEvent): void {
             :label="$t('Status page')"
             icon="globe-fill"
             :href="statusPageHref"
-        />
-        <DashTab
-            :label="$t('Workflows')"
-            icon="branch-fill"
-            :active="active === 'workflows'"
-            :href="workflowsHref"
         />
     </DashTabs>
 </template>

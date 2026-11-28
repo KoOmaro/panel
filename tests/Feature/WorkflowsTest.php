@@ -424,3 +424,14 @@ test('a command step’s output reaches only people who manage machines', functi
     $this->actingAs($workspace->owner)->get(flowUrl($workspace, "/{$workflow->id}?run={$run->id}"))
         ->assertInertia(fn (Assert $page) => $page->where('run.steps.c.message', 'Command finished: DB_PASSWORD=hunter2'));
 });
+
+test('workflows is its own sidebar item, not a tab on monitors', function () {
+    $nav = (string) file_get_contents(resource_path('js/components/workspace/workspaceNav.ts'));
+    $tabs = (string) file_get_contents(resource_path('js/components/monitors/MonitorTabs.vue'));
+    $page = (string) file_get_contents(resource_path('js/pages/workspace/Workflows.vue'));
+
+    expect($nav)->toMatch("/key: 'monitors',.*?current: is\(\s*component,\s*'workspace\/Monitors',\s*'workspace\/MonitorShow',\s*'workspace\/Logs',\s*\),/s")
+        ->and($nav)->toMatch("/key: 'workflows',\s+label: trans\('Workflows'\),\s+icon: 'branch-fill',\s+href: url\(onWorkspace\(workflows\.index\(slug\)\)\),\s+section: 'menu',\s+current: is\(\s*component,\s*'workspace\/Workflows',\s*'workspace\/WorkflowEditor',\s*\),/s")
+        ->and($tabs)->not->toContain('Workflows')
+        ->and($page)->not->toContain('MonitorTabs');
+});

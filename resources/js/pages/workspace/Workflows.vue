@@ -15,7 +15,6 @@ import StatusBadge from '@/components/dash/StatusBadge.vue';
 import type { DashStatus } from '@/components/dash/StatusBadge.vue';
 import FilledIcon from '@/components/icons/FilledIcon.vue';
 import type { FilledIconName } from '@/components/icons/filledIcons';
-import MonitorTabs from '@/components/monitors/MonitorTabs.vue';
 import {
     Dialog,
     DialogContent,
@@ -238,8 +237,6 @@ const runLook: Record<string, { status: DashStatus; label: string }> = {
     </DashHeader>
 
     <div class="flex min-h-full flex-col">
-        <MonitorTabs active="workflows" />
-
         <div v-if="preview" class="p-5">
             <PlanLock
                 :locked="!planAllows"
